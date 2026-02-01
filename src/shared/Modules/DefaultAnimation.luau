@@ -1,0 +1,4 @@
+return {
+	WALKING_ANIMATION = "rbxassetid://70670568990941";
+	RUNNING_ANIMATION = "rbxassetid://99356258053874";
+}

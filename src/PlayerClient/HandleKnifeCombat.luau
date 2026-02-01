@@ -1,0 +1,181 @@
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local COOLDOWN = 0.2
+local STAB_COOLDOWN = 0.3
+local lastThrow = 0
+local lastStab = 0
+local MAX_RAYCAST_DISTANCE = 1000
+
+local ThrowKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrowKnife")
+local ThrewKnifeClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrewClient")
+local StabKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("StabKnife")
+
+local MainUi = player.PlayerGui:WaitForChild("Main")
+local BottomLeftFrame = MainUi:WaitForChild("BottomLeft")
+local StuffContainerFrame = BottomLeftFrame:WaitForChild("StuffContainer")
+local AbilityFrame = StuffContainerFrame:WaitForChild("Ability")
+local OnClickFrame = AbilityFrame:WaitForChild("OnClick")
+local OnClickFrameBar = OnClickFrame:WaitForChild("OnClickFrame")
+
+local leaderstats = player:WaitForChild("leaderstats")
+local KeyBindFolder = leaderstats:WaitForChild("KeyBinds")
+
+local CurrentKeyBind = nil
+local CurrentStabKeybind = nil
+local activeTween
+
+local function UiAnimation()
+	if activeTween then
+		activeTween:Cancel()
+		activeTween = nil
+	end
+	OnClickFrameBar.Size = UDim2.new(0, 0, 1, 0)
+	local tweenIn = TweenService:Create(
+		OnClickFrameBar,
+		TweenInfo.new(0.25, Enum.EasingStyle.Linear),
+		{ Size = UDim2.new(1, 0, 1, 0) }
+	)
+	local tweenOut = TweenService:Create(
+		OnClickFrameBar,
+		TweenInfo.new(0.25, Enum.EasingStyle.Linear),
+		{ Size = UDim2.new(0, 0, 1, 0) }
+	)
+	activeTween = tweenOut
+	local conn1, conn2
+	conn1 = tweenIn.Completed:Connect(function(state)
+		if state ~= Enum.PlaybackState.Completed then return end
+		tweenOut:Play()
+		if conn1 then conn1:Disconnect() end
+	end)
+	conn2 = tweenOut.Completed:Connect(function(state)
+		if state == Enum.PlaybackState.Completed and activeTween == tweenOut then
+			activeTween = nil
+		end
+		if conn2 then conn2:Disconnect() end
+	end)
+	tweenIn:Play()
+end
+
+ThrewKnifeClient.OnClientEvent:Connect(function()
+	UiAnimation()
+end)
+
+local function throw()
+	if tick() - lastThrow < COOLDOWN then return end
+	lastThrow = tick()
+
+	-- Get the exact mouse position on screen
+	local mousePos = UserInputService:GetMouseLocation()
+
+	-- Create a ray from the camera through the mouse cursor
+	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+	-- Perform raycast to find the exact target position
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	if player.Character then
+		rayParams.FilterDescendantsInstances = {player.Character}
+	end
+
+	-- Cast ray to find where cursor is pointing
+	local result = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
+	local targetPos = result and result.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
+
+	-- Send the camera origin and exact target position to server
+	-- The server will handle the trajectory from camera origin to target
+	ThrowKnifeRemote:FireServer(ray.Origin, targetPos)
+end
+
+local function stab()
+	if tick() - lastStab < STAB_COOLDOWN then return end
+	lastStab = tick()
+	StabKnifeRemote:FireServer()
+end
+
+local function parseInput(inputString)
+	if not inputString or inputString == "" then
+		return nil
+	end
+
+	if inputString:find("Enum.KeyCode.") then
+		local keyName = inputString:match("Enum%.KeyCode%.(.+)")
+		if keyName and Enum.KeyCode[keyName] then
+			return Enum.KeyCode[keyName]
+		end
+	elseif inputString == "MouseButton1" then
+		return "MouseButton1"
+	elseif inputString == "MouseButton2" then
+		return "MouseButton2"
+	end
+	return nil
+end
+
+local function initializeKnifeKeybinds()
+	local throwKeyBind = KeyBindFolder:WaitForChild("ThrowKnife")
+	local stabKeyBind = KeyBindFolder:WaitForChild("Stab")
+
+	-- Wait for values to be properly set
+	if throwKeyBind.Value == "" or throwKeyBind.Value == nil then
+		task.wait(0.1)
+	end
+
+	-- Parse and set keybinds with fallbacks
+	CurrentKeyBind = parseInput(throwKeyBind.Value) or Enum.KeyCode.E
+	CurrentStabKeybind = parseInput(stabKeyBind.Value) or "MouseButton1"
+
+	print("Initialized knife keybinds:")
+	print("Throw:", CurrentKeyBind)
+	print("Stab:", CurrentStabKeybind)
+end
+
+initializeKnifeKeybinds()
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if typeof(CurrentKeyBind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard then
+		if input.KeyCode == CurrentKeyBind then
+			throw()
+		end
+	end
+
+	if CurrentStabKeybind == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+		stab()
+	elseif CurrentStabKeybind == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
+		stab()
+	elseif typeof(CurrentStabKeybind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard then
+		if input.KeyCode == CurrentStabKeybind then
+			stab()
+		end
+	end
+end)
+
+KeyBindFolder:WaitForChild("ThrowKnife").Changed:Connect(function()
+	local newValue = KeyBindFolder.ThrowKnife.Value
+	local newInput = parseInput(newValue)
+	if newInput then
+		CurrentKeyBind = newInput
+		print("Updated ThrowKnife bind to", tostring(newInput))
+	else
+		warn("Invalid ThrowKnife bind:", newValue)
+	end
+end)
+
+KeyBindFolder:WaitForChild("Stab").Changed:Connect(function()
+	local newValue = KeyBindFolder.Stab.Value
+	local newInput = parseInput(newValue)
+	if newInput then
+		CurrentStabKeybind = newInput
+		print("Updated Stab bind to", tostring(newInput))
+	else
+		warn("Invalid Stab bind:", newValue)
+	end
+end)
+
+return {}
