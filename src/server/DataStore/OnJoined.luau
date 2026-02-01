@@ -9,7 +9,7 @@ local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitFor
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local test = require(script.Parent:WaitForChild("InventoryHandler"))
 
-local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
+
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
 
 -- Function to save player data

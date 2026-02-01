@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 -- // ANIMS
-local StabAnimation = script:WaitForChild("Stab")
+local StabAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Stab")
 -- // CONFIG
 local STAB_RANGE = 7
 local STAB_WIDTH = 4  -- Width of the stab hitbox

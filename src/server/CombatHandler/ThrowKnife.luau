@@ -15,7 +15,7 @@ local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitF
 
 -- // ANIMATIONS
 local KnivesFolder = ServerStorage:WaitForChild("Knives")
-local ThrowAnimation = script:WaitForChild("Throw")
+local ThrowAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Throw")
 
 -- // CONFIG
 local KNIFE_SPEED = 2500  -- Studs per second for visual movement
