@@ -1,8 +1,8 @@
 local RoundHandler = {}
 local Players = game:GetService("Players")
 local PlayerCount = Players:GetPlayers()
-local MapsModule = require(game:GetService("ServerScriptService").Game.Maps)
-local PlayerStatusSender = require(game:GetService("ServerScriptService").Game:WaitForChild("PlayerStatusSender"))
+local MapsModule = require(game:GetService("ServerScriptService"):WaitForChild("Server").Game.Maps)
+local PlayerStatusSender = require(game:GetService("ServerScriptService"):WaitForChild("Server").Game:WaitForChild("PlayerStatusSender"))
 local RunService = game:GetService("RunService")
 
 
