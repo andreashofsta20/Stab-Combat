@@ -10,7 +10,7 @@ local RecieveProfileRequest = ProfileHandlerFolder:WaitForChild("RequestViewProf
 local ViewProfileCliend = ProfileHandlerFolder:WaitForChild("ViewProfileClient")
 
 -- // MODULES // --
-local GetPlayerInfo = require(script:WaitForChild("GetPlayerInfo"))
+local GetPlayerInfo = require(script.Parent:WaitForChild("GetPlayerInfo"))
 local RoundHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("RoundHandler"))
 
 

@@ -1,7 +1,7 @@
 
 local Voting = {}
 
-local RoundHandlerModule = require(game:GetService("ServerScriptService"):WaitForChild("Server").Game.RoundHandler)
+local RoundHandlerModule = require(game:GetService("ServerScriptService").Game.RoundHandler)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

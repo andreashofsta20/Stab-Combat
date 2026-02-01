@@ -1,6 +1,7 @@
 -- // SERVICES // --
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 -- // TEMPLATE // --
 local OverHeadTemplate = ReplicatedStorage:WaitForChild("Overhead")
@@ -40,18 +41,24 @@ local function CreateOverhead(player: Player, character: Model)
 
 	overhead.Parent = head
 
-
+	local currentTween
 	humanoid.HealthChanged:Connect(function(currentHealth)
 		local maxHealth = humanoid.MaxHealth
 		local percent = math.clamp(currentHealth / maxHealth, 0, 1)
 
-		healthBar:TweenSize(
-			UDim2.new(percent, 0, 1, 0),
-			Enum.EasingDirection.Out,
-			Enum.EasingStyle.Quad,
-			0.5,
-			true 
+		if currentTween then
+			currentTween:Cancel()
+		end
+		currentTween = TweenService:Create(
+
+			healthBar,
+			TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{Size = UDim2.new(percent, 0, 1, 0)
+
+			}
 		)
+
+		currentTween:Play()
 	end)
 
 	local scale = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
