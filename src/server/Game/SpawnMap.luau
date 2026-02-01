@@ -34,7 +34,7 @@ function SpawnMap.Spawn(MapName : string)
 		local clone = original:Clone()
 		clone.Parent = workspace
 		
-		task.wait(2)
+		task.wait(4)
 
 		for _, player in ipairs(game.Players:GetPlayers()) do
 			local character = player.Character

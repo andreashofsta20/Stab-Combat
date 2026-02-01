@@ -49,9 +49,13 @@ function MainGame.OnDeath(player: Player)
 		
 		
 		local leaderstatsDeaths = player:WaitForChild("leaderstats"):WaitForChild("Deaths")
+		local leaderstatsWinStreak = player:WaitForChild("leaderstats"):FindFirstChild("WinStreak")
 
 		if leaderstatsDeaths then
 			leaderstatsDeaths.Value += 1
+		end
+		if leaderstatsWinStreak then
+			leaderstatsWinStreak.Value = 0
 		end
 	else
 		print("player isnt in Table PlayersInGame")
@@ -102,10 +106,10 @@ function MainGame.StartGame(map)
 	task.wait(0.5)
 	RoundHandlerModule.ChangeStatus("Loading Map")
 	
-	task.wait(1)
 	SpawnMapModule.Spawn(map)
 	RoundHandlerModule.ChangeStatus("Map Loaded")
 	
+	task.wait(3)
 
 	if CountPlayersInGame() == 0 then
 		return
@@ -134,9 +138,13 @@ function MainGame.StartGame(map)
 					GameRewardModule.CashReward(Winner, "win", PlayerTotal)
 
 					local leaderstatsWins = Winner:WaitForChild("leaderstats"):WaitForChild("Wins")
+					local leaderstatsWinStreak = Winner:WaitForChild("leaderstats"):FindFirstChild("WinStreak")
 
 					if leaderstatsWins then
 						leaderstatsWins.Value += 1
+					end
+					if leaderstatsWinStreak then
+						leaderstatsWinStreak.Value += 1
 					end
 				end
 				task.wait(4)

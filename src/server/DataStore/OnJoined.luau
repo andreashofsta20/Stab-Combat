@@ -96,6 +96,7 @@ local function savePlayerData(player)
 		Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
 		Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
 		Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
+		WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
 		EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
 		Settings = settingsData,
 		Inventory = inventoryData,
@@ -149,6 +150,10 @@ Players.PlayerAdded:Connect(function(player)
 	local Wins = Instance.new("IntValue")
 	Wins.Name = "Wins"
 	Wins.Parent = leaderstats
+
+	local WinStreak = Instance.new("IntValue")
+	WinStreak.Name = "WinStreak"
+	WinStreak.Parent = leaderstats
 
 	local XP = Instance.new("IntValue")
 	XP.Name = "XP"
@@ -221,6 +226,7 @@ Players.PlayerAdded:Connect(function(player)
 		XP.Value = data.XP or 0
 		Cash.Value = data.Cash or 0
 		Wins.Value = data.Wins or 0
+		WinStreak.Value = data.WinStreak or 0
 		EquippedKnife.Value = data.EquippedKnife or "Shadow Dagger"
 		
 		
@@ -322,6 +328,7 @@ Players.PlayerAdded:Connect(function(player)
 		Cash.Value = 1000
 		Deaths.Value = 0
 		Wins.Value = 0
+		WinStreak.Value = 0
 		MusicSetting.Value = true
 		LobbySetting.Value = false
 		Notifications.Value = true

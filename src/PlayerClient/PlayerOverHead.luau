@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 
 -- // TEMPLATE // --
 local OverHeadTemplate = ReplicatedStorage:WaitForChild("Overhead")
+local WinStreakImages = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("WinStreakImages"))
 
 
 
@@ -25,6 +26,8 @@ local function CreateOverhead(player: Player, character: Model)
 
 	local container = overhead:WaitForChild("Container")
 	local nameLabel = container:WaitForChild("PlayerName")
+	local leaderstats = player:WaitForChild("leaderstats")
+	local winStreakValue = leaderstats:WaitForChild("WinStreak")
 
 	if player.Name == "sidra2pro" then
 		nameLabel.Text = "[SPECIAL] " .. player.Name
@@ -37,6 +40,35 @@ local function CreateOverhead(player: Player, character: Model)
 	
 	container:WaitForChild("Health").Visible = true
 	local healthBar = container:WaitForChild("Health"):WaitForChild("Container"):WaitForChild("HealthBar")
+
+	local StreakFrame = overhead.Container:WaitForChild("Streak")
+	local StreakFireImage = overhead.Container:WaitForChild("Streak"):WaitForChild("FireEmoji")
+	local StreakAmountLabel = overhead.Container:WaitForChild("Streak"):WaitForChild("StreakValue")
+
+	
+	local function updateWinStreak()
+
+		if winStreakValue.Value == 0 then
+			StreakFrame.Visible = false
+			return
+		end
+		StreakFrame.Visible = true
+
+		local ImageId
+
+		if winStreakValue.Value >= 10 then
+			ImageId = WinStreakImages[10]
+		elseif winStreakValue.Value >= 5 then
+			ImageId = WinStreakImages[5]
+		else
+			ImageId = WinStreakImages[0]
+		end
+		
+		StreakFireImage.Image = ImageId
+		StreakAmountLabel.Text = tostring(winStreakValue.Value)
+	end
+	updateWinStreak()
+	winStreakValue.Changed:Connect(updateWinStreak)
 
 
 	overhead.Parent = head
