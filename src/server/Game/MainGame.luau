@@ -147,8 +147,7 @@ function MainGame.StartGame(map)
 		if CountPlayersInGame() == 0 then
 			break
 		end
-
-		print(MainGame.PlayersInGame)
+		
 		RoundTime -= 1
 		local RoundTimeClean = TimeToMinutesModule.MakeTimeMinute(RoundTime)
 		RoundHandlerModule.ChangeStatus(RoundTimeClean)
