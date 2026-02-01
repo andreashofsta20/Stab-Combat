@@ -118,9 +118,9 @@ function LevelModule.GetLevel(xp: number)
 		end
 	end
 
-	local currentXP = xp - LevelXPTable[level]
+	local currentXP = math.max(0, xp - LevelXPTable[level])
 	local nextXP = LevelXPTable[level + 1]
-	local toNext = nextXP and (nextXP - xp) or 0
+	local toNext = nextXP and math.max(0, nextXP - xp) or 0
 
 	return level, currentXP, toNext
 end
@@ -137,7 +137,7 @@ function LevelModule.GetLevelProgress(xp: number)
 		end
 	end
 
-	local currentXP = xp - LevelXPTable[level]
+	local currentXP = math.max(0, xp - LevelXPTable[level])
 	local nextXP = LevelXPTable[level + 1]
 	local totalNeeded = nextXP and (nextXP - LevelXPTable[level]) or 1
 

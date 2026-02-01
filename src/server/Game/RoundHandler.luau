@@ -171,12 +171,11 @@ end
 
 function RoundHandler.Intermission()
 	while not CanStart() do
+		RoundHandler.ChangeStatus("Minimum")
 		task.wait(0.2)
 		if Testing then
 			break
 		end
-		RoundHandler.ChangeStatus("Minimum")
-		return false
 	end
 	
 	task.wait(0.3)

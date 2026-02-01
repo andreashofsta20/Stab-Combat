@@ -107,7 +107,7 @@ function MainGame.StartGame(map)
 	RoundHandlerModule.ChangeStatus("Map Loaded")
 	
 
-	if #MainGame.PlayersInGame > 0 then
+	if CountPlayersInGame() == 0 then
 		return
 	end
 		

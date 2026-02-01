@@ -52,6 +52,22 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	if not CaseName then return end
 	
 	local CaseInfo = CaseInfoModule[CaseName]
+	local cashValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")
+	local deducted = false
+
+	local function clearDebounce()
+		if OnSpinningAnimation[player] then
+			OnSpinningAnimation[player] = nil
+		end
+	end
+
+	local function fail(message: string)
+		if deducted and cashValue then
+			cashValue.Value += CaseInfo.Price
+		end
+		clearDebounce()
+		NotificationHandler.SendNotification(player, message, 3, "Error")
+	end
 	
 	local DURATATION = 10 
 
@@ -70,15 +86,17 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 
 	
-	if player.leaderstats.Cash then
-		if player.leaderstats.Cash.Value >= CaseInfo.Price then
-			player.leaderstats.Cash.Value -= CaseInfo.Price
+	if cashValue then
+		if cashValue.Value >= CaseInfo.Price then
+			cashValue.Value -= CaseInfo.Price
+			deducted = true
 			OnSpinningAnimation[player] = true
 		else
-			return NotificationHandler.SendNotification(player, "You can't afford this case", 3, "Error")
+			fail("You can't afford this case")
+			return
 		end
 	else
-		NotificationHandler.SendNotification(player, "Couldn't find cash", 3, "Error")
+		fail("Couldn't find cash")
 		return
 	end
 	
@@ -89,7 +107,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	local chosenRarity = GetRarity.PickRarity(CaseInfo.Percentages)
 	
 	if not chosenRarity then
-		NotificationHandler.SendNotification(player, "Something wrong happend", 3, "Error")
+		fail("Something wrong happend")
 		return
 	end
 	
@@ -108,7 +126,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	end
 	
 	if #SkinsPlayerCanRecieve == 0 then
-		NotificationHandler.SendNotification(player, "No skins found " .. chosenRarity, 3, "Error")
+		fail("No skins found " .. chosenRarity)
 		return
 	end
 	
@@ -143,9 +161,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		
 		
 	
-	if OnSpinningAnimation[player] then
-		OnSpinningAnimation[player] = nil
-	end
+	clearDebounce()
 	
 	
 	

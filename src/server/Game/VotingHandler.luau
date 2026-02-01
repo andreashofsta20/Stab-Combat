@@ -37,7 +37,11 @@ end
 
 
 function Voting.CountVotes()
-	return #Voting.Options
+	local count = 0
+	for _ in pairs(Voting.Options) do
+		count += 1
+	end
+	return count
 end
 
 ReceiveVoteRemote.OnServerEvent:Connect(function(player : Player, mapname : string)
@@ -72,7 +76,7 @@ function Voting.SubmitVote(player : Player, option : string)
 	print(option)
 	
 	
-	if Voting.Votes[player] then
+	if Voting.Votes[player.UserId] then
 		print("already voted")
 		NotificationHandler.SendNotification(player, "You have already voted", 3, "Error")
 		return
@@ -80,7 +84,7 @@ function Voting.SubmitVote(player : Player, option : string)
 	
 	if Voting.Options[option] then
 		print("Voted")
-		Voting.Votes[player] = option
+		Voting.Votes[player.UserId] = option
 		Voting.Options[option].Votecount += 1
 		NotificationHandler.SendNotification(player, "You voted for: " .. tostring(option), 3, "Success")
 	else

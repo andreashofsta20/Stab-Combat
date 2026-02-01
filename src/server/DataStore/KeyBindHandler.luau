@@ -93,7 +93,7 @@ local function ChangeKeybind(player : Player, Action : string, NewKeybind)
 	end
 	
 	
-	if Action == "Emote" and tostring(NewKeybind) == "MouseButton1" or tostring(NewKeybind) == "MouseButton2" or tostring(NewKeybind) == "MouseButton3" then
+	if Action == "Emote" and (tostring(NewKeybind) == "MouseButton1" or tostring(NewKeybind) == "MouseButton2" or tostring(NewKeybind) == "MouseButton3") then
 		Notify(player, "Please try another keybind", 1, "Error")
 		print("cant")
 		return

@@ -1,0 +1,20 @@
+local VerifiedAdmins = {}
+
+local IDS = {
+    3353659057, 9304217232
+}
+
+
+VerifiedAdmins.CheckAdmin = function(userId)
+    for _, ID in pairs(IDS) do
+        if ID == userId then
+            return true
+        end
+    end
+    return false
+end
+
+
+
+return VerifiedAdmins
+

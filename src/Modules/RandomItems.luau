@@ -13,8 +13,9 @@ function Get.RandomItem(casename: string)
 
 	local itemsArray = {}
 	for knifeName, knifeData in pairs(itemsDict) do
-		knifeData.Name = knifeName 
-		table.insert(itemsArray, knifeData)
+		local itemCopy = table.clone(knifeData)
+		itemCopy.Name = knifeName
+		table.insert(itemsArray, itemCopy)
 	end
 
 	if #itemsArray == 0 then
