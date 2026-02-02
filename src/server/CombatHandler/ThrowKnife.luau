@@ -193,7 +193,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local hrp = character:FindFirstChild("HumanoidRootPart")
 	
-	if not character:FindFirstChildWhichIsA("Tool") then return end
+	local equippedTool = character:FindFirstChildWhichIsA("Tool")
+	if not equippedTool then return end
 
 	local direction = (targetPosition - camOrigin).Unit
 
@@ -243,6 +244,21 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
 	-- Play throw animation
 	playThrowAnim(humanoid)
+	
+	-- Hide the tool after a brief delay (during the throw animation)
+	local toolHandle = equippedTool:FindFirstChild("Handle")
+	if toolHandle then
+		task.delay(0.15, function()
+			if toolHandle then
+				toolHandle.Transparency = 1
+			end
+		end)
+		task.delay(0.65, function()
+			if toolHandle then
+				toolHandle.Transparency = 0
+			end
+		end)
+	end
 
 	-- Get hand position for visual starting point
 	local hand = character and character:FindFirstChild("RightHand")

@@ -173,9 +173,11 @@ function RoundHandler.Intermission()
 	while not CanStart() do
 		RoundHandler.ChangeStatus("Minimum")
 		task.wait(0.2)
-		if Testing then
-			break
-		end
+	end
+	
+	-- Only proceed if we have enough players
+	if not CanStart() then
+		return false
 	end
 	
 	task.wait(0.3)

@@ -45,6 +45,11 @@ while true do
 	while not RoundHandlerModule.Intermission() do
 		task.wait(0.3)
 	end
+	
+	-- Check again before starting voting
+	if not CanStart() then
+		continue
+	end
 
 	RoundHandlerModule.StartVoting()
 
@@ -52,6 +57,7 @@ while true do
 	local map = VotingHandlerModule.StopVoting()
 	task.wait(0.5)
 	
+	-- Check again after voting completes
 	if not CanStart() then
 		RoundHandlerModule.ChangeStatus("Not enough players to start")
 		task.wait(3)
