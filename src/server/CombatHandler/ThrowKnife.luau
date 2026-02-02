@@ -180,11 +180,18 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	
 	if not MainGameModule.GameActive then return end
 	if not MainGameModule.PlayersInGame[player.UserId] then return end
+	
+	-- Check cooldown
+	if Cooldown[player.UserId] and os.clock() - Cooldown[player.UserId] < COOLDOWN then
+		return
+	end
+	Cooldown[player.UserId] = os.clock()
 
 	-- Get character info first
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local hrp = character:FindFirstChild("HumanoidRootPart")
 	
 	if not character:FindFirstChildWhichIsA("Tool") then return end
 
@@ -209,20 +216,22 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 			end
 			if canDamage then
 				hitHumanoid:TakeDamage(DAMAGE)
-				hitHumanoid.Died:Connect(function()
+				hitHumanoid.Died:Once(function()
 					if hitVictim then
 						MainGameModule.PlayersInGame[hitVictim.UserId] = nil
 						GameRewardModule.XpReward(player, "kill")
 						GameRewardModule.CashReward(player, "kill")
 						GameRewardModule.XpReward(hitVictim, "lose")
 						GameRewardModule.CashReward(hitVictim, "lose")
-						local leaderstatsKills = player:WaitForChild("leaderstats"):WaitForChild("Kills")
-						local leaderstatsDeaths = hitVictim:WaitForChild("leaderstats"):WaitForChild("Deaths")
-						if leaderstatsKills then
-							leaderstatsKills.Value += 1
+						local playerStats = player:FindFirstChild("leaderstats")
+						local victimStats = hitVictim:FindFirstChild("leaderstats")
+						if playerStats then
+							local leaderstatsKills = playerStats:FindFirstChild("Kills")
+							if leaderstatsKills then leaderstatsKills.Value += 1 end
 						end
-						if leaderstatsDeaths then
-							leaderstatsDeaths.Value += 1
+						if victimStats then
+							local leaderstatsDeaths = victimStats:FindFirstChild("Deaths")
+							if leaderstatsDeaths then leaderstatsDeaths.Value += 1 end
 						end
 					end
 				end)
@@ -236,11 +245,15 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	playThrowAnim(humanoid)
 
 	-- Get hand position for visual starting point
-	local hand = character and character:FindFirstChild("RightHand") or hrp
-	local visualOrigin = hand and (hand.CFrame * CFrame.new(0, 0, -0.5)).Position or camOrigin
+	local hand = character and character:FindFirstChild("RightHand")
+	local visualOrigin = hand and (hand.CFrame * CFrame.new(0, 0, -0.5)).Position or (hrp and (hrp.CFrame * CFrame.new(0, 0, -2)).Position or camOrigin)
 
 	-- Create knife visual
-	local EquippedKnife = player:FindFirstChild("leaderstats"):FindFirstChild("EquippedKnife").Value
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+	local equippedKnifeValue = leaderstats:FindFirstChild("EquippedKnife")
+	if not equippedKnifeValue then return end
+	local EquippedKnife = equippedKnifeValue.Value
 	local Template = KnivesFolder:FindFirstChild(EquippedKnife)
 	if not Template or not Template:FindFirstChild("Handle") then return end
 

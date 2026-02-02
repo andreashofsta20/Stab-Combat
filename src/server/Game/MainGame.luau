@@ -37,7 +37,6 @@ function MainGame.OnDeath(player: Player)
 	if MainGame.PlayersInGame[userId] then
 		MainGame.PlayersInGame[userId] = nil
 
-
 		local character = player.Character
 		if character then
 			local hrp = character:FindFirstChild("HumanoidRootPart")
