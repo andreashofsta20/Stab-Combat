@@ -9,6 +9,13 @@
       }
     },
 
+
+    "ServerStorage": {
+      "AdminClient": {
+        "$path": "src/AdminClient"
+      }
+    },
+
     "ServerScriptService": {
       "$path": "src/server"
     },
