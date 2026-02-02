@@ -262,7 +262,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
 	-- Get hand position for visual starting point
 	local hand = character and character:FindFirstChild("RightHand")
-	local visualOrigin = hand and (hand.CFrame * CFrame.new(0, 0, -0.5)).Position or (hrp and (hrp.CFrame * CFrame.new(0, 0, -2)).Position or camOrigin)
+	-- Use camera origin since that's where the raycast comes from
+	local visualOrigin = camOrigin
 
 	-- Create knife visual
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -299,7 +300,6 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 			if hitResult then
 				stickKnife(handle, hitResult.Instance, finalHitPos, hitResult.Normal)
 			else
-				-- Clean up if no hit
 				Debris:AddItem(handle, 3)
 			end
 			conn:Disconnect()
