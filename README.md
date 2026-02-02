@@ -1,4 +1,4 @@
-# Roblox Project powered by ROJO.
+#Powered by ROJO.
 [Rojo](https://github.com/rojo-rbx/rojo)
 
 ## About this project
