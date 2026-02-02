@@ -149,19 +149,21 @@ initializeKeyBind()
 
 
 UIS.InputBegan:Connect(function(key, gp)
+	if gp then return end
+	if UIS:GetFocusedTextBox() ~= nil then return end
 
 	if typeof(CurrentKeyBind) == "EnumItem" and key.UserInputType == Enum.UserInputType.Keyboard then
-		if key.KeyCode == CurrentKeyBind and UIS:GetFocusedTextBox() == nil then
+		if key.KeyCode == CurrentKeyBind then
 			open = true
 			animateVisibility()
 		end
 	end
-
-
 end)
 
 UIS.InputEnded:Connect(function(key, gp)
-	if key.KeyCode == CurrentKeyBind and UIS:GetFocusedTextBox() == nil then
+	if gp then return end
+	if UIS:GetFocusedTextBox() ~= nil then return end
+	if key.KeyCode == CurrentKeyBind then
 		open = false
 		animateVisibility()
 		if LastAnimation then
