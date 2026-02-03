@@ -11,7 +11,7 @@
 
     "ServerStorage": {
       "AdminFolder": {
-        "$className": "Folder",
+        "$className": "ScreenGui",
         "AdminClient": {
           "$path": "src/AdminClient"
         }

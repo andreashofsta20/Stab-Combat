@@ -191,6 +191,15 @@ local function teardownEmote(name)
 		pcall(function() state.dummyAnim:Stop() end)
 	end
 	disconnectAll(state.conns or {})
+	if state.viewport and state.viewport:IsA("ViewportFrame") then
+		state.viewport.Visible = false
+	end
+	if state.frame and state.frame:IsA("GuiObject") then
+		state.frame.Visible = true
+		if RarityColorModule.Common and RarityColorModule.Common.Image then
+			state.frame.Image = RarityColorModule.Common.Image
+		end
+	end
 
 	emoteState[name] = nil
 end
@@ -224,6 +233,12 @@ local function setupEmote(emoteValueObj: StringValue)
 		warn("No frame found for emote", emoteName)
 		return
 	end
+
+	if frameBtn:GetAttribute("DefaultImage") == nil then
+		frameBtn:SetAttribute("DefaultImage", frameBtn.Image)
+	end
+
+	frameBtn.Visible = true
 
 	local rar = EmotesModule[emoteName] and EmotesModule[emoteName].Rarity
 	if rar and RarityColorModule[rar] then
@@ -268,7 +283,8 @@ local function setupEmote(emoteValueObj: StringValue)
 	emoteState[emoteName] = {
 		conns = conns,
 		dummyAnim = dummyAnim,
-		frame = frameBtn
+		frame = frameBtn,
+		viewport = ViewPortFrame
 	}
 end
 

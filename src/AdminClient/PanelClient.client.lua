@@ -17,7 +17,7 @@ local GREY = Color3.fromRGB(78, 90, 109)
 local GetThumbnail = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GetThumbnail"))
 
 -- GUI
-local GUI = script.Parent.Parent:WaitForChild("Admin")
+local GUI = script.Parent.Parent
 local AdminPanel = GUI:WaitForChild("AdminPanelFrame")
 local TogglePanelFrame = GUI:WaitForChild("TooglePanelFrame")
 local TogglePanelButton = TogglePanelFrame:WaitForChild("ToogleButton")
