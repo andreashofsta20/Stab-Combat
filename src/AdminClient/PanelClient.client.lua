@@ -1,5 +1,4 @@
--- Client LocalScript (inside the cloned AdminFolder GUI)
-
+-- src/AdminClient/PanelClient.client.lua
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -11,13 +10,13 @@ local plrID = plr.UserId
 -- Modules
 local GetThumbnailModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GetThumbnail"))
 
--- GUI (ensure names match your UI objects)
+-- GUI 
 local GUI = script.Parent.Parent:WaitForChild("Admin")
 local AdminPanel = GUI:WaitForChild("AdminPanelFrame")
-local TogglePanelFrame = GUI:WaitForChild("TooglePanelFrame") -- fixed spelling
-local TogglePanelButton = TogglePanelFrame:WaitForChild("ToogleButton") -- fixed spelling
+local TogglePanelFrame = GUI:WaitForChild("TooglePanelFrame")
+local TogglePanelButton = TogglePanelFrame:WaitForChild("ToogleButton") 
 
--- Main Frames
+-- Main
 local FramesFolder = AdminPanel:WaitForChild("Menu")
 local MainFrame = FramesFolder:WaitForChild("AdminOptions")
 local BackButton = AdminPanel:WaitForChild("Back")
@@ -35,14 +34,16 @@ local GameToolsContainer = GameToolsFrame:WaitForChild("GameToolsOptions")
 -- Remotes
 local AdminRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminRemote")
 
--- Send command to server: category, command, ...args
+-- Fire to server
 local function SendCommand(category, command, ...)
     print("CLIENT: Sending command:", category, command, ...)
     AdminRemote:FireServer(category, command, ...)
 end
 
--- Debounce for panel toggle
+-- Debounce variable
 local db = false
+
+-- Toggle Panel
 local function TogglePanel()
     if db then return end
     db = true
@@ -155,7 +156,6 @@ local function GameToolsHandler()
 					print(CurrentValueToChange)
                     ShowChangeValue()
                 elseif TypeValue.Value == "Boolean" then
-					-- Toggle actions like TestMode
 					print("d")
                     SendCommand("GameTools", v.Name)
                 else
