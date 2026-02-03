@@ -27,6 +27,10 @@ end
 local VotingDuratation = 15
 local VotingDuratationSTUDIO = 5
 
+-- Expose voting duration as a property so admin commands can modify it
+RoundHandler.VotingDuration = VotingDuratation
+RoundHandler.VotingDurationSTUDIO = VotingDuratationSTUDIO
+
 RoundHandler.CurrentMap = nil
 
 RoundHandler.TimeToVote = false
@@ -117,11 +121,20 @@ function RoundHandler.StartVoting()
 
 	RoundHandler.ChangeStatus("Voting")
 
-	local duration = RunService:IsStudio() and VotingDuratationSTUDIO or VotingDuratation
+	local duration = RunService:IsStudio() and RoundHandler.VotingDurationSTUDIO or RoundHandler.VotingDuration
 	StartVotingRemote:FireAllClients(MapsToVoteOn, duration)
 
 	local countdown = duration
 	while countdown > 0 do
+
+		local currentDuration = RunService:IsStudio() and RoundHandler.VotingDurationSTUDIO or RoundHandler.VotingDuration
+		
+		if currentDuration ~= duration then
+			duration = currentDuration
+			countdown = duration
+			StartVotingRemote:FireAllClients(MapsToVoteOn, duration)
+		end
+		
 		RoundHandler.ChangeStatus(string.format("TIME TO VOTE FOR A MAP! (%.1f)", countdown))
 		task.wait(0.1)
 		countdown -= 0.1

@@ -16,10 +16,9 @@ Players.PlayerAdded:Connect(function(player)
         return
     end
 
-    print("Admin in game.")
 
 
-    local AdminClientFolder = ServerStorage:FindFirstChild("AdminClient")
+    local AdminClientFolder = ServerStorage:FindFirstChild("AdminFolder")
 
     if AdminClientFolder then
         local AdminClientClone = AdminClientFolder:Clone()

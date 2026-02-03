@@ -9,10 +9,12 @@
       }
     },
 
-
     "ServerStorage": {
-      "AdminClient": {
-        "$path": "src/AdminClient"
+      "AdminFolder": {
+        "$className": "Folder",
+        "AdminClient": {
+          "$path": "src/AdminClient"
+        }
       }
     },
 
