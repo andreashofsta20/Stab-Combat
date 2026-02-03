@@ -36,6 +36,18 @@ print("fafafasfscadad")
 		
 		task.wait(3)
 		if player then
+			local settings = player:FindFirstChild("leaderstats")
+				and player.leaderstats:FindFirstChild("Settings")
+			local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
+
+			if not MainGameModule.GameActive then
+				return
+			end
+
+			if lobbyMode and lobbyMode.Value then
+				return
+			end
+
 			print("afafasfasfasf")
 			MainGameModule.PlayersInGame[player.UserId] = true
 		end

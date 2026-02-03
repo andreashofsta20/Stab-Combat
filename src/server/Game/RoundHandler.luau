@@ -27,7 +27,7 @@ end
 local VotingDuratation = 15
 local VotingDuratationSTUDIO = 5
 
--- Expose voting duration as a property so admin commands can modify it
+
 RoundHandler.VotingDuration = VotingDuratation
 RoundHandler.VotingDurationSTUDIO = VotingDuratationSTUDIO
 
@@ -132,7 +132,6 @@ function RoundHandler.StartVoting()
 		if currentDuration ~= duration then
 			duration = currentDuration
 			countdown = duration
-			StartVotingRemote:FireAllClients(MapsToVoteOn, duration)
 		end
 		
 		RoundHandler.ChangeStatus(string.format("TIME TO VOTE FOR A MAP! (%.1f)", countdown))

@@ -1,6 +1,13 @@
 local VerifiedAdmins = require(script.Parent:WaitForChild("VerifiedAdmins"))
 local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
 local ServerScriptService = game:GetService("ServerScriptService")
+ local MainGameModule = require(ServerScriptService:WaitForChild("Game"):WaitForChild("MainGame"))
+local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
+local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
+
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11")
+local wipeDebounce = {}
 
 local Commands = {}
 
@@ -10,6 +17,7 @@ end
 
 Commands.PlayerManagement = {
     Commands = {
+
         KickPlayer = function(adminUserID: number, targetUserID: number, reason: string?)
             if not Commands.CheckAdmin(adminUserID) then
                 warn("No authorization", adminUserID)
@@ -17,24 +25,79 @@ Commands.PlayerManagement = {
             end
             if not targetUserID then return end
 
+            -- Get admin name
+            local adminName = Players:GetNameFromUserIdAsync(adminUserID)
+            
+            -- Create professional kick message
+            local kickMessage = "You got kicked.\n\nYou have been kicked from this experience.\n\nKicked by: " .. tostring(adminName) .. "\n\nReason: " .. (reason or "No reason provided")
+
             local playerToKick = Players:GetPlayerByUserId(targetUserID)
             if playerToKick then
-                playerToKick:Kick(reason or "No reason provided")
+                playerToKick:Kick(kickMessage)
+            end
+
+            local adminPlayer = Players:GetPlayerByUserId(adminUserID)
+            if adminPlayer then
+                NotificationHandler.SendNotification(adminPlayer, "Kicked " .. tostring(playerToKick and playerToKick.Name or targetUserID) .. ".", 4, "Success")
             end
         end,
 
-        BanPlayer = function(adminUserID: number, targetUserID: number, reason: string?)
+        BanPlayer = function(adminUserID: number, targetUserID: number, reason: string?, banLengthHours: number?)
             if not Commands.CheckAdmin(adminUserID) then
                 warn("No authorization", adminUserID)
                 return
             end
             if not targetUserID then return end
+            
+            -- Prevent banning yourself
+            if adminUserID == targetUserID then
+                warn("Cannot ban yourself")
+                return
+            end
 
-            -- TODO: Implement your ban system using DataStoreService
-            -- Example: Save targetUserID to a ban list and check it on PlayerAdded to kick immediately.
-            local playerToBan = Players:GetPlayerByUserId(targetUserID)
-            if playerToBan then
-                playerToBan:Kick(reason or "No reason provided")
+            -- Calculate duration: -1 for permanent, otherwise convert hours to seconds
+            local duration = -1
+            local durationText = "Permanent"
+            if banLengthHours and banLengthHours > 0 then
+                duration = banLengthHours * 3600 -- Convert hours to seconds
+                durationText = banLengthHours .. " hour" .. (banLengthHours == 1 and "" or "s")
+            end
+
+            -- Get admin name
+            local adminName = Players:GetNameFromUserIdAsync(adminUserID)
+            
+            -- Create professional ban message
+            local displayMessage = "You got banned.\n\nYou have been banned from this experience.\n\nDuration: " .. durationText .. "\nBanned by: " .. tostring(adminName) .. "\n\nReason: " .. (reason or "No reason provided")
+            
+            -- Use Roblox's built-in BanAsync with proper config dictionary
+            local config = {
+                UserIds = {targetUserID},
+                Duration = duration,
+                DisplayReason = displayMessage,
+                PrivateReason = "Banned by: " .. tostring(adminName) .. " (" .. tostring(adminUserID) .. ") | Reason: " .. (reason or "No reason provided"),
+                ExcludeAltAccounts = false,
+                ApplyToUniverse = true
+            }
+
+            local success, err = pcall(function()
+                Players:BanAsync(config)
+            end)
+
+            if success then
+                local playerToBan = Players:GetPlayerByUserId(targetUserID)
+                if playerToBan then
+                    playerToBan:Kick(reason or "You have been banned")
+                end
+
+                local adminPlayer = Players:GetPlayerByUserId(adminUserID)
+                if adminPlayer then
+                    NotificationHandler.SendNotification(adminPlayer, "Banned userId " .. tostring(targetUserID) .. ".", 4, "Success")
+                end
+            else
+                local adminPlayer = Players:GetPlayerByUserId(adminUserID)
+                if adminPlayer then
+                    NotificationHandler.SendNotification(adminPlayer, "Ban failed: " .. tostring(err), 5, "Error")
+                end
             end
         end,
 
@@ -45,17 +108,58 @@ Commands.PlayerManagement = {
             end
             if not targetUserID then return end
 
+            local now = os.clock()
+            if wipeDebounce[targetUserID] and (now - wipeDebounce[targetUserID] < 3) then
+                return
+            end
+            wipeDebounce[targetUserID] = now
+
             local player = Players:GetPlayerByUserId(targetUserID)
             if not player then return end
 
             local leaderstats = player:FindFirstChild("leaderstats")
             if leaderstats then
-                local toReset = { "Knives", "Emotes", "Cash", "Wins", "WinStreak" }
-                for _, statName in ipairs(toReset) do
-                    local stat = leaderstats:FindFirstChild(statName)
-                    if stat and stat:IsA("NumberValue") then
-                        stat.Value = 0
+                local inventoryFolder = leaderstats:FindFirstChild("Inventory")
+                if inventoryFolder then
+                    for _, item in ipairs(inventoryFolder:GetChildren()) do
+                        item:Destroy()
                     end
+                end
+
+                local emotesFolder = leaderstats:FindFirstChild("Emotes")
+                if emotesFolder then
+                    for _, emote in ipairs(emotesFolder:GetChildren()) do
+                        emote:Destroy()
+                    end
+                end
+
+                local equippedKnife = leaderstats:FindFirstChild("EquippedKnife")
+                if equippedKnife and equippedKnife:IsA("StringValue") then
+                    equippedKnife.Value = "Shadow Dagger"
+                end
+
+                InventoryHandler.AddKnife(player, "Shadow Dagger")
+            end
+
+            local success, err = pcall(function()
+                playerDataStore:UpdateAsync(player.UserId, function(oldData)
+                    oldData = oldData or {}
+                    oldData.Inventory = {}
+                    oldData.Emotes = {}
+                    oldData.EquippedKnife = "Shadow Dagger"
+                    return oldData
+                end)
+            end)
+
+            if not success then
+                warn("Failed to wipe inventory for", player.Name, err)
+                NotificationHandler.SendNotification(player, "Inventory wipe failed. Try again later.", 4, "Error")
+            else
+                local adminName = Players:GetNameFromUserIdAsync(adminUserID)
+                NotificationHandler.SendNotification(player, "Your inventory was wiped by " .. tostring(adminName) .. ".", 5, "Skull")
+                local adminPlayer = Players:GetPlayerByUserId(adminUserID)
+                if adminPlayer then
+                    NotificationHandler.SendNotification(adminPlayer, "Wiped inventory for " .. player.Name .. ".", 4, "Success")
                 end
             end
         end,
@@ -71,7 +175,6 @@ Commands.AccountTools = {
 Commands.GameTools = {
     Commands = {
         ChangeMinimumPlayerCount = function(adminID: number, newValue: number)
-            print("ChangeMinimumPlayerCount called with adminID:", adminID, "newValue:", newValue)
             if not Commands.CheckAdmin(adminID) then
                 warn("No authorization", adminID)
                 return
@@ -82,10 +185,8 @@ Commands.GameTools = {
             end
             if newValue < 1 then newValue = 1 end
 
-            print("Setting MinimumPlayers to", newValue)
             local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
             RoundHandler.MinimumPlayers = newValue
-            print("MinimumPlayers set successfully to", RoundHandler.MinimumPlayers)
         end,
 
         ChangeIntermissionTime = function(adminID: number, newValue: number)
@@ -101,19 +202,30 @@ Commands.GameTools = {
             RoundHandler.VotingDurationSTUDIO = newValue
         end,
 
-        TestMode = function(adminID: number)
+        ChangeGameRoundTime = function(adminID: number, newValue: number)
             if not Commands.CheckAdmin(adminID) then
                 warn("No authorization", adminID)
                 return
             end
-            local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
-            RoundHandler.TestMode = not RoundHandler.TestMode
+            if type(newValue) ~= "number" then return end
+            if newValue < 0 then return end
+
+            local MainGame = require(ServerScriptService:WaitForChild("Game"):WaitForChild("MainGame"))
+            MainGame.RoundTime = newValue * 60
         end,
+
+
+
+
+
+        
     },
 }
 
 Commands.Security = {
     Commands = {
+
+
         -- Add security-related commands (e.g., trade logs) here
     },
 }

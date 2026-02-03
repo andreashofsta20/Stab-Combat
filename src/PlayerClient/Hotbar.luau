@@ -111,6 +111,18 @@ local function CheckToolEquipped()
 	end
 end
 
+local function SetKnifeEquippedUI(equipped)
+	local KnifeSlot = HotbarFrame:WaitForChild("1")
+	local slotSelected = KnifeSlot:WaitForChild("SlotSelected")
+	slotSelected.Visible = equipped
+
+	if equipped then
+		TweenSize(KnifeSlot, UDim2.new(0.081, 5, 1.054, 5))
+	else
+		TweenSize(KnifeSlot, UDim2.new(0.077, 5, 1, 5))
+	end
+end
+
 
 local function EquipKnife(SlotEquipped)
 	ServerRemote:FireServer("Knife")
@@ -193,19 +205,33 @@ end
 
 EquippedClient.OnClientEvent:Connect(function(action, EquippedOrNot)
 	if action == "Knife" then
-		local KnifeSlot = HotbarFrame:WaitForChild("1")
-		local slotSelected = KnifeSlot:WaitForChild("SlotSelected")
-		slotSelected.Visible = EquippedOrNot
-
-		if EquippedOrNot then
-			TweenSize(KnifeSlot, UDim2.new(0.081, 5, 1.054, 5))
-		else
-			TweenSize(KnifeSlot, UDim2.new(0.077, 5, 1, 5))
-		end
+		SetKnifeEquippedUI(EquippedOrNot)
 	else
 		print("no valid arguments")
 	end
 end)
+
+-- Reset UI on respawn and when tools are removed without a remote event
+local function HookCharacter(char)
+	Character = char
+	SetKnifeEquippedUI(false)
+
+	Character.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") then
+			SetKnifeEquippedUI(false)
+		end
+	end)
+	Character.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then
+			SetKnifeEquippedUI(true)
+		end
+	end)
+end
+
+Player.CharacterAdded:Connect(HookCharacter)
+if Character then
+	HookCharacter(Character)
+end
 
 
 EquippedKnife:GetPropertyChangedSignal("Value"):Connect(RefreshHotBar)

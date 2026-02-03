@@ -14,6 +14,7 @@ local RecieveTools = StartGameClientFolder:WaitForChild("RecieveTools")
 local WipeTools = StartGameClientFolder:WaitForChild("WipeTools")
 MainGame.GameActive = false
 MainGame.PlayersInGame = {}
+MainGame.RoundTime = 3 * 60
 
 local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 
@@ -92,11 +93,9 @@ end
 function MainGame.StartGame(map)
 
 
-	MainGame.GameActive = true
-	GameActiveBoolean.Value = true
-	local RoundTime = 0.5 * 60
+	local configuredRoundTime = MainGame.RoundTime
+	local RoundTime = configuredRoundTime
 	local PlayerTotal = CountPlayersInGame()
-	
 	
 	
 	task.wait(0.5)
@@ -110,17 +109,40 @@ function MainGame.StartGame(map)
 	
 	task.wait(3)
 
+	-- Short start countdown after teleport
+	for i = 3, 1, -1 do
+		RoundHandlerModule.ChangeStatus("Starting in " .. i .. "...")
+		task.wait(1)
+	end
+
 	if CountPlayersInGame() == 0 then
+		for _, player in pairs(Players:GetPlayers()) do
+			local settings = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Settings")
+			local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
+			if lobbyMode and lobbyMode.Value == false then
+				MainGame.PlayersInGame[player.UserId] = true
+			end
+		end
+	end
+
+	if CountPlayersInGame() == 0 then
+		MainGame.GameActive = false
+		GameActiveBoolean.Value = false
 		return
 	end
+
+	MainGame.GameActive = true
+	GameActiveBoolean.Value = true
 		
 	
 	while RoundTime > 0 do
 		task.wait(1)
 		
-
-
-
+		local currentRoundTime = MainGame.RoundTime
+		if currentRoundTime ~= configuredRoundTime then
+			configuredRoundTime = currentRoundTime
+			RoundTime = configuredRoundTime
+		end
 		
 		if not MainGame.TestMode then
 			if CountPlayersInGame() < 2 then 
