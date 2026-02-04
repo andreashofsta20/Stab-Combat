@@ -9,8 +9,8 @@
   - Onboarding polish (tutorial prompt + clear controls)
 
 ## Important issues to verify before beta
-- Ensure `ReplicatedStorage/KeyBinds/DefaultKeybinds` is present in the Rojo tree (it is required by server scripts but not in this repo).
-- Reduce debug log spam (`print` in Emote/HandleKnifeCombat) before release.
+- Ensure the `ReplicatedStorage/KeyBinds/DefaultKeybinds` module exists in the Rojo tree (case-sensitive; required by server scripts but not in this repo).
+- Reduce debug log spam from client scripts before release.
 - Confirm DataStore saves succeed under load (watch for `Failed to save data` warnings and throttling).
 
 ## Feature backlog
