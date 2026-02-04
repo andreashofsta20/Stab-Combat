@@ -43,12 +43,28 @@ local BanFrame = PlayerManagementFrame:WaitForChild("BanFrame")
 local KickFrame = PlayerManagementFrame:WaitForChild("KickFrame")
 local WipeInventoryFrame = PlayerManagementFrame:WaitForChild("WipeInventoryFrame")
 
+
+-- Security Frames
+local SecurityFrame = FramesFolder:WaitForChild("Security")
+local SecurityOptionsFrame = SecurityFrame:WaitForChild("SecurityOptions")
+local AdminLogsFrame = SecurityFrame:WaitForChild("AdminLogs")
+local AdminLogsContainer = AdminLogsFrame:WaitForChild("LogsHolder"):WaitForChild("ScrollingFrameAdminLogs")
+local AdminLogTemplate = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("AdminPanelTemplates"):WaitForChild("AdminLogTemplate")
+
 -- Remotes
 local AdminRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminRemote")
-
+local AdminClientRecieve = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminClientRecieve")
 -- State
 local currentValueToChange = nil
 local debounce = false
+
+
+
+local function AdminLog()
+    
+end
+
+
 
 -- Utilities
 local function sendCommand(category, command, ...)
@@ -75,8 +91,18 @@ local function toggleFrames(frameName: string)
         return
     end
 
+    if AdminLogsFrame.Visible then
+        AdminLogsFrame.Visible = false
+        SecurityFrame.Visible = true
+        SecurityOptionsFrame.Visible = true
+        return
+    end
+
+
+
+    MainFrame.Visible = (frameName == "AdminOptions")
     for _, child in pairs(FramesFolder:GetChildren()) do
-        if child:IsA("Frame") then
+        if child:IsA("GuiObject") and child ~= MainFrame then
             child.Visible = (child.Name == frameName)
         end
     end
@@ -298,7 +324,7 @@ local function setupPlayerManagementOptions()
         if btn:IsA("ImageButton") then
             btn.MouseButton1Click:Connect(function()
                 for _, frame in pairs(PlayerManagementFrame:GetChildren()) do
-                    if frame:IsA("Frame") then
+                    if frame:IsA("GuiObject") then
                         frame.Visible = (frame.Name == btn.Name)
                     end
                 end
@@ -306,6 +332,69 @@ local function setupPlayerManagementOptions()
         end
     end
 end
+
+-- Security options routing
+local function setupSecurityOptions()
+    for _, btn in pairs(SecurityOptionsFrame:GetChildren()) do
+        if btn:IsA("ImageButton") then
+            btn.MouseButton1Click:Connect(function()
+                for _, frame in pairs(SecurityFrame:GetChildren()) do
+                    if frame:IsA("GuiObject") then
+                        frame.Visible = (frame.Name == btn.Name)
+                    end
+                end
+                if btn.Name == "AdminLogs" then
+                    for i , v in pairs(AdminLogsContainer:GetChildren()) do
+                        if v:IsA("Frame") then
+                            v:Destroy()
+                        end
+                    end
+                    sendCommand("Security", "AdminLogs")
+                end
+            end)
+        end
+    end
+end
+
+
+AdminClientRecieve.OnClientEvent:Connect(function(action: string, data: any)
+    if action == "ReceiveAdminLogs" then
+        local logs = data
+        for _, log in ipairs(logs) do
+            local logEntry = AdminLogTemplate:Clone()
+            local LogInfo = logEntry:WaitForChild("LogInfo")
+
+            local AdminContainerInfo = logEntry:WaitForChild("ProfileContainer")
+
+            AdminContainerInfo:WaitForChild("ProfileImg").Image = GetThumbnail.GetThumbnail(log.AdminUserId)
+            logEntry:WaitForChild("AdminUser").Text = Players:GetNameFromUserIdAsync(log.AdminUserId)
+            logEntry:WaitForChild("AdminRank").Text = "Admin"
+
+            LogInfo.Action.Text = "Action: " .. tostring(log.Action)
+            LogInfo.AdminID.Text = "Admin UserId: " .. tostring(log.AdminUserId)
+
+            local targetIdText = tostring(log.TargetUserId)
+            if log.TargetUserId == nil or targetIdText == "nan" or targetIdText == "nil" or targetIdText == "" then
+                LogInfo.TargetID.Visible = false
+            else
+                LogInfo.TargetID.Visible = true
+                LogInfo.TargetID.Text = "Target UserId: " .. targetIdText
+            end
+
+            if log.Details ~= nil and tostring(log.Details) ~= "" then
+                LogInfo.Details.Visible = true
+                LogInfo.Details.Text = "Details: " .. tostring(log.Details)
+            else
+                LogInfo.Details.Visible = false
+            end
+            local timestamp = os.date("*t", log.Timestamp)
+            LogInfo.Timestamp.Text = string.format("Time: %02d/%02d/%04d %02d:%02d:%02d", timestamp.day, timestamp.month, timestamp.year, timestamp.hour, timestamp.min, timestamp.sec)
+            logEntry.Parent = AdminLogsContainer
+        end
+    end
+end)
+
+
 
 -- Panels
 buildPlayerListHandler({
@@ -347,3 +436,4 @@ buildPlayerListHandler({
 -- Init
 setupGameTools()
 setupPlayerManagementOptions()
+setupSecurityOptions()

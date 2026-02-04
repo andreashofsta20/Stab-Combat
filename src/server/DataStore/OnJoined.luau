@@ -102,6 +102,11 @@ local function savePlayerData(player)
 		Inventory = inventoryData,
 		Emotes = emotesData,
 		KeyBinds = keybindsData,
+		DailyRewards = {
+			LastClaimDay = player:GetAttribute("DailyLastClaimDay") or 0,
+			Streak = player:GetAttribute("DailyStreak") or 0,
+			DayIndex = player:GetAttribute("DailyDayIndex") or 0,
+		},
 	}
 
 	print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
@@ -320,6 +325,17 @@ Players.PlayerAdded:Connect(function(player)
 				end
 			end
 		end
+
+		-- Load daily rewards
+		if data.DailyRewards and type(data.DailyRewards) == "table" then
+			player:SetAttribute("DailyLastClaimDay", data.DailyRewards.LastClaimDay or 0)
+			player:SetAttribute("DailyStreak", data.DailyRewards.Streak or 0)
+			player:SetAttribute("DailyDayIndex", data.DailyRewards.DayIndex or 0)
+		else
+			player:SetAttribute("DailyLastClaimDay", 0)
+			player:SetAttribute("DailyStreak", 0)
+			player:SetAttribute("DailyDayIndex", 0)
+		end
 	else
 		-- First time player or data failed to load
 		print("Setting default values for", player.Name)
@@ -334,6 +350,9 @@ Players.PlayerAdded:Connect(function(player)
 		Notifications.Value = true
 		EquippedKnife.Value = "Shadow Dagger"
 		test.AddKnife(player, "Shadow Dagger")
+		player:SetAttribute("DailyLastClaimDay", 0)
+		player:SetAttribute("DailyStreak", 0)
+		player:SetAttribute("DailyDayIndex", 0)
 		
 		
 		

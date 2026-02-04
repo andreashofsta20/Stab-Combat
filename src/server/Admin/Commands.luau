@@ -7,9 +7,40 @@ local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 
 local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11")
+local adminLogStore = DataStoreService:GetDataStore("AdminActionLogs_v1")
 local wipeDebounce = {}
+local AdminClientRecieve = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminClientRecieve")
 
 local Commands = {}
+
+local function logAdminAction(action: string, adminUserID: number, targetUserID: number?, details: string?)
+    local entry = {
+        Action = action,
+        AdminUserId = adminUserID,
+        TargetUserId = targetUserID,
+        Details = details,
+        Timestamp = os.time()
+    }
+
+    task.spawn(function()
+        local success, err = pcall(function()
+            adminLogStore:UpdateAsync("Logs", function(old)
+                old = old or {}
+                table.insert(old, 1, entry)
+                if #old > 200 then
+                    for i = #old, 201, -1 do
+                        table.remove(old, i)
+                    end
+                end
+                return old
+            end)
+        end)
+
+        if not success then
+            warn("Failed to write admin log:", err)
+        end
+    end)
+end
 
 function Commands.CheckAdmin(userid: number): boolean
     return VerifiedAdmins.CheckAdmin(userid)
@@ -35,6 +66,8 @@ Commands.PlayerManagement = {
             if playerToKick then
                 playerToKick:Kick(kickMessage)
             end
+
+            logAdminAction("Kick", adminUserID, targetUserID, reason or "No reason provided")
 
             local adminPlayer = Players:GetPlayerByUserId(adminUserID)
             if adminPlayer then
@@ -88,6 +121,9 @@ Commands.PlayerManagement = {
                 if playerToBan then
                     playerToBan:Kick(reason or "You have been banned")
                 end
+
+                local detail = "Duration: " .. durationText .. " | Reason: " .. (reason or "No reason provided")
+                logAdminAction("Ban", adminUserID, targetUserID, detail)
 
                 local adminPlayer = Players:GetPlayerByUserId(adminUserID)
                 if adminPlayer then
@@ -161,6 +197,8 @@ Commands.PlayerManagement = {
                 if adminPlayer then
                     NotificationHandler.SendNotification(adminPlayer, "Wiped inventory for " .. player.Name .. ".", 4, "Success")
                 end
+
+                logAdminAction("WipeInventory", adminUserID, targetUserID, "Inventory and emotes wiped")
             end
         end,
     },
@@ -187,6 +225,8 @@ Commands.GameTools = {
 
             local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
             RoundHandler.MinimumPlayers = newValue
+
+            logAdminAction("ChangeMinimumPlayerCount", adminID, nil, "Value: " .. tostring(newValue))
         end,
 
         ChangeIntermissionTime = function(adminID: number, newValue: number)
@@ -200,6 +240,8 @@ Commands.GameTools = {
             local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
             RoundHandler.VotingDuration = newValue
             RoundHandler.VotingDurationSTUDIO = newValue
+
+            logAdminAction("ChangeIntermissionTime", adminID, nil, "Value: " .. tostring(newValue))
         end,
 
         ChangeGameRoundTime = function(adminID: number, newValue: number)
@@ -212,6 +254,8 @@ Commands.GameTools = {
 
             local MainGame = require(ServerScriptService:WaitForChild("Game"):WaitForChild("MainGame"))
             MainGame.RoundTime = newValue * 60
+
+            logAdminAction("ChangeGameRoundTime", adminID, nil, "Minutes: " .. tostring(newValue))
         end,
 
 
@@ -225,8 +269,26 @@ Commands.GameTools = {
 Commands.Security = {
     Commands = {
 
+        AdminLogs = function(adminID: number): {any}
+            if not Commands.CheckAdmin(adminID) then
+                warn("No authorization", adminID)
+                return {}
+            end
 
-        -- Add security-related commands (e.g., trade logs) here
+            local logs = {}
+            local success, err = pcall(function()
+                logs = adminLogStore:GetAsync("Logs") or {}
+            end)
+
+            if not success then
+                warn("Failed to retrieve admin logs:", err)
+                return {}
+            end
+
+            AdminClientRecieve:FireClient(Players:GetPlayerByUserId(adminID), "ReceiveAdminLogs", logs)
+
+            return logs
+        end,
     },
 }
 
