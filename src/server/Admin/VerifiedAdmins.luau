@@ -1,7 +1,7 @@
 local VerifiedAdmins = {}
 
 VerifiedAdmins.IDS = {
-    3353659057, 9304217232
+    3353659057, 9304217232, 1354368060
 }
 
 

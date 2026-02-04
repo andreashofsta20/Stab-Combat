@@ -225,8 +225,6 @@ Commands.GameTools = {
 
             local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
             RoundHandler.MinimumPlayers = newValue
-
-            logAdminAction("ChangeMinimumPlayerCount", adminID, nil, "Value: " .. tostring(newValue))
         end,
 
         ChangeIntermissionTime = function(adminID: number, newValue: number)
@@ -240,8 +238,6 @@ Commands.GameTools = {
             local RoundHandler = require(ServerScriptService:WaitForChild("Game"):WaitForChild("RoundHandler"))
             RoundHandler.VotingDuration = newValue
             RoundHandler.VotingDurationSTUDIO = newValue
-
-            logAdminAction("ChangeIntermissionTime", adminID, nil, "Value: " .. tostring(newValue))
         end,
 
         ChangeGameRoundTime = function(adminID: number, newValue: number)
@@ -254,8 +250,6 @@ Commands.GameTools = {
 
             local MainGame = require(ServerScriptService:WaitForChild("Game"):WaitForChild("MainGame"))
             MainGame.RoundTime = newValue * 60
-
-            logAdminAction("ChangeGameRoundTime", adminID, nil, "Minutes: " .. tostring(newValue))
         end,
 
 
