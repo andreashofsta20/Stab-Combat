@@ -7,20 +7,22 @@ return {
 	} , 
 
 
-	["emote2"] = {
+	["Godly Dance"] = {
 		Rarity = "Godly",
 		EmoteId = "rbxassetid://118637453055054",
-		EmoteName = "Cool dance"
+		EmoteName = "Godly Dance"
 
 	} , 
 
 
-	["emote3"] = {
+
+	["Sit"] = {
 		Rarity = "Common",
 		EmoteId = "rbxassetid://73124046055757",
-		EmoteName = "Sit Emote"
+		EmoteName = "Sit"
 
 	} ,
+
 
 
 	["Griddy"] = {

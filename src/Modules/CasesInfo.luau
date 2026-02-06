@@ -76,18 +76,18 @@ return {
 		CaseImage = "rbxassetid://116321142920388";
 		EmoteCase = true;
 		Skins = {
-			emote1 = {
+			["emote1"] = {
 				SkinName = "emote1";
 				Rarity = "Legendary";
 				Image = ""; -- no image provided, leave empty or update later
 			};
-			emote2 = {
-				SkinName = "emote2";
+			["Godly Dance"] = {
+				SkinName = "Godly Dance";
 				Rarity = "Godly";
 				Image = ""; -- no image provided
 			};
-			emote3 = {
-				SkinName = "emote3";
+			Sit = {
+				SkinName = "Sit";
 				Rarity = "Common";
 				Image = ""; -- no image provided
 			};

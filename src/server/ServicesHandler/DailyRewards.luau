@@ -25,7 +25,7 @@ local Rewards = {
 	[10] = { Cash = 1200, XP = 150 },
 	[11] = { Item = { Type = "Knife", Name = "Skeleton" }, XP = 150 },
 	[12] = { Cash = 1300, XP = 175 },
-	[13] = { Item = { Type = "Emote", Name = "emote2" }, XP = 200 },
+	[13] = { Item = { Type = "Emote", Name = "Godly Dance" }, XP = 200 },
 	[14] = { Item = { Type = "Knife", Name = "Butterfly" }, XP = 250 },
 }
 
