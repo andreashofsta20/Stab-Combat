@@ -13,7 +13,7 @@ local DailyRewardClientRemote = DailyRewardsRemotesFolder:WaitForChild("DailyRew
 local REWARD_CYCLE = 14
 
 local Rewards = {
-	[1] = { Cash = 500, XP = 25 },
+	[1] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
 	[2] = { Cash = 600, XP = 25 },
 	[3] = { Cash = 700, XP = 50 },
 	[4] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
@@ -75,6 +75,9 @@ local function getStatus(player)
 		Streak = streak,
 		LastClaimDay = lastClaimDay,
 		Reward = Rewards[dayIndex],
+		Rewards = Rewards,
+		CurrentDayIndex = dayIndex,
+		ClaimedToday = claimedToday,
 	}
 end
 
@@ -135,25 +138,27 @@ end
 
 ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action)
 	if action == "GetStatus" then
-		ClaimDailyRewardRemote:FireClient(player, "Status", getStatus(player))
+		DailyRewardClientRemote:FireClient(player, getStatus(player))
 		return
 	end
 
 	if action == "Claim" then
-		local ok, msg, payload = claim(player)
+		local ok, msg = claim(player)
 		if ok then
 			NotificationHandler.SendNotification(player, "Daily reward claimed!", 4, "Success")
 		else
 			NotificationHandler.SendNotification(player, msg, 3, "Error")
 		end
-		ClaimDailyRewardRemote:FireClient(player, "ClaimResult", ok, msg, payload)
+		DailyRewardClientRemote:FireClient(player, getStatus(player))
 		return
 	end
 end)
 
 Players.PlayerAdded:Connect(function(player)
 	task.delay(0.2, function()
-		ClaimDailyRewardRemote:FireClient(player, "Status", getStatus(player))
+		while task.wait(5) do
+				DailyRewardClientRemote:FireClient(player, getStatus(player))
+		end
 	end)
 end)
 
