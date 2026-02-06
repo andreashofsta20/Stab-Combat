@@ -6,7 +6,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-local COOLDOWN = 0.2
+local COOLDOWN = 1
 local STAB_COOLDOWN = 0.3
 local lastThrow = 0
 local lastStab = 0

@@ -23,6 +23,7 @@ local MAX_DISTANCE = 350
 local LIFETIME = 5
 local DAMAGE = 34
 local COOLDOWN = 1
+local VISUAL_OFFSET = 0.8
 
 local Cooldown = {}
 
@@ -262,8 +263,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
 	-- Get hand position for visual starting point
 	local hand = character and character:FindFirstChild("RightHand")
-	-- Use camera origin since that's where the raycast comes from
-	local visualOrigin = camOrigin
+	local baseOrigin = hand and hand.Position or (hrp and hrp.Position) or camOrigin
+	local visualOrigin = baseOrigin + (direction * VISUAL_OFFSET)
 
 	-- Create knife visual
 	local leaderstats = player:FindFirstChild("leaderstats")

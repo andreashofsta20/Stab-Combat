@@ -13,20 +13,20 @@ local DailyRewardClientRemote = DailyRewardsRemotesFolder:WaitForChild("DailyRew
 local REWARD_CYCLE = 14
 
 local Rewards = {
-	[1] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
+	[1] = { Item = { Type = "Knife", Name = "Bowie" }, XP = 50 },
 	[2] = { Cash = 600, XP = 25 },
 	[3] = { Cash = 700, XP = 50 },
 	[4] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
 	[5] = { Cash = 800, XP = 75 },
-	[6] = { Cash = 900, XP = 75 },
+	[6] = { Item = { Type = "Knife", Name = "Gut Knife" }, XP = 75 },
 	[7] = { Item = { Type = "Emote", Name = "Griddy" }, XP = 100 },
 	[8] = { Cash = 1000, XP = 100 },
-	[9] = { Cash = 1100, XP = 125 },
+	[9] = { Item = { Type = "Knife", Name = "Karambit" }, XP = 125 },
 	[10] = { Cash = 1200, XP = 150 },
-	[11] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 150 },
+	[11] = { Item = { Type = "Knife", Name = "Skeleton" }, XP = 150 },
 	[12] = { Cash = 1300, XP = 175 },
-	[13] = { Cash = 1400, XP = 200 },
-	[14] = { Item = { Type = "Emote", Name = "emote3" }, XP = 250 },
+	[13] = { Item = { Type = "Emote", Name = "emote2" }, XP = 200 },
+	[14] = { Item = { Type = "Knife", Name = "Butterfly" }, XP = 250 },
 }
 
 local function currentDayIndex()
@@ -52,6 +52,11 @@ local function computeDayIndex(streak, claimedToday)
 	return (streak % REWARD_CYCLE) + 1
 end
 
+local function secondsUntilNextClaim()
+	local secondsLeft = 86400 - (os.time() % 86400)
+	return math.max(0, secondsLeft)
+end
+
 local function getStatus(player)
 	local today = currentDayIndex()
 	local lastClaimDay, streak = getStreakData(player)
@@ -68,6 +73,7 @@ local function getStatus(player)
 
 	local dayIndex = computeDayIndex(streak, claimedToday)
 	setStreakData(player, lastClaimDay, streak, dayIndex)
+	local remainingSeconds = secondsUntilNextClaim()
 
 	return {
 		CanClaim = not claimedToday,
@@ -78,6 +84,7 @@ local function getStatus(player)
 		Rewards = Rewards,
 		CurrentDayIndex = dayIndex,
 		ClaimedToday = claimedToday,
+		RemainingSeconds = remainingSeconds,
 	}
 end
 
@@ -106,7 +113,7 @@ local function applyReward(player, reward)
 	end
 end
 
-local function claim(player)
+local function claim(player, requestedDayIndex)
 	local today = currentDayIndex()
 	local lastClaimDay, streak = getStreakData(player)
 
@@ -121,6 +128,9 @@ local function claim(player)
 	end
 
 	local dayIndex = ((streak - 1) % REWARD_CYCLE) + 1
+	if requestedDayIndex and requestedDayIndex ~= dayIndex then
+		return false, "Not available"
+	end
 	local reward = Rewards[dayIndex]
 	if not reward then
 		return false, "No reward configured"
@@ -136,14 +146,15 @@ local function claim(player)
 	}
 end
 
-ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action)
+ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action, requestedDayIndex)
+
 	if action == "GetStatus" then
 		DailyRewardClientRemote:FireClient(player, getStatus(player))
 		return
 	end
 
 	if action == "Claim" then
-		local ok, msg = claim(player)
+		local ok, msg = claim(player, requestedDayIndex)
 		if ok then
 			NotificationHandler.SendNotification(player, "Daily reward claimed!", 4, "Success")
 		else
@@ -154,12 +165,5 @@ ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action)
 	end
 end)
 
-Players.PlayerAdded:Connect(function(player)
-	task.delay(0.2, function()
-		while task.wait(5) do
-				DailyRewardClientRemote:FireClient(player, getStatus(player))
-		end
-	end)
-end)
 
 return {}
