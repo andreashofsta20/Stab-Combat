@@ -8,7 +8,7 @@ local camera = workspace.CurrentCamera
 
 local COOLDOWN = 0.5
 local STAB_COOLDOWN = 0.3
-local MAX_CHARGE_TIME = 2
+local MAX_CHARGE_TIME = 1
 local MIN_CHARGE_RATIO = 0
 local MAX_CHARGE_RATIO = 1
 local lastThrow = 0
