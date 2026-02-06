@@ -22,8 +22,10 @@ local KNIFE_SPEED = 2500  -- Studs per second for visual movement
 local MAX_DISTANCE = 350
 local LIFETIME = 5
 local DAMAGE = 34
-local COOLDOWN = 1
+local COOLDOWN = 0.5
 local VISUAL_OFFSET = 0.8
+local MIN_SPEED_MULT = 0.85
+local MAX_SPEED_MULT = 1.25
 
 local Cooldown = {}
 
@@ -175,9 +177,12 @@ local function getPlayerFromHit(part)
 	return plr, humanoid
 end
 
-function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPosition: Vector3)
+function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPosition: Vector3, chargeRatio: number)
 	if not player or player.ClassName ~= "Player" then return end
 	if typeof(camOrigin) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" then return end
+	if typeof(chargeRatio) ~= "number" then
+		chargeRatio = 0
+	end
 	
 	if not MainGameModule.GameActive then return end
 	if not MainGameModule.PlayersInGame[player.UserId] then return end
@@ -197,6 +202,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	local equippedTool = character:FindFirstChildWhichIsA("Tool")
 	if not equippedTool then return end
 
+	ThrewKnifeClient:FireClient(player)
+
 	local direction = (targetPosition - camOrigin).Unit
 
 	local rayParams = RaycastParams.new()
@@ -206,6 +213,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	local hitResult = workspace:Raycast(camOrigin, direction * MAX_DISTANCE, rayParams)
 	local finalHitPos = hitResult and hitResult.Position or (camOrigin + direction * MAX_DISTANCE)
 	local actualDistance = (finalHitPos - camOrigin).Magnitude
+	local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * math.clamp(chargeRatio, 0, 1))
 
 	local hitVictim = nil
 	local hitHumanoid = nil
@@ -286,7 +294,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	local att0, att1 = addTrail(handle)
 
 	-- Calculate travel time for visual
-	local travelTime = actualDistance / KNIFE_SPEED
+	local travelTime = actualDistance / (KNIFE_SPEED * speedMult)
 	local startTime = os.clock()
 
 	-- Visual movement animation

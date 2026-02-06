@@ -6,8 +6,11 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-local COOLDOWN = 1
+local COOLDOWN = 0.5
 local STAB_COOLDOWN = 0.3
+local MAX_CHARGE_TIME = 2
+local MIN_CHARGE_RATIO = 0
+local MAX_CHARGE_RATIO = 1
 local lastThrow = 0
 local lastStab = 0
 local MAX_RAYCAST_DISTANCE = 1000
@@ -29,6 +32,21 @@ local KeyBindFolder = leaderstats:WaitForChild("KeyBinds")
 local CurrentKeyBind = nil
 local CurrentStabKeybind = nil
 local activeTween
+local charging = false
+local chargeStart = 0
+
+local function isThrowInput(input)
+	if typeof(CurrentKeyBind) == "EnumItem" then
+		return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == CurrentKeyBind
+	end
+	if CurrentKeyBind == "MouseButton1" then
+		return input.UserInputType == Enum.UserInputType.MouseButton1
+	end
+	if CurrentKeyBind == "MouseButton2" then
+		return input.UserInputType == Enum.UserInputType.MouseButton2
+	end
+	return false
+end
 
 local function UiAnimation()
 	if activeTween then
@@ -66,9 +84,11 @@ ThrewKnifeClient.OnClientEvent:Connect(function()
 	UiAnimation()
 end)
 
-local function throw()
+local function throw(chargeRatio)
 	if tick() - lastThrow < COOLDOWN then return end
 	lastThrow = tick()
+
+	local clampedCharge = math.clamp(chargeRatio or 0, MIN_CHARGE_RATIO, MAX_CHARGE_RATIO)
 
 	-- Get the exact mouse position on screen
 	local mousePos = UserInputService:GetMouseLocation()
@@ -89,7 +109,7 @@ local function throw()
 
 	-- Send the camera origin and exact target position to server
 	-- The server will handle the trajectory from camera origin to target
-	ThrowKnifeRemote:FireServer(ray.Origin, targetPos)
+	ThrowKnifeRemote:FireServer(ray.Origin, targetPos, clampedCharge)
 end
 
 local function stab()
@@ -139,10 +159,9 @@ initializeKnifeKeybinds()
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
-	if typeof(CurrentKeyBind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard then
-		if input.KeyCode == CurrentKeyBind then
-			throw()
-		end
+	if isThrowInput(input) and not charging then
+		charging = true
+		chargeStart = tick()
 	end
 
 	if CurrentStabKeybind == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -153,6 +172,16 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if input.KeyCode == CurrentStabKeybind then
 			stab()
 		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if charging and isThrowInput(input) then
+		charging = false
+		local heldFor = tick() - chargeStart
+		local ratio = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
+		throw(ratio)
 	end
 end)
 

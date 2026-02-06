@@ -13,8 +13,8 @@ local ThrowKnifeModule = require(script.Parent:WaitForChild("ThrowKnife"))
 local StabKnifeModule = require(script.Parent:WaitForChild("StabKnife"))
 
 -- // THROWING KNIFE // --
-ThrowKnifeRemote.OnServerEvent:Connect(function(player: Player, camOrigin: Vector3, camDir: Vector3)
-	ThrowKnifeModule.ThrowKnife(player, camOrigin, camDir)
+ThrowKnifeRemote.OnServerEvent:Connect(function(player: Player, camOrigin: Vector3, targetPosition: Vector3, chargeRatio: number)
+	ThrowKnifeModule.ThrowKnife(player, camOrigin, targetPosition, chargeRatio)
 end)
 
 -- // STABBING KNIFE // --
