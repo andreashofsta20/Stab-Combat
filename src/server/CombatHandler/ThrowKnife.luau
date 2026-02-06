@@ -24,8 +24,8 @@ local LIFETIME = 5
 local DAMAGE = 34
 local COOLDOWN = 0.5
 local VISUAL_OFFSET = 0.8
-local MIN_SPEED_MULT = 0.85
-local MAX_SPEED_MULT = 1.25
+local MIN_SPEED_MULT = 0.7
+local MAX_SPEED_MULT = 1.7
 
 local Cooldown = {}
 

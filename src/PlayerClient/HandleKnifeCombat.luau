@@ -32,6 +32,7 @@ local KeyBindFolder = leaderstats:WaitForChild("KeyBinds")
 local CurrentKeyBind = nil
 local CurrentStabKeybind = nil
 local activeTween
+local chargeTween
 local charging = false
 local chargeStart = 0
 
@@ -80,6 +81,32 @@ local function UiAnimation()
 	tweenIn:Play()
 end
 
+local function startChargeTween()
+	if activeTween then
+		activeTween:Cancel()
+		activeTween = nil
+	end
+	if chargeTween then
+		chargeTween:Cancel()
+		chargeTween = nil
+	end
+	OnClickFrameBar.Size = UDim2.new(0, 0, 1, 0)
+	chargeTween = TweenService:Create(
+		OnClickFrameBar,
+		TweenInfo.new(MAX_CHARGE_TIME, Enum.EasingStyle.Linear),
+		{ Size = UDim2.new(1, 0, 1, 0) }
+	)
+	chargeTween:Play()
+end
+
+local function stopChargeTween()
+	if chargeTween then
+		chargeTween:Cancel()
+		chargeTween = nil
+	end
+	OnClickFrameBar.Size = UDim2.new(0, 0, 1, 0)
+end
+
 ThrewKnifeClient.OnClientEvent:Connect(function()
 	UiAnimation()
 end)
@@ -90,25 +117,21 @@ local function throw(chargeRatio)
 
 	local clampedCharge = math.clamp(chargeRatio or 0, MIN_CHARGE_RATIO, MAX_CHARGE_RATIO)
 
-	-- Get the exact mouse position on screen
 	local mousePos = UserInputService:GetMouseLocation()
 
-	-- Create a ray from the camera through the mouse cursor
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 
-	-- Perform raycast to find the exact target position
+
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	if player.Character then
 		rayParams.FilterDescendantsInstances = {player.Character}
 	end
 
-	-- Cast ray to find where cursor is pointing
 	local result = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
 	local targetPos = result and result.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
 
-	-- Send the camera origin and exact target position to server
-	-- The server will handle the trajectory from camera origin to target
+
 	ThrowKnifeRemote:FireServer(ray.Origin, targetPos, clampedCharge)
 end
 
@@ -140,12 +163,10 @@ local function initializeKnifeKeybinds()
 	local throwKeyBind = KeyBindFolder:WaitForChild("ThrowKnife")
 	local stabKeyBind = KeyBindFolder:WaitForChild("Stab")
 
-	-- Wait for values to be properly set
 	if throwKeyBind.Value == "" or throwKeyBind.Value == nil then
 		task.wait(0.1)
 	end
 
-	-- Parse and set keybinds with fallbacks
 	CurrentKeyBind = parseInput(throwKeyBind.Value) or Enum.KeyCode.E
 	CurrentStabKeybind = parseInput(stabKeyBind.Value) or "MouseButton1"
 
@@ -162,6 +183,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if isThrowInput(input) and not charging then
 		charging = true
 		chargeStart = tick()
+		startChargeTween()
 	end
 
 	if CurrentStabKeybind == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -181,6 +203,7 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 		charging = false
 		local heldFor = tick() - chargeStart
 		local ratio = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
+		stopChargeTween()
 		throw(ratio)
 	end
 end)
