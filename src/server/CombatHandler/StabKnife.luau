@@ -154,6 +154,8 @@ function KnifeModule.Stab(player: Player)
 			task.wait()
 			if victimHum.Health <= 0 and victimPlayer then
 				MainGameModule.PlayersInGame[victimPlayer.UserId] = nil
+				MainGameModule.RecordElimination(victimPlayer)
+				MainGameModule.AddRoundKill(player)
 
 				local playerCount = 0
 				for _ in pairs(MainGameModule.PlayersInGame) do

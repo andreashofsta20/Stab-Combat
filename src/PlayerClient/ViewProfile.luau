@@ -22,6 +22,7 @@ local lastinventory = nil
 -- // MODULES // --
 local RarityImage = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local GetLevelModule = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("CalculateLevel"))
+local GetThumbnail = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GetThumbnail"))
 
 
 -- // UI // --
@@ -38,24 +39,51 @@ local InventoryItemsHolder = InventoryFrame:WaitForChild("Scroll")
 
 local BackButton = PlayerProfileFrame:WaitForChild("Back")
 
-
-
 local ItemTemplate = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("InventoryTemplates"):WaitForChild("KnifeInventoryTemplate")
 
 
-local function GetThumbnail(UserId : number)
-	local success , result = pcall(function()
-		return Players:GetUserThumbnailAsync(UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
-	end)
+local RoundHistory = PlayerInfoContainer:WaitForChild("RoundHistory")
+local RoundHistoryContainer = RoundHistory:WaitForChild("Scroll")
+local RoundHistoryTemplate = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("BattleHistoryPlayerTemplates"):WaitForChild("BattleHistory")
 
-	if success then
-		if result then
-			return result
+
+local function CreateHistoryTemplate(data : SharedTable)
+	local template = RoundHistoryTemplate:Clone()
+	template.Parent = RoundHistoryContainer
+	RoundHistory.Visible = true
+	RoundHistoryContainer.Visible = true
+	local Container  = template:WaitForChild("Container")
+
+
+	local Stats = Container:WaitForChild("Stats")
+	local Kills = Stats:WaitForChild("Kills#")
+	local Placement = Stats:WaitForChild("Placement#")
+	local PlrImage = Container:WaitForChild("Players"):WaitForChild("PlayerImage")
+	local PlrsInRound = Container:WaitForChild("Players"):WaitForChild("OtherPlayers"):WaitForChild("PlayerAmount")
+
+	local kills = data and data.Kills or 0
+	local placement = data and data.Placement or 0
+	local opponents = data and data.Opponents or 0
+	local userId = data and data.UserId or nil
+	Kills.Text = tostring(kills)
+	Placement.Text = "#" .. tostring(placement)
+	PlrsInRound.Text = tostring(opponents)
+	if userId then
+		PlrImage.Image = GetThumbnail.GetThumbnail(userId) or ""
+	end
+	return template
+	
+end
+
+local function ClearHistory()
+	for _, v in pairs(RoundHistoryContainer:GetChildren()) do
+		if v:IsA("Frame") then
+			v:Destroy()
 		end
-	else
-		print("couldnt find")
 	end
 end
+
+
 
 
 local function ClearInventory()
@@ -149,6 +177,7 @@ end
 local function LoadProfileUI(PlayerInfo)
 	ClearProfileUI()
 	ClearInventory()
+	ClearHistory()
 
 	local xp = PlayerInfo.XP or 0
 	local level, currentXP, toNext = GetLevelModule.GetLevel(xp)
@@ -164,7 +193,7 @@ local function LoadProfileUI(PlayerInfo)
 	PlayerInfoFrame.Level.Text = "Level: " .. tostring(level)
 
 	local ProfileContainer = PlayerInfoFrame:WaitForChild("ProfileContainer")
-	ProfileContainer.ProfileImg.Image = GetThumbnail(PlayerInfo.UserId)
+	ProfileContainer.ProfileImg.Image = GetThumbnail.GetThumbnail(PlayerInfo.UserId)
 
 	local StatFrame = PlayerInfoContainer:WaitForChild("StatsFrame")
 	StatFrame.Wins["Win#"].Text = PlayerInfo.Wins or "N/A"
@@ -186,6 +215,24 @@ local function LoadProfileUI(PlayerInfo)
 	NextLevelText.Text = tostring(level + 1)
 
 	PlayerProfileFrame:WaitForChild("Top"):WaitForChild("Text").Text = "Profile View"
+
+	if PlayerInfo and type(PlayerInfo.RoundHistory) == "table" and #PlayerInfo.RoundHistory > 0 then
+		for _, roundEntry in ipairs(PlayerInfo.RoundHistory) do
+			CreateHistoryTemplate({
+				UserId = PlayerInfo.UserId,
+				Kills = roundEntry.Kills,
+				Placement = roundEntry.Placement,
+				Opponents = roundEntry.Opponents,
+			})
+		end
+	elseif PlayerInfo and PlayerInfo.LastRound then
+		CreateHistoryTemplate({
+			UserId = PlayerInfo.UserId,
+			Kills = PlayerInfo.LastRound.Kills,
+			Placement = PlayerInfo.LastRound.Placement,
+			Opponents = PlayerInfo.LastRound.Opponents,
+		})
+	end
 end
 
 

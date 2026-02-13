@@ -1,6 +1,7 @@
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Player = game.Players.LocalPlayer
 
 -- Modules
@@ -33,6 +34,98 @@ local DailyRewardEmoteTemplate = DailyRewardTemplate:WaitForChild("DailyRewardEm
 local DailyRewardCashTemplate = DailyRewardTemplate:FindFirstChild("DailyRewardCashTemplate")
 	or DailyRewardTemplate:FindFirstChild("dailyRewardCashTemplate")
 local DailyRewardXPTemplate = DailyRewardTemplate:WaitForChild("DailyRewardXPTemplate")
+
+
+local IntermissionMap = game.Workspace:WaitForChild("IntermissionMap")
+local TouchToMakeDailyRewardsVisible = game.Workspace:WaitForChild("IntermissionMap"):WaitForChild("1_Selection"):WaitForChild("Touch")
+
+local touchMonitorConnection = nil
+local isInTouchZone = false
+
+
+local function MakeDesign(var : string)
+	if var == "Blue" then
+		for i , v in pairs(IntermissionMap:WaitForChild("1_Selection"):GetDescendants()) do
+			if v:IsA("Decal") then
+				v.Color3 = Color3.fromRGB(0, 152, 255)
+			end
+		end
+		elseif var == "White" then
+		for i , v in pairs(IntermissionMap:WaitForChild("1_Selection"):GetDescendants()) do
+			if v:IsA("Decal") then
+				v.Color3 = Color3.fromRGB(205, 205, 205)
+			end
+		end
+	end
+end
+
+local function isLocalPlayerTouching()
+	local character = Player.Character
+	if not character then
+		return false
+	end
+	for _, part in ipairs(TouchToMakeDailyRewardsVisible:GetTouchingParts()) do
+		if part:IsDescendantOf(character) then
+			return true
+		end
+	end
+	return false
+end
+
+local function stopTouchMonitor()
+	if touchMonitorConnection then
+		touchMonitorConnection:Disconnect()
+		touchMonitorConnection = nil
+	end
+end
+
+local function hideDailyRewards()
+	MakeDesign("White")
+	DailyRewardsFrame.Visible = false
+	stopTouchMonitor()
+end
+
+local function startTouchMonitor()
+	if touchMonitorConnection then
+		return
+	end
+	local elapsed = 0
+	touchMonitorConnection = RunService.Heartbeat:Connect(function(dt)
+		elapsed += dt
+		if elapsed < 0.15 then
+			return
+		end
+		elapsed = 0
+		if not isLocalPlayerTouching() then
+			hideDailyRewards()
+		end
+	end)
+end
+
+
+
+TouchToMakeDailyRewardsVisible.Touched:Connect(function(hit)
+	local character = hit.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if player and player == Player then
+		isInTouchZone = true
+		MakeDesign("Blue")
+		ClaimDailyRewardRemote:FireServer("GetStatus")
+		DailyRewardsFrame.Visible = true
+		startTouchMonitor()
+	end
+end)
+
+TouchToMakeDailyRewardsVisible.TouchEnded:Connect(function(hit)
+	local character = hit.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if player and player == Player then
+		isInTouchZone = false
+		hideDailyRewards()
+	end
+end)
+
+
 
 local function setText(label, value)
 	if label then
@@ -79,14 +172,14 @@ local function getRemainingText(remainingSeconds)
 	local minutes = math.floor((remainingSeconds % 3600) / 60)
 	if days > 0 then
 		if days == 1 then
-			return "1 DAY REMAINING"
+			return "1 DAY"
 		end
-		return tostring(days) .. " DAYS REMAINING"
+		return tostring(days) .. " DAYS"
 	end
 	if hours <= 0 then
-		return tostring(math.max(1, minutes)) .. " MIN REMAINING"
+		return tostring(math.max(1, minutes)) .. " MIN"
 	end
-	return tostring(hours) .. "H " .. tostring(minutes) .. "M REMAINING"
+	return tostring(hours) .. "H " .. tostring(minutes) .. "M"
 end
 
 local function getClaimFrameStatusLabel(frame)
@@ -208,16 +301,13 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 			rewardFrame.Parent = RewardsContainer
 		end
 	end
-
-	DailyRewardsFrame.Visible = true
 end)
 
 
 CloseButton.mouseButton1Click:Connect(function()
-    DailyRewardsFrame.Visible = false
+	hideDailyRewards()
 end)
 
-ClaimDailyRewardRemote:FireServer("GetStatus")
 
 
 return {}

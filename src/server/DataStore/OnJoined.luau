@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local RS = game:GetService("ReplicatedStorage")
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11")
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111")
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
@@ -44,17 +44,20 @@ local function savePlayerData(player)
 	local settingsData = {
 		MusicSetting = true,
 		LobbySetting = false,
-		Notifications = true
+		Notifications = true,
+		Trades = true
 	}
 
 	if settingsFolder then
 		local musicValue = settingsFolder:FindFirstChild("Music")
 		local lobbyValue = settingsFolder:FindFirstChild("LobbyMode")
 		local notifValue = settingsFolder:FindFirstChild("Notifications")
+		local tradesValue = settingsFolder:FindFirstChild("Trades")
 
 		if musicValue then settingsData.MusicSetting = musicValue.Value end
 		if lobbyValue then settingsData.LobbySetting = lobbyValue.Value end
 		if notifValue then settingsData.Notifications = notifValue.Value end
+		if tradesValue then settingsData.Trades = tradesValue.Value end
 	end
 
 	local emotesFolder = leaderstats:FindFirstChild("Emotes")
@@ -91,6 +94,8 @@ local function savePlayerData(player)
 
 
 	local dataToSave = {
+		Name = player.Name,
+		DisplayName = player.DisplayName,
 		Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
 		XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
 		Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
@@ -107,12 +112,23 @@ local function savePlayerData(player)
 			Streak = player:GetAttribute("DailyStreak") or 0,
 			DayIndex = player:GetAttribute("DailyDayIndex") or 0,
 		},
+		LastRound = {
+			Opponents = player:GetAttribute("LastRoundOpponents") or 0,
+			Kills = player:GetAttribute("LastRoundKills") or 0,
+			Placement = player:GetAttribute("LastRoundPlacement") or 0,
+		},
 	}
 
 	print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
 
 	local success, err = pcall(function()
-		playerDataStore:SetAsync(player.UserId, dataToSave)
+		playerDataStore:UpdateAsync(player.UserId, function(oldData)
+			if type(oldData) ~= "table" then
+				oldData = {}
+			end
+			dataToSave.RoundHistory = oldData.RoundHistory or {}
+			return dataToSave
+		end)
 	end)
 
 	if success then
@@ -193,6 +209,10 @@ Players.PlayerAdded:Connect(function(player)
 	Notifications.Name = "Notifications"
 	Notifications.Parent = Settings
 
+	local Trades = Instance.new("BoolValue")
+	Trades.Name = "Trades"
+	Trades.Parent = Settings
+
 
 	local Emotes = Instance.new("Folder")
 	Emotes.Name = "Emotes"
@@ -255,10 +275,17 @@ Players.PlayerAdded:Connect(function(player)
 			else
 				Notifications.Value = true
 			end
+
+			if data.Settings.Trades ~= nil then
+				Trades.Value = data.Settings.Trades
+			else
+				Trades.Value = true
+			end
 		else
 			MusicSetting.Value = true
 			LobbySetting.Value = false
 			Notifications.Value = true
+			Trades.Value = true
 		end
 		
 		
@@ -336,6 +363,16 @@ Players.PlayerAdded:Connect(function(player)
 			player:SetAttribute("DailyStreak", 0)
 			player:SetAttribute("DailyDayIndex", 0)
 		end
+
+		if data.LastRound and type(data.LastRound) == "table" then
+			player:SetAttribute("LastRoundOpponents", data.LastRound.Opponents or 0)
+			player:SetAttribute("LastRoundKills", data.LastRound.Kills or 0)
+			player:SetAttribute("LastRoundPlacement", data.LastRound.Placement or 0)
+		else
+			player:SetAttribute("LastRoundOpponents", 0)
+			player:SetAttribute("LastRoundKills", 0)
+			player:SetAttribute("LastRoundPlacement", 0)
+		end
 	else
 		-- First time player or data failed to load
 		print("Setting default values for", player.Name)
@@ -348,11 +385,15 @@ Players.PlayerAdded:Connect(function(player)
 		MusicSetting.Value = true
 		LobbySetting.Value = false
 		Notifications.Value = true
+		Trades.Value = true
 		EquippedKnife.Value = "Shadow Dagger"
 		test.AddKnife(player, "Shadow Dagger")
 		player:SetAttribute("DailyLastClaimDay", 0)
 		player:SetAttribute("DailyStreak", 0)
 		player:SetAttribute("DailyDayIndex", 0)
+		player:SetAttribute("LastRoundOpponents", 0)
+		player:SetAttribute("LastRoundKills", 0)
+		player:SetAttribute("LastRoundPlacement", 0)
 		
 		
 		
