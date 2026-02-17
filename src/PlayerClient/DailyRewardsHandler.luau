@@ -40,7 +40,10 @@ local IntermissionMap = game.Workspace:WaitForChild("IntermissionMap")
 local TouchToMakeDailyRewardsVisible = game.Workspace:WaitForChild("IntermissionMap"):WaitForChild("1_Selection"):WaitForChild("Touch")
 
 local touchMonitorConnection = nil
+local countdownConnection = nil
 local isInTouchZone = false
+local lastClaimTime = 0
+local CLAIM_COOLDOWN = 0.5
 
 
 local function MakeDesign(var : string)
@@ -50,7 +53,7 @@ local function MakeDesign(var : string)
 				v.Color3 = Color3.fromRGB(0, 152, 255)
 			end
 		end
-		elseif var == "White" then
+	elseif var == "White" then
 		for i , v in pairs(IntermissionMap:WaitForChild("1_Selection"):GetDescendants()) do
 			if v:IsA("Decal") then
 				v.Color3 = Color3.fromRGB(205, 205, 205)
@@ -79,10 +82,18 @@ local function stopTouchMonitor()
 	end
 end
 
+local function stopCountdown()
+	if countdownConnection then
+		countdownConnection:Disconnect()
+		countdownConnection = nil
+	end
+end
+
 local function hideDailyRewards()
 	MakeDesign("White")
 	DailyRewardsFrame.Visible = false
 	stopTouchMonitor()
+	stopCountdown()
 end
 
 local function startTouchMonitor()
@@ -155,31 +166,32 @@ local function applyRarity(container, rarityName)
 	end
 end
 
-local function getRemainingSeconds(status)
-	if status and status.RemainingSeconds and status.RemainingSeconds > 0 then
-		return status.RemainingSeconds
-	end
-	local secondsLeft = 86400 - (os.time() % 86400)
-	return math.max(0, secondsLeft)
-end
+
+
 
 local function getRemainingText(remainingSeconds)
 	if not remainingSeconds or remainingSeconds <= 0 then
-		return ""
+		return "READY"
 	end
 	local days = math.floor(remainingSeconds / 86400)
 	local hours = math.floor((remainingSeconds % 86400) / 3600)
 	local minutes = math.floor((remainingSeconds % 3600) / 60)
+	local seconds = remainingSeconds % 60
+	
 	if days > 0 then
 		if days == 1 then
 			return "1 DAY"
 		end
 		return tostring(days) .. " DAYS"
 	end
-	if hours <= 0 then
-		return tostring(math.max(1, minutes)) .. " MIN"
+	if hours > 0 then
+		return tostring(hours) .. "H " .. tostring(minutes) .. "M"
 	end
-	return tostring(hours) .. "H " .. tostring(minutes) .. "M"
+	if minutes > 0 then
+		return tostring(minutes) .. " MIN"
+	end
+	-- For testing with 10 second days, show seconds
+	return tostring(seconds) .. " SEC"
 end
 
 local function getClaimFrameStatusLabel(frame)
@@ -190,10 +202,60 @@ local function getClaimFrameStatusLabel(frame)
 	return claimFrame:FindFirstChild("StatusLabel")
 end
 
+local currentStatus = nil
+
+local function startCountdownTimer()
+	stopCountdown()
+
+	if not currentStatus then
+		return
+	end
+
+	local remainingSeconds = currentStatus.RemainingSeconds
+	local lastUpdateTime = tick()
+
+	countdownConnection = RunService.Heartbeat:Connect(function()
+		local now = tick()
+
+		if now - lastUpdateTime < 1 then
+			return
+		end
+
+		lastUpdateTime = now
+
+		if remainingSeconds <= 0 then
+			stopCountdown()
+			ClaimDailyRewardRemote:FireServer("GetStatus")
+			return
+		end
+
+		remainingSeconds -= 1
+
+		for _, child in pairs(RewardsContainer:GetChildren()) do
+			if child:IsA("Frame") then
+				local dayIndex = child.LayoutOrder
+				local statusLabel = getClaimFrameStatusLabel(child)
+
+				if statusLabel and currentStatus then
+					if currentStatus.ClaimedToday and dayIndex == currentStatus.LastClaimedIndex then
+    					setText(statusLabel, getRemainingText(remainingSeconds))
+					end
+				end
+			end
+		end
+	end)
+end
+
+
 DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 	if not status or not status.Rewards then
 		return
 	end
+
+	local remainingSeconds = status.RemainingSeconds
+
+	currentStatus = status
+
 
 	if not RewardsContainer then
 		warn("DailyRewardsHandler: RewardsContainer not found")
@@ -208,6 +270,7 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 
 	for dayIndex, rewardInfo in ipairs(status.Rewards) do
 		local rewardFrame
+		local isClaimable = false
 
 		if rewardInfo.Item then
 			if rewardInfo.Item.Type == "Knife" then
@@ -216,12 +279,6 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 
 				local ClaimFrame = rewardFrame.ClaimFrame
 				if ClaimFrame then
-					local ClaimButton = ClaimFrame:FindFirstChild("ClaimButton")
-					if ClaimButton then
-						ClaimButton.MouseButton1Click:Connect(function()
-							ClaimDailyRewardRemote:FireServer("Claim", dayIndex)
-						end)
-					end
 					local dayText = ClaimFrame:FindFirstChild("DayText")
 					if dayText then
 						dayText.Text = "Day " .. tostring(dayIndex)
@@ -241,12 +298,12 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 						KnifeImage.Image = knifeData.Image
 					end
 				end
-				setText(rewardFrame.KnifeInventoryTemplate:FindFirstChild("KnifeName"), rewardInfo.Item.Name)
 			elseif rewardInfo.Item.Type == "Emote" then
 				rewardFrame = DailyRewardEmoteTemplate:Clone()
 				local emoteData = EmotesInfo[rewardInfo.Item.Name]
 				local rarityName = rewardInfo.Item.Rarity or (emoteData and emoteData.Rarity)
 				local emoteInfo = rewardFrame:FindFirstChild("EmoteInventoryTemplate")
+
 				if emoteInfo then
 					setText(emoteInfo:FindFirstChild("EmoteName"), rewardInfo.Item.Name)
 					setText(emoteInfo:FindFirstChild("EmoteRarity"), rarityName)
@@ -270,41 +327,77 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 				end
 			end
 		elseif rewardInfo.Cash then
-			if DailyRewardCashTemplate then
-				rewardFrame = DailyRewardCashTemplate:Clone()
-				setText(rewardFrame:WaitForChild("DailyRewardCash"):FindFirstChild("CashAmount"), "+" .. rewardInfo.Cash .. " GOLD")
-			end
+			rewardFrame = DailyRewardCashTemplate:Clone()
+			setText(rewardFrame:WaitForChild("DailyRewardCash"):FindFirstChild("CashAmount"), "+" .. rewardInfo.Cash .. " Cash")
 		elseif rewardInfo.XP then
 			rewardFrame = DailyRewardXPTemplate:Clone()
-			setText(rewardFrame:waitForChild("DailyRewardXP"):FindFirstChild("XPAmount"), "+" .. rewardInfo.XP .. " XP")
+			setText(rewardFrame:WaitForChild("DailyRewardXP"):FindFirstChild("XPAmount"), "+" .. rewardInfo.XP .. " XP")
 		end
 
 		if rewardFrame then
 			rewardFrame.LayoutOrder = dayIndex
-			setText(rewardFrame:FindFirstChild("ClaimFrame"):FindFirstChild("DayText"), "Day " .. tostring(dayIndex))
+			local claimFrame = rewardFrame:FindFirstChild("ClaimFrame")
+			if claimFrame then
+				setText(claimFrame:FindFirstChild("DayText"), "Day " .. tostring(dayIndex))
+			end
+			
+			-- Determine status and if it's claimable
+			local statusText = ""
 			if dayIndex < status.CurrentDayIndex then
-				setText(getClaimFrameStatusLabel(rewardFrame), "CLAIMED")
+				-- Days before current = already claimed in this cycle
+				statusText = "CLAIMED"
+				isClaimable = false
 			elseif dayIndex == status.CurrentDayIndex then
 				if status.ClaimedToday then
-					setText(getClaimFrameStatusLabel(rewardFrame), "CLAIMED")
+					statusText = getRemainingText(status.RemainingSeconds)
+					isClaimable = false
 				else
-					setText(getClaimFrameStatusLabel(rewardFrame), "CLICK TO CLAIM")
+					statusText = "CLICK TO CLAIM"
+					isClaimable = true
 				end
 			else
-				if status.ClaimedToday and dayIndex == status.CurrentDayIndex + 1 then
-					local baseSeconds = getRemainingSeconds(status)
-					setText(getClaimFrameStatusLabel(rewardFrame), getRemainingText(baseSeconds))
+				statusText = "LOCKED"
+				isClaimable = false
+			end
+			
+			setText(getClaimFrameStatusLabel(rewardFrame), statusText)
+			
+			-- Setup the claim button with proper clickability
+			local claimButton = claimFrame and claimFrame:FindFirstChild("ClaimButton")
+			if claimButton then
+				if isClaimable then
+					-- Only connect if this day is claimable
+					claimButton.MouseButton1Click:Connect(function()
+						-- Prevent spam clicking
+						local currentTime = tick()
+						if currentTime - lastClaimTime < CLAIM_COOLDOWN then
+							print("Claim cooldown active, please wait...")
+							return
+						end
+						lastClaimTime = currentTime
+						
+						print("Claiming day: " .. tostring(dayIndex))
+						ClaimDailyRewardRemote:FireServer("Claim", dayIndex)
+						
+
+					end)
 				else
-					setText(getClaimFrameStatusLabel(rewardFrame), "LOCKED")
+					-- Make button visually indicate it's not clickable (optional)
+					claimButton.Active = false
+					claimButton.AutoButtonColor = false
 				end
 			end
+			
 			rewardFrame.Parent = RewardsContainer
 		end
 	end
+	
+	-- Start the countdown timer
+	startCountdownTimer()
 end)
 
 
-CloseButton.mouseButton1Click:Connect(function()
+CloseButton.MouseButton1Click:Connect(function()
 	hideDailyRewards()
 end)
 

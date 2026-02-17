@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local RS = game:GetService("ReplicatedStorage")
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111")
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST1")
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
@@ -110,7 +110,6 @@ local function savePlayerData(player)
 		DailyRewards = {
 			LastClaimDay = player:GetAttribute("DailyLastClaimDay") or 0,
 			Streak = player:GetAttribute("DailyStreak") or 0,
-			DayIndex = player:GetAttribute("DailyDayIndex") or 0,
 		},
 		LastRound = {
 			Opponents = player:GetAttribute("LastRoundOpponents") or 0,
@@ -357,11 +356,9 @@ Players.PlayerAdded:Connect(function(player)
 		if data.DailyRewards and type(data.DailyRewards) == "table" then
 			player:SetAttribute("DailyLastClaimDay", data.DailyRewards.LastClaimDay or 0)
 			player:SetAttribute("DailyStreak", data.DailyRewards.Streak or 0)
-			player:SetAttribute("DailyDayIndex", data.DailyRewards.DayIndex or 0)
 		else
 			player:SetAttribute("DailyLastClaimDay", 0)
 			player:SetAttribute("DailyStreak", 0)
-			player:SetAttribute("DailyDayIndex", 0)
 		end
 
 		if data.LastRound and type(data.LastRound) == "table" then
@@ -390,7 +387,6 @@ Players.PlayerAdded:Connect(function(player)
 		test.AddKnife(player, "Shadow Dagger")
 		player:SetAttribute("DailyLastClaimDay", 0)
 		player:SetAttribute("DailyStreak", 0)
-		player:SetAttribute("DailyDayIndex", 0)
 		player:SetAttribute("LastRoundOpponents", 0)
 		player:SetAttribute("LastRoundKills", 0)
 		player:SetAttribute("LastRoundPlacement", 0)
@@ -438,4 +434,6 @@ game:BindToClose(function()
 	task.wait(3) -- Give time for saves to complete
 end)
 
-return {}
+return {
+	SavePlayerData = savePlayerData
+}
