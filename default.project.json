@@ -30,9 +30,6 @@
       },
 
       "StarterCharacterScripts": {
-        "Client": {
-          "$path": "src/CharacterClient"
-        }
       }
     },
 

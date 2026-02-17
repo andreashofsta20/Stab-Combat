@@ -61,17 +61,21 @@ local function CreateHistoryTemplate(data : SharedTable)
 	local PlrImage = Container:WaitForChild("Players"):WaitForChild("PlayerImage")
 	local PlrsInRound = Container:WaitForChild("Players"):WaitForChild("OtherPlayers"):WaitForChild("PlayerAmount")
 
-	local kills = data and data.Kills or 0
-	local placement = data and data.Placement or 0
-	local opponents = data and data.Opponents or 0
-	local userId = data and data.UserId or nil
-	Kills.Text = tostring(kills)
-	Placement.Text = "#" .. tostring(placement)
-	PlrsInRound.Text = tostring(opponents)
-	if userId then
-		PlrImage.Image = GetThumbnail.GetThumbnail(userId) or ""
-	end
-	return template
+	   local kills = data and data.Kills or 0
+	   local placement = data and data.Placement or nil
+	   local opponents = data and data.Opponents or 0
+	   local userId = data and data.UserId or nil
+	   Kills.Text = tostring(kills)
+	   if placement and placement > 0 then
+		   Placement.Text = "#" .. tostring(placement)
+	   else
+		   Placement.Text = "-"
+	   end
+	   PlrsInRound.Text = tostring(opponents)
+	   if userId then
+		   PlrImage.Image = GetThumbnail.GetThumbnail(userId) or ""
+	   end
+	   return template
 	
 end
 
@@ -216,23 +220,28 @@ local function LoadProfileUI(PlayerInfo)
 
 	PlayerProfileFrame:WaitForChild("Top"):WaitForChild("Text").Text = "Profile View"
 
-	if PlayerInfo and type(PlayerInfo.RoundHistory) == "table" and #PlayerInfo.RoundHistory > 0 then
-		for _, roundEntry in ipairs(PlayerInfo.RoundHistory) do
-			CreateHistoryTemplate({
-				UserId = PlayerInfo.UserId,
-				Kills = roundEntry.Kills,
-				Placement = roundEntry.Placement,
-				Opponents = roundEntry.Opponents,
-			})
-		end
-	elseif PlayerInfo and PlayerInfo.LastRound then
-		CreateHistoryTemplate({
-			UserId = PlayerInfo.UserId,
-			Kills = PlayerInfo.LastRound.Kills,
-			Placement = PlayerInfo.LastRound.Placement,
-			Opponents = PlayerInfo.LastRound.Opponents,
-		})
-	end
+	   if PlayerInfo and type(PlayerInfo.RoundHistory) == "table" and #PlayerInfo.RoundHistory > 0 then
+		   -- Show newest rounds on the left (lowest LayoutOrder)
+		   for i, roundEntry in ipairs(PlayerInfo.RoundHistory) do
+			   if roundEntry.Placement and roundEntry.Placement > 0 then
+				   local template = CreateHistoryTemplate({
+					   UserId = PlayerInfo.UserId,
+					   Kills = roundEntry.Kills,
+					   Placement = roundEntry.Placement,
+					   Opponents = roundEntry.Opponents,
+				   })
+				   -- Newest round gets LayoutOrder 0, next 1, etc.
+				   template.LayoutOrder = i - 1
+			   end
+		   end
+	   elseif PlayerInfo and PlayerInfo.LastRound and PlayerInfo.LastRound.Placement and PlayerInfo.LastRound.Placement > 0 then
+		   CreateHistoryTemplate({
+			   UserId = PlayerInfo.UserId,
+			   Kills = PlayerInfo.LastRound.Kills,
+			   Placement = PlayerInfo.LastRound.Placement,
+			   Opponents = PlayerInfo.LastRound.Opponents,
+		   })
+	   end
 end
 
 

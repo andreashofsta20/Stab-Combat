@@ -2,7 +2,7 @@ local GetPlayerInfo = {}
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11")
+local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11_")
 
 function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}

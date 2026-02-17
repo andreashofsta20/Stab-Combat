@@ -231,18 +231,18 @@ local function startCountdownTimer()
 
 		remainingSeconds -= 1
 
-		for _, child in pairs(RewardsContainer:GetChildren()) do
-			if child:IsA("Frame") then
-				local dayIndex = child.LayoutOrder
-				local statusLabel = getClaimFrameStatusLabel(child)
+		   for _, child in pairs(RewardsContainer:GetChildren()) do
+			   if child:IsA("Frame") then
+				   local dayIndex = child.LayoutOrder
+				   local statusLabel = getClaimFrameStatusLabel(child)
 
-				if statusLabel and currentStatus then
-					if currentStatus.ClaimedToday and dayIndex == currentStatus.LastClaimedIndex then
-    					setText(statusLabel, getRemainingText(remainingSeconds))
-					end
-				end
-			end
-		end
+				   if statusLabel and currentStatus then
+					   if currentStatus.ClaimedToday and dayIndex == currentStatus.CurrentDayIndex then
+						   setText(statusLabel, getRemainingText(remainingSeconds))
+					   end
+				   end
+			   end
+		   end
 	end)
 end
 
@@ -344,16 +344,18 @@ DailyRewardClientRemote.OnClientEvent:Connect(function(status)
 			-- Determine status and if it's claimable
 			local statusText = ""
 			if dayIndex < status.CurrentDayIndex then
-				-- Days before current = already claimed in this cycle
 				statusText = "CLAIMED"
 				isClaimable = false
 			elseif dayIndex == status.CurrentDayIndex then
 				if status.ClaimedToday then
 					statusText = getRemainingText(status.RemainingSeconds)
 					isClaimable = false
-				else
+				elseif status.CanClaim then
 					statusText = "CLICK TO CLAIM"
 					isClaimable = true
+				else
+					statusText = "LOCKED"
+					isClaimable = false
 				end
 			else
 				statusText = "LOCKED"

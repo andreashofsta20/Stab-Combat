@@ -12,7 +12,7 @@ local ClaimDailyRewardRemote = DailyRewardsRemotesFolder:WaitForChild("ClaimDail
 local DailyRewardClientRemote = DailyRewardsRemotesFolder:WaitForChild("DailyRewardClient")
 
 local REWARD_CYCLE = 14
-local DAY_LENGTH = 86400
+local DAY_LENGTH = 10
 
 -- Server anti-spam
 local CLAIM_COOLDOWN = 1
@@ -35,46 +35,75 @@ local Rewards = {
 	[14] = { Item = { Type = "Knife", Name = "Butterfly" }, XP = 250 },
 }
 
-local function currentDay()
-	return math.floor(os.time(os.date("!*t")) / DAY_LENGTH)
+local function getNow()
+	return os.time(os.date("!*t"))
 end
 
-local function secondsUntilNextClaim()
-	local now = os.time(os.date("!*t"))
-	local nextDayStart = (math.floor(now / DAY_LENGTH) + 1) * DAY_LENGTH
-	return math.max(0, nextDayStart - now)
+local function secondsUntilNextClaim(lastClaimTime)
+	local now = getNow()
+	local last = lastClaimTime or 0
+	local nextClaim = last + DAY_LENGTH
+	return math.max(0, nextClaim - now)
 end
 
 local function getStatus(player)
-	local today = currentDay()
-	local lastClaimDay = player:GetAttribute("DailyLastClaimDay") or 0
-	local streak = player:GetAttribute("DailyStreak") or 0
+   local now = getNow()
+   local leaderstats = player:FindFirstChild("leaderstats")
+   local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
+   local lastClaimTime = 0
+   local streak = 0
+   if drFolder then
+	   local lct = drFolder:FindFirstChild("LastClaimTime")
+	   local stv = drFolder:FindFirstChild("Streak")
+	   lastClaimTime = lct and lct.Value or 0
+	   streak = stv and stv.Value or 0
+   end
 
-	local claimedToday = (lastClaimDay == today)
+   local claimedToday = false
+   if lastClaimTime > 0 and now - lastClaimTime < DAY_LENGTH then
+	   claimedToday = true
+   end
 
-	local lastClaimedIndex = 0
-	local nextClaimIndex = 1
+   -- If last claim was more than one day ago, reset streak
+   local streakReset = false
+   if lastClaimTime == 0 or now - lastClaimTime > DAY_LENGTH * 1.5 then
+	   streak = 0
+	   streakReset = true
+   end
 
-	if streak > 0 then
-		lastClaimedIndex = ((streak - 1) % REWARD_CYCLE) + 1
-		if not claimedToday then
-			nextClaimIndex = ((streak) % REWARD_CYCLE) + 1
-		else
-			nextClaimIndex = lastClaimedIndex + 1
-			if nextClaimIndex > REWARD_CYCLE then
-				nextClaimIndex = 1
-			end
-		end
-	end
+   local lastClaimedIndex = 0
+   local nextClaimIndex = 1
+   if streak > 0 then
+	   lastClaimedIndex = ((streak - 1) % REWARD_CYCLE) + 1
+	   if not claimedToday then
+		   nextClaimIndex = ((streak) % REWARD_CYCLE) + 1
+	   else
+		   nextClaimIndex = lastClaimedIndex + 1
+		   if nextClaimIndex > REWARD_CYCLE then
+			   nextClaimIndex = 1
+		   end
+	   end
+   end
 
-	return {
-		Rewards = Rewards,
-		CurrentDayIndex = nextClaimIndex,
-		LastClaimedIndex = lastClaimedIndex,
-		ClaimedToday = claimedToday,
-		RemainingSeconds = secondsUntilNextClaim(),
-		Streak = streak,
-	}
+   -- Only allow claiming day 1 if streak was reset
+   local canClaim = false
+   if not claimedToday then
+	   if streakReset then
+		   canClaim = (nextClaimIndex == 1)
+	   else
+		   canClaim = true
+	   end
+   end
+
+   return {
+	   Rewards = Rewards,
+	   CurrentDayIndex = nextClaimIndex,
+	   LastClaimedIndex = lastClaimedIndex,
+	   ClaimedToday = claimedToday,
+	   CanClaim = canClaim,
+	   RemainingSeconds = secondsUntilNextClaim(lastClaimTime),
+	   Streak = streak,
+   }
 end
 
 
@@ -107,57 +136,82 @@ local function applyReward(player, reward)
 end
 
 local function claim(player, requestedDayIndex)
+   if typeof(requestedDayIndex) ~= "number" then
+	   return false, "Invalid request"
+   end
 
-	if typeof(requestedDayIndex) ~= "number" then
-		return false, "Invalid request"
-	end
+   -- server anti-spam
+   local nowTick = tick()
+   if lastClaimTimes[player] and nowTick - lastClaimTimes[player] < CLAIM_COOLDOWN then
+	   return false, "Slow down"
+   end
+   lastClaimTimes[player] = nowTick
 
-	-- server anti-spam
-	local nowTick = tick()
-	if lastClaimTimes[player] and nowTick - lastClaimTimes[player] < CLAIM_COOLDOWN then
-		return false, "Slow down"
-	end
-	lastClaimTimes[player] = nowTick
+   local now = getNow()
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
+	local lct = drFolder and drFolder:FindFirstChild("LastClaimTime")
+	local stv = drFolder and drFolder:FindFirstChild("Streak")
+	local lastClaimTime = lct and lct.Value or 0
+	local streak = stv and stv.Value or 0
 
-	local today = currentDay()
-	local lastClaimDay = player:GetAttribute("DailyLastClaimDay") or 0
-	local streak = player:GetAttribute("DailyStreak") or 0
 
-	if lastClaimDay == today then
-		return false, "Already claimed"
-	end
+   -- Already claimed today
+   if lastClaimTime > 0 and now - lastClaimTime < DAY_LENGTH then
+	   return false, "Already claimed"
+   end
 
-	if lastClaimDay ~= 0 and today - lastClaimDay > 1 then
-		streak = 0
-	end
+   -- Missed a day, reset streak
+   local streakReset = false
+   if lastClaimTime == 0 or now - lastClaimTime > DAY_LENGTH * 1.5 then
+	   streak = 0
+	   streakReset = true
+   end
 
-	if lastClaimDay == today - 1 then
-		streak += 1
-	else
-		streak = 1
-	end
+   local correctIndex = 1
+   if streakReset then
+	   correctIndex = 1
+   else
+	   if lastClaimTime == 0 then
+		   correctIndex = 1
+	   elseif now - lastClaimTime >= DAY_LENGTH then
+		   correctIndex = ((streak) % REWARD_CYCLE) + 1
+	   else
+		   return false, "Not available"
+	   end
+   end
 
-	local correctIndex = ((streak - 1) % REWARD_CYCLE) + 1
+   -- Only allow claiming day 1 if streak was reset
+   if requestedDayIndex == 1 and not streakReset then
+	   return false, "Not available"
+   end
 
-	if requestedDayIndex ~= correctIndex then
-		return false, "Not available"
-	end
+   -- Increment streak
+   if streakReset then
+	   streak = 1
+   else
+	   streak = streak + 1
+   end
 
-	local reward = Rewards[correctIndex]
-	if not reward then
-		return false, "Invalid reward"
-	end
+   if requestedDayIndex ~= correctIndex then
+	   return false, "Not available"
+   end
 
-	applyReward(player, reward)
+   local reward = Rewards[correctIndex]
+   if not reward then
+	   return false, "Invalid reward"
+   end
 
-	player:SetAttribute("DailyLastClaimDay", today)
-	player:SetAttribute("DailyStreak", streak)
+   applyReward(player, reward)
 
-	task.spawn(function()
-		OnJoined.SavePlayerData(player)
-	end)
+	if lct then lct.Value = now end
+	if stv then stv.Value = streak end
 
-	return true
+   task.spawn(function()
+	   OnJoined.SavePlayerData(player)
+   end)
+
+   return true
 end
 
 ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action, dayIndex)
@@ -182,6 +236,9 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastClaimTimes[player] = nil
+	-- Always save on leave
+	task.wait(0.1) -- Give time for any last updates
+	OnJoined.SavePlayerData(player)
 end)
 
 return {

@@ -26,14 +26,16 @@ local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 local GameRewardModule = require(script.Parent:WaitForChild("GameReward"))
 local SpawnMapModule = require(script.Parent:WaitForChild("SpawnMap"))
 
-MainGame.TestMode = game:GetService("RunService"):IsStudio()
+MainGame.TestMode = false
 
 
 
 local Players = game:GetService("Players")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11")
+local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST1_")
 
 MainGame.RoundStats = nil
+-- Track elimination order for professional placement
+local eliminationOrder = {}
 
 local function CountPlayersInGame()
 	local n = 0
@@ -80,17 +82,9 @@ function MainGame.RecordElimination(player: Player, remainingAfterRemoval: numbe
 	local stats = MainGame.RoundStats
 	if not stats then return end
 	local data = stats.players[player.UserId]
-	if not data or data.placement ~= nil then return end
-
-	local remaining = remainingAfterRemoval
-	if remaining == nil then
-		remaining = 0
-		for _ in pairs(MainGame.PlayersInGame) do
-			remaining += 1
-		end
-	end
-
-	data.placement = remaining + 1
+	   if not data or data.placement ~= nil then return end
+	   table.insert(eliminationOrder, player.UserId)
+	   -- Placement will be assigned at round end
 end
 
 local RoundHistoryMax = 10
@@ -129,12 +123,60 @@ local function FinalizeRoundStats()
 	local stats = MainGame.RoundStats
 	if not stats then return end
 
-	for userId in pairs(MainGame.PlayersInGame) do
-		local data = stats.players[userId]
-		if data and data.placement == nil then
-			data.placement = 1
+	-- Assign placements with strict survivor/eliminated separation and validation
+	local totalPlayers = stats.startCount or 0
+	local survivors = {}
+	local eliminatedSet = {}
+	-- Build survivors and eliminated sets
+	for userId, data in pairs(stats.players) do
+		eliminatedSet[userId] = false
+	end
+	for _, userId in ipairs(eliminationOrder) do
+		eliminatedSet[userId] = true
+	end
+	for userId, data in pairs(stats.players) do
+		if not eliminatedSet[userId] then
+			table.insert(survivors, {userId = userId, kills = data.kills or 0})
 		end
 	end
+	-- Sort survivors by kills desc, then random
+	table.sort(survivors, function(a, b)
+		if a.kills == b.kills then
+			return math.random() < 0.5
+		end
+		return a.kills > b.kills
+	end)
+	-- Assign 1st, 2nd, ... to survivors
+	local placementMap = {}
+	for i, entry in ipairs(survivors) do
+		local data = stats.players[entry.userId]
+		data.placement = i
+		placementMap[entry.userId] = i
+	end
+	-- Assign next placements to eliminated players in reverse elimination order
+	local place = #survivors + 1
+	for i = #eliminationOrder, 1, -1 do
+		local userId = eliminationOrder[i]
+		local data = stats.players[userId]
+		if data then
+			data.placement = place
+			placementMap[userId] = place
+			place = place + 1
+		end
+	end
+	-- Validation: ensure all placements are unique and in range
+	local seen = {}
+	for userId, placement in pairs(placementMap) do
+		if seen[placement] then
+			warn("Duplicate placement detected for userId:", userId, "placement:", placement)
+		end
+		seen[placement] = true
+		if placement < 1 or placement > totalPlayers then
+			warn("Invalid placement for userId:", userId, "placement:", placement, "total:", totalPlayers)
+		end
+	end
+	-- Reset elimination order for next round
+	eliminationOrder = {}
 
 	local opponents = math.max(stats.startCount - 1, 0)
 	for userId, data in pairs(stats.players) do
@@ -161,17 +203,21 @@ local function BuildRoundResults()
 	end
 
 	local playerResults = {}
-	for userId, data in pairs(stats.players) do
-		local player = Players:GetPlayerByUserId(userId)
-		local name = player and player.Name or tostring(userId)
-		table.insert(playerResults, {
-			UserId = userId,
-			Name = name,
-			Kills = data.kills or 0,
-			Placement = data.placement or 0,
-			IsWinner = (data.placement == 1),
-		})
-	end
+	   for userId, data in pairs(stats.players) do
+		   local player = Players:GetPlayerByUserId(userId)
+		   local name = player and player.Name or tostring(userId)
+		   local placement = data.placement
+		   if not placement or placement < 1 then
+			   placement = stats.startCount or 1
+		   end
+		   table.insert(playerResults, {
+			   UserId = userId,
+			   Name = name,
+			   Kills = data.kills or 0,
+			   Placement = placement,
+			   IsWinner = (placement == 1),
+		   })
+	   end
 
 	table.sort(playerResults, function(a, b)
 		if a.Placement == b.Placement then
@@ -232,14 +278,17 @@ function MainGame.OnDeath(player: Player)
 		MainGame.RecordElimination(player, remainingAfterRemoval)
 		MainGame.PlayersInGame[userId] = nil
 
-		local character = player.Character
-		if character then
-			local hrp = character:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				hrp.CFrame = workspace:WaitForChild("IntermissionMap"):WaitForChild("Map"):WaitForChild(tostring(math.random(1,6))).CFrame
-			end
-
-		end
+		   local character = player.Character
+		   if character then
+			   local hrp = character:FindFirstChild("HumanoidRootPart")
+			   if hrp then
+				   -- Teleport to intermission lobby spawn
+				   local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1,4)))
+				   if spawnPoint then
+					   hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
+				   end
+			   end
+		   end
 
 
 		local leaderstatsDeaths = player:WaitForChild("leaderstats"):WaitForChild("Deaths")
@@ -378,10 +427,30 @@ function MainGame.StartGame(map)
 	RoundHandlerModule.ChangeStatus("Game ended")
 	FinalizeRoundStats()
 	ApplyRoundRewards(PlayerTotal)
-	local gameResults, playerResults = BuildRoundResults()
-	if gameResults and playerResults then
-		GetRoundResultsRemote:FireAllClients(gameResults, playerResults)
-	end
+
+	   local gameResults, playerResults = BuildRoundResults()
+	   if gameResults and playerResults then
+		   GetRoundResultsRemote:FireAllClients(gameResults, playerResults)
+	   end
+
+	   -- Reset WinStreak for all non-winners
+	   local winners = {}
+	   if gameResults and gameResults.Winners then
+		   for _, entry in ipairs(gameResults.Winners) do
+			   winners[entry.UserId] = true
+		   end
+	   end
+	   for userId, _ in pairs(MainGame.RoundStats and MainGame.RoundStats.players or {}) do
+		   if not winners[userId] then
+			   local player = Players:GetPlayerByUserId(userId)
+			   if player then
+				   local leaderstatsWinStreak = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("WinStreak")
+				   if leaderstatsWinStreak then
+					   leaderstatsWinStreak.Value = 0
+				   end
+			   end
+		   end
+	   end
 
 	task.wait(2)
 	for i , v in pairs(MainGame.PlayersInGame) do

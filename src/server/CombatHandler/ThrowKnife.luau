@@ -229,6 +229,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 				hitHumanoid.Died:Once(function()
 					if hitVictim then
 						MainGameModule.PlayersInGame[hitVictim.UserId] = nil
+						MainGameModule.RecordElimination(hitVictim)
+						MainGameModule.AddRoundKill(player)
 						GameRewardModule.XpReward(player, "kill")
 						GameRewardModule.CashReward(player, "kill")
 						GameRewardModule.XpReward(hitVictim, "lose")

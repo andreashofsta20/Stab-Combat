@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local RS = game:GetService("ReplicatedStorage")
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST1")
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111_")
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
@@ -93,30 +93,42 @@ local function savePlayerData(player)
 
 
 
-	local dataToSave = {
-		Name = player.Name,
-		DisplayName = player.DisplayName,
-		Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
-		XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
-		Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
-		Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
-		Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
-		WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
-		EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
-		Settings = settingsData,
-		Inventory = inventoryData,
-		Emotes = emotesData,
-		KeyBinds = keybindsData,
-		DailyRewards = {
-			LastClaimDay = player:GetAttribute("DailyLastClaimDay") or 0,
-			Streak = player:GetAttribute("DailyStreak") or 0,
-		},
-		LastRound = {
-			Opponents = player:GetAttribute("LastRoundOpponents") or 0,
-			Kills = player:GetAttribute("LastRoundKills") or 0,
-			Placement = player:GetAttribute("LastRoundPlacement") or 0,
-		},
-	}
+	   -- DailyRewards from leaderstats IntValues
+	   local drFolder = leaderstats:FindFirstChild("DailyRewards")
+	   local dr = {
+		   LastClaimTime = 0,
+		   Streak = 0,
+	   }
+	   if drFolder then
+		   local lct = drFolder:FindFirstChild("LastClaimTime")
+		   local stv = drFolder:FindFirstChild("Streak")
+		   dr.LastClaimTime = lct and lct.Value or 0
+		   dr.Streak = stv and stv.Value or 0
+	   end
+	   local dataToSave = {
+		   Name = player.Name,
+		   DisplayName = player.DisplayName,
+		   Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
+		   XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
+		   Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
+		   Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
+		   Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
+		   WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
+		   EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
+		   Settings = settingsData,
+		   Inventory = inventoryData,
+		   Emotes = emotesData,
+		   KeyBinds = keybindsData,
+		   DailyRewards = {
+			   LastClaimTime = dr.LastClaimTime or 0,
+			   Streak = dr.Streak or 0,
+		   },
+		   LastRound = {
+			   Opponents = player:GetAttribute("LastRoundOpponents") or 0,
+			   Kills = player:GetAttribute("LastRoundKills") or 0,
+			   Placement = player:GetAttribute("LastRoundPlacement") or 0,
+		   },
+	   }
 
 	print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
 
@@ -216,6 +228,21 @@ Players.PlayerAdded:Connect(function(player)
 	local Emotes = Instance.new("Folder")
 	Emotes.Name = "Emotes"
 	Emotes.Parent = leaderstats
+
+	-- DailyRewards folder in leaderstats
+	local DailyRewardsFolder = Instance.new("Folder")
+	DailyRewardsFolder.Name = "DailyRewards"
+	DailyRewardsFolder.Parent = leaderstats
+
+	local LastClaimTimeValue = Instance.new("IntValue")
+	LastClaimTimeValue.Name = "LastClaimTime"
+	LastClaimTimeValue.Value = 0
+	LastClaimTimeValue.Parent = DailyRewardsFolder
+
+	local StreakValue = Instance.new("IntValue")
+	StreakValue.Name = "Streak"
+	StreakValue.Value = 0
+	StreakValue.Parent = DailyRewardsFolder
 	
 	
 	
@@ -352,14 +379,31 @@ Players.PlayerAdded:Connect(function(player)
 			end
 		end
 
-		-- Load daily rewards
-		if data.DailyRewards and type(data.DailyRewards) == "table" then
-			player:SetAttribute("DailyLastClaimDay", data.DailyRewards.LastClaimDay or 0)
-			player:SetAttribute("DailyStreak", data.DailyRewards.Streak or 0)
-		else
-			player:SetAttribute("DailyLastClaimDay", 0)
-			player:SetAttribute("DailyStreak", 0)
-		end
+		   -- Load daily rewards
+			  if data.DailyRewards and type(data.DailyRewards) == "table" then
+				  local lastClaimTime = data.DailyRewards.LastClaimTime or 0
+				  local streak = data.DailyRewards.Streak or 0
+				  player:SetAttribute("DailyLastClaimTime", lastClaimTime)
+				  player:SetAttribute("DailyStreak", streak)
+				  -- Set IntValues in leaderstats
+				  local drFolder = leaderstats:FindFirstChild("DailyRewards")
+				  if drFolder then
+					  local lct = drFolder:FindFirstChild("LastClaimTime")
+					  local stv = drFolder:FindFirstChild("Streak")
+					  if lct then lct.Value = lastClaimTime end
+					  if stv then stv.Value = streak end
+				  end
+			  else
+				  player:SetAttribute("DailyLastClaimTime", 0)
+				  player:SetAttribute("DailyStreak", 0)
+				  local drFolder = leaderstats:FindFirstChild("DailyRewards")
+				  if drFolder then
+					  local lct = drFolder:FindFirstChild("LastClaimTime")
+					  local stv = drFolder:FindFirstChild("Streak")
+					  if lct then lct.Value = 0 end
+					  if stv then stv.Value = 0 end
+				  end
+			  end
 
 		if data.LastRound and type(data.LastRound) == "table" then
 			player:SetAttribute("LastRoundOpponents", data.LastRound.Opponents or 0)
@@ -422,7 +466,6 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	savePlayerData(player)
-	
 	MainGameModule.PlayersInGame[player.UserId] = nil
 end)
 
