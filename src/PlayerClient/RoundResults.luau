@@ -14,6 +14,12 @@ local UI = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("Main")
 local FramesFolder = UI:WaitForChild("Frames")
 local RoundResultsFrame = FramesFolder:WaitForChild("RoundResults")
 
+
+local OtherPlayersHolder = RoundResultsFrame:WaitForChild("Container"):WaitForChild("OtherPlayers"):WaitForChild("Holder")
+
+local UITemplates = ReplicatedStorage:WaitForChild("UITemplates")
+local RoundResultsTemplates = UITemplates:WaitForChild("RoundResults")
+
 local function setText(label, value)
     if label then
         if value == nil then
@@ -123,8 +129,62 @@ local function applyResults(gameResults, playerResults)
         end
     end
 
+    local function WipeOldPlayerStats()
+        for _, child in ipairs(OtherPlayersHolder:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+    end
+
+    local function PlayerStats()
+        local GoldColor = Color3.fromRGB(255, 215, 0)
+        local IronColor = Color3.fromRGB(134, 134, 134)
+        local BronzeColor = Color3.fromRGB(206, 137, 70)
+        local DefaultColor = Color3.fromRGB(255, 255, 255)
+
+        local OtherPlayersTemplate = RoundResultsTemplates:FindFirstChild("OtherPlayer")
+        local KillImageTemplate = RoundResultsTemplates:FindFirstChild("Kill")
+
+        local localPlayer = Players.LocalPlayer
+        if not OtherPlayersTemplate or not KillImageTemplate then return end
+        if type(playerResults) ~= "table" then return end
+
+        for _, result in ipairs(playerResults) do
+            local playerName = result.Name or "Unknown"
+            local placement = result.Placement or "?"
+            local kills = result.Kills or 0
+
+            local template = OtherPlayersTemplate:Clone()
+            template.Username.Text = "#" .. placement .. " " .. playerName
+            if placement == 1 then
+                template.ColorTab.ImageColor3 = GoldColor
+            elseif placement == 2 then
+                template.ColorTab.ImageColor3 = IronColor
+            elseif placement == 3 then
+                template.ColorTab.ImageColor3 = BronzeColor
+            else
+                template.ColorTab.ImageColor3 = DefaultColor
+            end
+
+            for i = 1, kills do
+                local killImg = KillImageTemplate:Clone()
+                killImg.Parent = template.KillsFrame
+                killImg.Visible = true
+            end
+
+            template.LayoutOrder = placement
+            template.Parent = OtherPlayersHolder
+        end
+    end
+
     WinnerFrame()
     YourStats()
+    WipeOldPlayerStats()
+    PlayerStats()
+
+
+
 end
 
 GetRoundResultsRemote.OnClientEvent:Connect(function(gameResults, playerResults)

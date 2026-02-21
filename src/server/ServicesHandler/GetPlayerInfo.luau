@@ -8,13 +8,20 @@ function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}
 	local foundPlayer = nil
 
+	local dataFromStore = nil
+	local success, data = pcall(function()
+		return PlayerDataStore:GetAsync(UserId)
+	end)
+	if success and type(data) == "table" then
+		dataFromStore = data
+	end
+
 	for _, player in pairs(Players:GetPlayers()) do
 		if player.UserId == UserId then
 			foundPlayer = player
 			InfoTable.Name = player.Name
 			InfoTable.DisplayName = player.DisplayName
 			InfoTable.UserId = player.UserId
-			
 			local leaderstats = player:FindFirstChild("leaderstats")
 			if leaderstats then
 				for _, stat in pairs(leaderstats:GetChildren()) do
@@ -23,7 +30,6 @@ function GetPlayerInfo.AllInfo(UserId : number)
 					end
 				end
 			end
-
 			local lastRound = {
 				Opponents = player:GetAttribute("LastRoundOpponents"),
 				Kills = player:GetAttribute("LastRoundKills"),
@@ -32,17 +38,12 @@ function GetPlayerInfo.AllInfo(UserId : number)
 			if lastRound.Opponents ~= nil or lastRound.Kills ~= nil or lastRound.Placement ~= nil then
 				InfoTable.LastRound = lastRound
 			end
-			
+			-- Always use DataStore RoundHistory if available
+			if dataFromStore and type(dataFromStore.RoundHistory) == "table" then
+				InfoTable.RoundHistory = dataFromStore.RoundHistory
+			end
 			break 
 		end
-	end
-
-	local dataFromStore = nil
-	local success, data = pcall(function()
-		return PlayerDataStore:GetAsync(UserId)
-	end)
-	if success and type(data) == "table" then
-		dataFromStore = data
 	end
 
 	if not foundPlayer then
@@ -75,10 +76,6 @@ function GetPlayerInfo.AllInfo(UserId : number)
 				return Players:GetNameFromUserIdAsync(UserId)
 			end)
 			InfoTable.Name = okName and name or "Player"
-		end
-	else
-		if dataFromStore and type(dataFromStore.RoundHistory) == "table" then
-			InfoTable.RoundHistory = dataFromStore.RoundHistory
 		end
 	end
 

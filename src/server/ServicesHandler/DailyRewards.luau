@@ -12,7 +12,7 @@ local ClaimDailyRewardRemote = DailyRewardsRemotesFolder:WaitForChild("ClaimDail
 local DailyRewardClientRemote = DailyRewardsRemotesFolder:WaitForChild("DailyRewardClient")
 
 local REWARD_CYCLE = 14
-local DAY_LENGTH = 10
+local DAY_LENGTH = 86400 -- 1 day
 
 -- Server anti-spam
 local CLAIM_COOLDOWN = 1
@@ -55,8 +55,8 @@ local function getStatus(player)
    if drFolder then
 	   local lct = drFolder:FindFirstChild("LastClaimTime")
 	   local stv = drFolder:FindFirstChild("Streak")
-	   lastClaimTime = lct and lct.Value or 0
-	   streak = stv and stv.Value or 0
+	   lastClaimTime = lct and lct.Value or print("Error: No LastClaimTime for player " .. player.Name)
+	   streak = stv and stv.Value or print("Error: No Streak for player " .. player.Name)
    end
 
    local claimedToday = false
@@ -64,12 +64,8 @@ local function getStatus(player)
 	   claimedToday = true
    end
 
-   -- If last claim was more than one day ago, reset streak
+   -- Streak never resets automatically
    local streakReset = false
-   if lastClaimTime == 0 or now - lastClaimTime > DAY_LENGTH * 1.5 then
-	   streak = 0
-	   streakReset = true
-   end
 
    local lastClaimedIndex = 0
    local nextClaimIndex = 1
@@ -148,24 +144,19 @@ local function claim(player, requestedDayIndex)
    lastClaimTimes[player] = nowTick
 
    local now = getNow()
-	local leaderstats = player:FindFirstChild("leaderstats")
-	local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
-	local lct = drFolder and drFolder:FindFirstChild("LastClaimTime")
-	local stv = drFolder and drFolder:FindFirstChild("Streak")
-	local lastClaimTime = lct and lct.Value or 0
-	local streak = stv and stv.Value or 0
+   local leaderstats = player:FindFirstChild("leaderstats")
+   local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
+   local lct = drFolder and drFolder:FindFirstChild("LastClaimTime")
+   local stv = drFolder and drFolder:FindFirstChild("Streak")
+   local lastClaimTime = lct and lct.Value or 0
+   local streak = stv and stv.Value or 0
 
+   -- Streak never resets automatically
+   local streakReset = false
 
    -- Already claimed today
    if lastClaimTime > 0 and now - lastClaimTime < DAY_LENGTH then
 	   return false, "Already claimed"
-   end
-
-   -- Missed a day, reset streak
-   local streakReset = false
-   if lastClaimTime == 0 or now - lastClaimTime > DAY_LENGTH * 1.5 then
-	   streak = 0
-	   streakReset = true
    end
 
    local correctIndex = 1
@@ -204,8 +195,8 @@ local function claim(player, requestedDayIndex)
 
    applyReward(player, reward)
 
-	if lct then lct.Value = now end
-	if stv then stv.Value = streak end
+   if lct then lct.Value = now end
+   if stv then stv.Value = streak end
 
    task.spawn(function()
 	   OnJoined.SavePlayerData(player)

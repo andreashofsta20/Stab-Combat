@@ -84,6 +84,7 @@ local function AddPlayer(plr : Player)
         template.SentOrNot.Visible = true
         template.SendTrade.Interactable = false
         template.SendTrade.Header.Text = "You"
+        template.LayoutOrder = 999
         template.You.Visible = true
     end
     template.SendTrade.MouseButton1Click:Connect(function()

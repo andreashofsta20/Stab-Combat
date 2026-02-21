@@ -33,7 +33,7 @@ end
 
 
 RoundHandlerModule.ChangeStatus("Waiting for server to be ready")
-local ServerBootTimer = 10
+local ServerBootTimer = 5
 while ServerBootTimer > 0 do
 	ServerBootTimer -= 1
 	task.wait(1)

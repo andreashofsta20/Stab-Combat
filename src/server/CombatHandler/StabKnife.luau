@@ -60,8 +60,8 @@ local function performStabHitbox(origin, direction, character)
 
 	-- Perform raycast for each grid point
 	for _, offset in ipairs(gridPoints) do
-		local rayOrigin = origin + 
-			rightVector * (offset.X * STAB_WIDTH / 2) + 
+		local rayOrigin = origin +
+			rightVector * (offset.X * STAB_WIDTH / 2) +
 			upVector * (offset.Y * STAB_HEIGHT / 2)
 
 		local result = workspace:Raycast(rayOrigin, direction, params)
@@ -130,53 +130,47 @@ function KnifeModule.Stab(player: Player)
 
 	for _, part in ipairs(touchingParts) do
 		local victimPlayer, victimHum = getPlayerFromHit(part)
+		local victimId = victimPlayer and victimPlayer.UserId or nil
 
-		if not victimHum or victimHum == hum or damagedPlayers[victimPlayer] then
+		if not victimHum or victimHum == hum or (victimId and damagedPlayers[victimId]) then
 			continue
 		end
 
-		if victimPlayer and not MainGameModule.PlayersInGame[victimPlayer.UserId] then
+		if victimPlayer and not MainGameModule.PlayersInGame[victimId] then
 			continue
 		end
-
 
 		if victimHum.Health <= 0 then
 			continue
 		end
 
+		if victimId then
+			damagedPlayers[victimId] = true
+		end
 
-		damagedPlayers[victimPlayer] = true
+		-- FIX: Register pending kill BEFORE dealing damage
+		if victimPlayer and victimId then
+			MainGameModule.RegisterPendingKill(player, victimId)
+		end
 
 		victimHum:TakeDamage(DAMAGE)
 
-
+		-- FIX: Only handle rewards here - OnDeath handles elimination tracking and kill credits
 		task.defer(function()
 			task.wait()
-			if victimHum.Health <= 0 and victimPlayer then
-				MainGameModule.PlayersInGame[victimPlayer.UserId] = nil
-				MainGameModule.RecordElimination(victimPlayer)
-				MainGameModule.AddRoundKill(player)
-
+			if victimHum.Health <= 0 and victimPlayer and victimId then
+				-- Award kill rewards immediately
 				local playerCount = 0
 				for _ in pairs(MainGameModule.PlayersInGame) do
 					playerCount += 1
 				end
-				playerCount += 1 
+				playerCount += 1
 
 				local GameRewardModule = require(script.Parent.Parent.Game.GameReward)
 				GameRewardModule.XpReward(player, "kill", playerCount)
 				GameRewardModule.CashReward(player, "kill", playerCount)
 				GameRewardModule.XpReward(victimPlayer, "lose", playerCount)
 				GameRewardModule.CashReward(victimPlayer, "lose", playerCount)
-
-				local leaderstatsKills = player:WaitForChild("leaderstats"):WaitForChild("Kills")
-				local leaderstatsDeaths = victimPlayer:WaitForChild("leaderstats"):WaitForChild("Deaths")
-				if leaderstatsKills then
-					leaderstatsKills.Value += 1
-				end
-				if leaderstatsDeaths then
-					leaderstatsDeaths.Value += 1
-				end
 			end
 		end)
 	end

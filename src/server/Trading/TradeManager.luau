@@ -109,6 +109,7 @@ function TradeManager.AcceptRequest(target: Player)
 	-- Create trade session
 	local session = TradeSession.new(sender, target)
 	session.State = "ACTIVE"
+	print("Trade session created between", sender.Name, "and", target.Name)
 	
 	ActiveTrades[sender.UserId] = session
 	ActiveTrades[target.UserId] = session
@@ -120,9 +121,12 @@ end
 
 function TradeManager.DeclineRequest(target: Player)
 	if PendingRequests[target.UserId] then
+		print(target.Name, "declined trade request from", PendingRequests[target.UserId].sender.Name)
 		PendingRequests[target.UserId] = nil
 		return true
 	end
+
+	print("No pending request to decline for", target.Name)
 	return false, "No pending request"
 end
 

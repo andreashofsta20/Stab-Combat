@@ -183,10 +183,10 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	if typeof(chargeRatio) ~= "number" then
 		chargeRatio = 0
 	end
-	
+
 	if not MainGameModule.GameActive then return end
 	if not MainGameModule.PlayersInGame[player.UserId] then return end
-	
+
 	-- Check cooldown
 	if Cooldown[player.UserId] and os.clock() - Cooldown[player.UserId] < COOLDOWN then
 		return
@@ -198,7 +198,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local hrp = character:FindFirstChild("HumanoidRootPart")
-	
+
 	local equippedTool = character:FindFirstChildWhichIsA("Tool")
 	if not equippedTool then return end
 
@@ -217,34 +217,32 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
 	local hitVictim = nil
 	local hitHumanoid = nil
+
 	if hitResult then
 		hitVictim, hitHumanoid = getPlayerFromHit(hitResult.Instance)
+		local victimId = hitVictim and hitVictim.UserId or nil
+
 		if hitHumanoid and hitHumanoid ~= humanoid and hitHumanoid.Health > 0 then
 			local canDamage = true
 			if hitVictim then
-				canDamage = MainGameModule.PlayersInGame[hitVictim.UserId] == true
+				canDamage = MainGameModule.PlayersInGame[victimId] == true
 			end
+
 			if canDamage then
+				-- FIX: Register pending kill BEFORE dealing damage
+				if hitVictim and victimId then
+					MainGameModule.RegisterPendingKill(player, victimId)
+				end
+
 				hitHumanoid:TakeDamage(DAMAGE)
+
+				-- FIX: Only handle rewards here - OnDeath handles elimination tracking and kill credits
 				hitHumanoid.Died:Once(function()
-					if hitVictim then
-						MainGameModule.PlayersInGame[hitVictim.UserId] = nil
-						MainGameModule.RecordElimination(hitVictim)
-						MainGameModule.AddRoundKill(player)
+					if hitVictim and victimId then
 						GameRewardModule.XpReward(player, "kill")
 						GameRewardModule.CashReward(player, "kill")
 						GameRewardModule.XpReward(hitVictim, "lose")
 						GameRewardModule.CashReward(hitVictim, "lose")
-						local playerStats = player:FindFirstChild("leaderstats")
-						local victimStats = hitVictim:FindFirstChild("leaderstats")
-						if playerStats then
-							local leaderstatsKills = playerStats:FindFirstChild("Kills")
-							if leaderstatsKills then leaderstatsKills.Value += 1 end
-						end
-						if victimStats then
-							local leaderstatsDeaths = victimStats:FindFirstChild("Deaths")
-							if leaderstatsDeaths then leaderstatsDeaths.Value += 1 end
-						end
 					end
 				end)
 			end
@@ -255,7 +253,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
 	-- Play throw animation
 	playThrowAnim(humanoid)
-	
+
 	-- Hide the tool after a brief delay (during the throw animation)
 	local toolHandle = equippedTool:FindFirstChild("Handle")
 	if toolHandle then

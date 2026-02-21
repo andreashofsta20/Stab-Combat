@@ -14,130 +14,147 @@ local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("Defaul
 
 -- Function to save player data
 local function savePlayerData(player)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then
-		warn("No leaderstats found for", player.Name)
-		return
-	end
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if not leaderstats then
+        warn("No leaderstats found for", player.Name)
+        return
+    end
 
-	-- INVENTORY
-	local inventoryFolder = leaderstats:FindFirstChild("Inventory")
-	local inventoryData = {}
+    -- INVENTORY
+    local inventoryFolder = leaderstats:FindFirstChild("Inventory")
+    local inventoryData = {}
 
-	if inventoryFolder then
-		for _, knife in pairs(inventoryFolder:GetChildren()) do
-			local quantity = knife:FindFirstChild("Quantity")
-			local rarity = knife:FindFirstChild("Rarity")
-			local image = knife:FindFirstChild("Image")
+    if inventoryFolder then
+        for _, knife in pairs(inventoryFolder:GetChildren()) do
+            local quantity = knife:FindFirstChild("Quantity")
+            local rarity = knife:FindFirstChild("Rarity")
+            local image = knife:FindFirstChild("Image")
 
-			table.insert(inventoryData, {
-				Name = knife.Name,
-				Quantity = quantity and quantity.Value or 1,
-				Rarity = rarity and rarity.Value or "Common",
-				Image = image and image.Value or "1"
-			})
-		end
-	end
+            table.insert(inventoryData, {
+                Name = knife.Name,
+                Quantity = quantity and quantity.Value or 1,
+                Rarity = rarity and rarity.Value or "Common",
+                Image = image and image.Value or "1"
+            })
+        end
+    end
 
-	-- SETTINGS
-	local settingsFolder = leaderstats:FindFirstChild("Settings")
-	local settingsData = {
-		MusicSetting = true,
-		LobbySetting = false,
-		Notifications = true,
-		Trades = true
-	}
+    -- SETTINGS
+    local settingsFolder = leaderstats:FindFirstChild("Settings")
+    local settingsData = {
+        MusicSetting = true,
+        LobbySetting = false,
+        Notifications = true,
+        Trades = true
+    }
 
-	if settingsFolder then
-		local musicValue = settingsFolder:FindFirstChild("Music")
-		local lobbyValue = settingsFolder:FindFirstChild("LobbyMode")
-		local notifValue = settingsFolder:FindFirstChild("Notifications")
-		local tradesValue = settingsFolder:FindFirstChild("Trades")
+    if settingsFolder then
+        local musicValue = settingsFolder:FindFirstChild("Music")
+        local lobbyValue = settingsFolder:FindFirstChild("LobbyMode")
+        local notifValue = settingsFolder:FindFirstChild("Notifications")
+        local tradesValue = settingsFolder:FindFirstChild("Trades")
 
-		if musicValue then settingsData.MusicSetting = musicValue.Value end
-		if lobbyValue then settingsData.LobbySetting = lobbyValue.Value end
-		if notifValue then settingsData.Notifications = notifValue.Value end
-		if tradesValue then settingsData.Trades = tradesValue.Value end
-	end
+        if musicValue then settingsData.MusicSetting = musicValue.Value end
+        if lobbyValue then settingsData.LobbySetting = lobbyValue.Value end
+        if notifValue then settingsData.Notifications = notifValue.Value end
+        if tradesValue then settingsData.Trades = tradesValue.Value end
+    end
 
-	local emotesFolder = leaderstats:FindFirstChild("Emotes")
-	local emotesData = {}
+    local emotesFolder = leaderstats:FindFirstChild("Emotes")
+    local emotesData = {}
 
-	if emotesFolder then
-		for _, emote in ipairs(emotesFolder:GetChildren()) do
-			if emote:IsA("StringValue") then
-				local quantity = emote:FindFirstChild("Quantity")
-				local rarity = emote:FindFirstChild("Rarity")
+    if emotesFolder then
+        for _, emote in ipairs(emotesFolder:GetChildren()) do
+            if emote:IsA("StringValue") then
+                local quantity = emote:FindFirstChild("Quantity")
+                local rarity = emote:FindFirstChild("Rarity")
 
-				table.insert(emotesData, {
-					Name = emote.Name,
-					EmoteId = emote.Value or "",
-					Quantity = quantity and quantity.Value or 1,
-					Rarity = rarity and rarity.Value or "Common",
-				})
-			end
-		end
-	end
-	
-	local keybindsFolder = leaderstats:WaitForChild("KeyBinds")
-	local keybindsData = {}
-
-
-	if keybindsFolder then
-		for _, bind in ipairs(keybindsFolder:GetChildren()) do
-			if bind:IsA("StringValue") then
-				keybindsData[bind.Name] = bind.Value
-			end
-		end
-	end
+                table.insert(emotesData, {
+                    Name = emote.Name,
+                    EmoteId = emote.Value or "",
+                    Quantity = quantity and quantity.Value or 1,
+                    Rarity = rarity and rarity.Value or "Common",
+                })
+            end
+        end
+    end
+   
+    local keybindsFolder = leaderstats:WaitForChild("KeyBinds")
+    local keybindsData = {}
 
 
+    if keybindsFolder then
+        for _, bind in ipairs(keybindsFolder:GetChildren()) do
+            if bind:IsA("StringValue") then
+                keybindsData[bind.Name] = bind.Value
+            end
+        end
+    end
 
-	   -- DailyRewards from leaderstats IntValues
-	   local drFolder = leaderstats:FindFirstChild("DailyRewards")
-	   local dr = {
-		   LastClaimTime = 0,
-		   Streak = 0,
-	   }
-	   if drFolder then
-		   local lct = drFolder:FindFirstChild("LastClaimTime")
-		   local stv = drFolder:FindFirstChild("Streak")
-		   dr.LastClaimTime = lct and lct.Value or 0
-		   dr.Streak = stv and stv.Value or 0
-	   end
-	   local dataToSave = {
-		   Name = player.Name,
-		   DisplayName = player.DisplayName,
-		   Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
-		   XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
-		   Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
-		   Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
-		   Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
-		   WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
-		   EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
-		   Settings = settingsData,
-		   Inventory = inventoryData,
-		   Emotes = emotesData,
-		   KeyBinds = keybindsData,
-		   DailyRewards = {
-			   LastClaimTime = dr.LastClaimTime or 0,
-			   Streak = dr.Streak or 0,
-		   },
-		   LastRound = {
-			   Opponents = player:GetAttribute("LastRoundOpponents") or 0,
-			   Kills = player:GetAttribute("LastRoundKills") or 0,
-			   Placement = player:GetAttribute("LastRoundPlacement") or 0,
-		   },
-	   }
+    -- DailyRewards from leaderstats IntValues
+    local drFolder = leaderstats:FindFirstChild("DailyRewards")
+    local dr = {
+        LastClaimTime = 0,
+        Streak = 0,
+    }
+    if drFolder then
+        local lct = drFolder:FindFirstChild("LastClaimTime")
+        local stv = drFolder:FindFirstChild("Streak")
+        dr.LastClaimTime = lct and lct.Value or 0
+        dr.Streak = stv and stv.Value or 0
+    end
+    local dataToSave = {
+        Name = player.Name,
+        DisplayName = player.DisplayName,
+        Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
+        XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
+        Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
+        Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
+        Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
+        WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
+        EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
+        Settings = settingsData,
+        Inventory = inventoryData,
+        Emotes = emotesData,
+        KeyBinds = keybindsData,
+        DailyRewards = {
+            LastClaimTime = dr.LastClaimTime or 0,
+            Streak = dr.Streak or 0,
+        },
+        LastRound = {
+            Opponents = player:GetAttribute("LastRoundOpponents") or 0,
+            Kills = player:GetAttribute("LastRoundKills") or 0,
+            Placement = player:GetAttribute("LastRoundPlacement") or 0,
+        },
+    }
 
-	print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
+    local latestRound = {
+        Opponents = player:GetAttribute("LastRoundOpponents") or 0,
+        Kills = player:GetAttribute("LastRoundKills") or 0,
+        Placement = player:GetAttribute("LastRoundPlacement") or 0,
+        Timestamp = os.time(),
+    }
+
+    print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
 
 	local success, err = pcall(function()
 		playerDataStore:UpdateAsync(player.UserId, function(oldData)
 			if type(oldData) ~= "table" then
 				oldData = {}
 			end
-			dataToSave.RoundHistory = oldData.RoundHistory or {}
+			-- Merge new round into existing RoundHistory: newest at front, keep only last 10
+			local oldHistory = oldData.RoundHistory or {}
+			table.insert(oldHistory, 1, latestRound)
+			while #oldHistory > 10 do
+				table.remove(oldHistory)
+			end
+			dataToSave.RoundHistory = oldHistory
+			-- Also keep any other persistent fields from oldData that aren't being overwritten
+			for k, v in pairs(oldData) do
+				if dataToSave[k] == nil and k ~= "RoundHistory" then
+					dataToSave[k] = v
+				end
+			end
 			return dataToSave
 		end)
 	end)
