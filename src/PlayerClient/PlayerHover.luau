@@ -72,7 +72,7 @@ local function changeplayer(model)
 end
 
 mouse.Move:Connect(function()
-	if workspace:FindFirstChild("Map1") or workspace:FindFirstChild("Map2") or workspace:FindFirstChild("Map3") then
+	if workspace:FindFirstChild("Cargo Port") or workspace:FindFirstChild("Farm") or workspace:FindFirstChild("Grids") or workspace:FindFirstChild("Tropical Island") then
 		PlayerHoverFrame.Visible = false
 		highlight.Adornee = nil
 		AbleToClick = false

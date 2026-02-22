@@ -15,7 +15,7 @@ local StartVotingRemote = VotingRemotesFolder:WaitForChild("StartVoting")
 
 local Testing = RunService:IsStudio()
 
-RoundHandler.MinimumPlayers = 2
+RoundHandler.MinimumPlayers = 3
 
 if Testing then
 	RoundHandler.MinimumPlayers = 1

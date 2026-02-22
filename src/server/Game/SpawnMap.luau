@@ -41,14 +41,24 @@ function SpawnMap.Spawn(MapName : string)
 			local LobbyMode = player:WaitForChild("leaderstats"):WaitForChild("Settings"):WaitForChild("LobbyMode").Value
 			if character then
 				local hrp = character:FindFirstChild("HumanoidRootPart")
-				local spawn = clone:FindFirstChild("Map") and clone.Map:FindFirstChild("Spawn")
-
-				if hrp and spawn and not LobbyMode then
-					local spawnCFrame = spawn.CFrame * CFrame.new(0, 10, 0)
-					hrp.CFrame = spawnCFrame
-					
+				local spawnFolder = clone:FindFirstChild("Spawns")
+				if hrp and spawnFolder and not LobbyMode then
+					local spawnParts = {}
+					for _, part in ipairs(spawnFolder:GetChildren()) do
+						if part:IsA("BasePart") then
+							table.insert(spawnParts, part)
+						end
+					end
+					if #spawnParts > 0 then
+						local randomIndex = math.random(1, #spawnParts)
+						local randomSpawn = spawnParts[randomIndex]
+						local spawnCFrame = randomSpawn.CFrame * CFrame.new(0, 10, 0)
+						hrp.CFrame = spawnCFrame
+					else
+						warn("No spawn parts found in Spawns folder", player.Name)
+					end
 				else
-					warn("LobbyMode enabled", player.Name)
+					warn("LobbyMode enabled or missing HRP/Spawns", player.Name)
 				end
 			end
 		end

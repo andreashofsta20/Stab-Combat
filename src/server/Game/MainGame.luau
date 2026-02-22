@@ -17,7 +17,7 @@ MainGame.GameActive = false
 MainGame.PlayersInGame = {}
 MainGame.RoundTime = 3 * 60
 MainGame.CurrentMap = nil
-MainGame.TestMode = false
+MainGame.TestMode = game:GetService("RunService"):IsStudio()
 
 local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 local GameRewardModule = require(script.Parent:WaitForChild("GameReward"))

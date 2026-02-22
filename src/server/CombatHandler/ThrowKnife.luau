@@ -18,7 +18,7 @@ local KnivesFolder = ServerStorage:WaitForChild("Knives")
 local ThrowAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Throw")
 
 -- // CONFIG
-local KNIFE_SPEED = 2500  -- Studs per second for visual movement
+local KNIFE_SPEED = 10000  -- Studs per second for visual movement
 local MAX_DISTANCE = 350
 local LIFETIME = 5
 local DAMAGE = 34

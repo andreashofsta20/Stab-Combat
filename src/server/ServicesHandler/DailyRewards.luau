@@ -172,12 +172,12 @@ local function claim(player, requestedDayIndex)
 	   end
    end
 
-   -- Only allow claiming day 1 if streak was reset
-   if requestedDayIndex == 1 and not streakReset then
+
+   if requestedDayIndex == 1 and not streakReset and lastClaimTime ~= 0 then
 	   return false, "Not available"
    end
 
-   -- Increment streak
+
    if streakReset then
 	   streak = 1
    else

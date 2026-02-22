@@ -10,7 +10,7 @@ local StabAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Sta
 local STAB_RANGE = 7
 local STAB_WIDTH = 4  -- Width of the stab hitbox
 local STAB_HEIGHT = 6 -- Height of the stab hitbox
-local DAMAGE = 34
+local DAMAGE = 100
 local COOLDOWN = 0.6
 local Cooldown = {}
 

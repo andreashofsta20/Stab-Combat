@@ -137,9 +137,19 @@ Players.PlayerRemoving:Connect(function(player)
 	LAST_UPDATE[player.UserId] = nil
 end)
 
-RequestLeaderboardsRemote.OnServerEvent:Connect(function()
-	Leaderboards.Broadcast()
+RequestLeaderboardsRemote.OnServerEvent:Connect(function(player)
+
+   -- Update player's stats in DataStore before sending leaderboard
+   updateOrderedStores(player, true)
+   local topCount = DEFAULT_TOP_COUNT
+   local payload = {
+	   Levels = getLeaderboardData(LevelsStore, topCount),
+	   Kills = getLeaderboardData(KillsStore, topCount),
+	   Gold = getLeaderboardData(GoldStore, topCount),
+   }
+   RequestLeaderboardsRemote:FireClient(player, payload)
 end)
+
 
 task.spawn(function()
 	while true do

@@ -4,6 +4,7 @@ local NotificationHandler = {}
 -- // SERVICES // --
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Enabled = false
 
 
 
@@ -65,7 +66,10 @@ function NotificationHandler.SendNotification(player : Player, message : string,
 	else
 		image = NotificationImages["QuestionMark"]
 	end
-	SendNotificationRemote:FireClient(player, message, duration, image)
+
+	if Enabled then
+		SendNotificationRemote:FireClient(player, message, duration, image)
+	end
 	
 end
 
@@ -76,7 +80,10 @@ function NotificationHandler.SendNotificationServer(message : string, duration :
 	else
 		image = NotificationImages["QuestionMark"]
 	end
-	SendNotificationRemote:FireAllClients(message, duration, image)
+
+	if Enabled then
+		SendNotificationRemote:FireAllClients(message, duration, image)
+	end
 
 end
 
