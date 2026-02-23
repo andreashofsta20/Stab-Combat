@@ -15,7 +15,8 @@ local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitF
 
 -- // ANIMATIONS
 local KnivesFolder = ServerStorage:WaitForChild("Knives")
-local ThrowAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Throw")
+local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
+local ThrowAnimation = CombatAnimations:WaitForChild("Throw")
 
 -- // CONFIG
 local KNIFE_SPEED = 10000  -- Studs per second for visual movement
@@ -35,7 +36,7 @@ local function playThrowAnim(humanoid)
 	local track = animator:LoadAnimation(ThrowAnimation)
 	track.Priority = Enum.AnimationPriority.Action4
 	track.Looped = false
-	track:Play()
+	--track:Play()
 	Debris:AddItem(track, 2)
 end
 

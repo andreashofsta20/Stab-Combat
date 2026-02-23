@@ -14,6 +14,7 @@ local MAX_CHARGE_RATIO = 1
 local lastThrow = 0
 local lastStab = 0
 local MAX_RAYCAST_DISTANCE = 1000
+local THROW_THRESHOLD = 0.2
 
 local ThrowKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrowKnife")
 local ThrewKnifeClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrewClient")
@@ -35,16 +36,125 @@ local activeTween
 local chargeTween
 local charging = false
 local chargeStart = 0
+local chargeSessionId = 0 -- used to cancel stale delayed tasks
+
+local chargeTrack = nil
+local chargeHoldTrack = nil
+local throwTrack = nil
+local stabTrack = nil
+
+local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
+local ChargeAnimation = CombatAnimations:WaitForChild("Charge")
+local ChargeLoopAnimation = CombatAnimations:WaitForChild("ChargeHold")
+local ReleaseKnifeAnimation = CombatAnimations:WaitForChild("Throw")
+local StabAnimation = CombatAnimations:WaitForChild("Stab")
+
+local function isCharging()
+	return (chargeTrack and chargeTrack.IsPlaying) or (chargeHoldTrack and chargeHoldTrack.IsPlaying)
+end
+
+local function stopAllAnimations()
+	if chargeTrack and chargeTrack.IsPlaying then
+		chargeTrack:AdjustSpeed(1)
+		chargeTrack:Stop()
+	end
+	if chargeHoldTrack and chargeHoldTrack.IsPlaying then
+		chargeHoldTrack:Stop()
+	end
+end
+
+local function loadAnimationTracks()
+	local character = player.Character
+	if not character then return end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	chargeTrack = animator:LoadAnimation(ChargeAnimation)
+	chargeHoldTrack = animator:LoadAnimation(ChargeLoopAnimation)
+	throwTrack = animator:LoadAnimation(ReleaseKnifeAnimation)
+	stabTrack = animator:LoadAnimation(StabAnimation)
+
+	chargeTrack.Priority = Enum.AnimationPriority.Action4
+	chargeHoldTrack.Priority = Enum.AnimationPriority.Action4
+	throwTrack.Priority = Enum.AnimationPriority.Action
+	stabTrack.Priority = Enum.AnimationPriority.Action
+
+	print("Animation tracks loaded!")
+end
+
+player.CharacterAdded:Connect(function(character)
+	character:WaitForChild("Humanoid")
+	task.wait(0.1)
+	loadAnimationTracks()
+end)
+
+if player.Character then
+	loadAnimationTracks()
+end
+
+local function playStabAnimation()
+	-- Block stab if any charge animation is active
+	if isCharging() then return end
+
+	stopAllAnimations()
+	if stabTrack then
+		stabTrack.Looped = false
+		if stabTrack.IsPlaying then stabTrack:Stop() end
+		stabTrack:Play()
+	end
+end
+
+local function playChargeAnimation()
+	stopAllAnimations()
+	if not chargeTrack then return end
+
+	-- Capture current session so the delayed transition can be cancelled if user releases
+	local sessionId = chargeSessionId
+
+	chargeTrack.Looped = false
+	chargeTrack:AdjustSpeed(1)
+	chargeTrack:Play()
+
+	task.delay(chargeTrack.Length, function()
+		-- Only transition if still in the same charge session and still holding
+		if chargeSessionId ~= sessionId then return end
+		if not charging then return end
+
+		-- Stop charge anim and start hold loop
+		if chargeTrack and chargeTrack.IsPlaying then
+			chargeTrack:AdjustSpeed(1)
+			chargeTrack:Stop()
+		end
+		if chargeHoldTrack then
+			chargeHoldTrack.Looped = true
+			chargeHoldTrack:Play()
+		end
+	end)
+end
+
+local function playThrowAnimation()
+	stopAllAnimations()
+	if throwTrack then
+		throwTrack:Play()
+	end
+end
 
 local function isThrowInput(input)
-	if typeof(CurrentKeyBind) == "EnumItem" then
-		return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == CurrentKeyBind
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		return true
 	end
-	if CurrentKeyBind == "MouseButton1" then
-		return input.UserInputType == Enum.UserInputType.MouseButton1
+	if typeof(CurrentKeyBind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == CurrentKeyBind then
+		return true
 	end
-	if CurrentKeyBind == "MouseButton2" then
-		return input.UserInputType == Enum.UserInputType.MouseButton2
+	if CurrentKeyBind == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
+		return true
 	end
 	return false
 end
@@ -116,11 +226,8 @@ local function throw(chargeRatio)
 	lastThrow = tick()
 
 	local clampedCharge = math.clamp(chargeRatio or 0, MIN_CHARGE_RATIO, MAX_CHARGE_RATIO)
-
 	local mousePos = UserInputService:GetMouseLocation()
-
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-
 
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -131,20 +238,20 @@ local function throw(chargeRatio)
 	local result = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
 	local targetPos = result and result.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
 
-
+	playThrowAnimation()
 	ThrowKnifeRemote:FireServer(ray.Origin, targetPos, clampedCharge)
 end
 
 local function stab()
 	if tick() - lastStab < STAB_COOLDOWN then return end
 	lastStab = tick()
+
+	playStabAnimation()
 	StabKnifeRemote:FireServer()
 end
 
 local function parseInput(inputString)
-	if not inputString or inputString == "" then
-		return nil
-	end
+	if not inputString or inputString == "" then return nil end
 
 	if inputString:find("Enum.KeyCode.") then
 		local keyName = inputString:match("Enum%.KeyCode%.(.+)")
@@ -183,17 +290,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if isThrowInput(input) and not charging then
 		charging = true
 		chargeStart = tick()
+		chargeSessionId += 1
 		startChargeTween()
-	end
 
-	if CurrentStabKeybind == "MouseButton1" and input.UserInputType == Enum.UserInputType.MouseButton1 then
-		stab()
-	elseif CurrentStabKeybind == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
-		stab()
-	elseif typeof(CurrentStabKeybind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard then
-		if input.KeyCode == CurrentStabKeybind then
-			stab()
-		end
+		local sessionId = chargeSessionId
+		task.delay(THROW_THRESHOLD, function()
+			if charging and chargeSessionId == sessionId then
+				playChargeAnimation()
+			end
+		end)
 	end
 end)
 
@@ -202,9 +307,16 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 	if charging and isThrowInput(input) then
 		charging = false
 		local heldFor = tick() - chargeStart
-		local ratio = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
+		chargeSessionId += 1 -- invalidate any pending delayed tasks
 		stopChargeTween()
-		throw(ratio)
+		stopAllAnimations()
+
+		if heldFor < THROW_THRESHOLD then
+			stab()
+		else
+			local ratio = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
+			throw(ratio)
+		end
 	end
 end)
 

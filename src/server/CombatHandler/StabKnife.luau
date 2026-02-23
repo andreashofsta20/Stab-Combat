@@ -5,7 +5,8 @@ local Players = game:GetService("Players")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 -- // ANIMS
-local StabAnimation = ReplicatedStorage:WaitForChild("Emotes"):WaitForChild("Stab")
+local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations") 
+local StabAnimation = CombatAnimations:WaitForChild("Stab")
 -- // CONFIG
 local STAB_RANGE = 7
 local STAB_WIDTH = 4  -- Width of the stab hitbox
@@ -20,7 +21,7 @@ local function playStabAnim(humanoid)
 	local track = animator:LoadAnimation(StabAnimation)
 	track.Priority = Enum.AnimationPriority.Action4
 	track.Looped = false
-	track:Play()
+	--track:Play()
 end
 
 local function getPlayerFromHit(part)
