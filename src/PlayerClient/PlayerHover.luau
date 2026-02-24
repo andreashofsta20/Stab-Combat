@@ -72,7 +72,7 @@ local function changeplayer(model)
 end
 
 mouse.Move:Connect(function()
-	if workspace:FindFirstChild("Cargo Port") or workspace:FindFirstChild("Farm") or workspace:FindFirstChild("Grids") or workspace:FindFirstChild("Tropical Island") then
+	if workspace:FindFirstChild("Cargo Port") or workspace:FindFirstChild("Farm") or workspace:FindFirstChild("Grids") or workspace:FindFirstChild("Tropical Island") or workspace:FindFirstChild("Classic ROBLOX") then
 		PlayerHoverFrame.Visible = false
 		highlight.Adornee = nil
 		AbleToClick = false

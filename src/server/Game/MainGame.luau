@@ -1,6 +1,7 @@
 local MainGame = {}
 local RoundHandlerModule = require(script.Parent.RoundHandler)
 local DataStoreService = game:GetService("DataStoreService")
+local ZoneHandler = require(script.Parent.GameZone)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
@@ -188,7 +189,7 @@ local function ApplyRoundRewards()
 	if not stats then return end
 
 	local totalPlayers = stats.startCount
-	local OnJoined = require(script.Parent.Parent.DataStore.OnJoined)
+	local OnJoined = require(script.Parent.Parent.DataStore:WaitForChild("OnJoined"))
 
 	for userId, data in pairs(stats.players) do
 		local player = Players:GetPlayerByUserId(userId)
@@ -262,10 +263,19 @@ local function BuildRoundResults()
 		end
 	end
 
+
+	local MapsModule = require(script.Parent:WaitForChild("Maps"))
+	local mapInfo = nil
+	if MainGame.CurrentMap and MapsModule[MainGame.CurrentMap] then
+		mapInfo = MapsModule[MainGame.CurrentMap]
+	end
+	local resultsImage = mapInfo and mapInfo.ResultsImage or nil
+
 	local gameResults = {
 		Map = MainGame.CurrentMap,
 		TotalPlayers = stats.startCount,
 		Winners = winners,
+		MapImage = resultsImage,
 	}
 
 	return gameResults, playerResults
@@ -292,6 +302,7 @@ function MainGame.OnDeath(player: Player)
 	MainGame.PlayersInGame[userId] = nil
 
 	-- Teleport to lobby
+	ZoneHandler.NotifyPlayer(player, false) 
 	local character = player.Character
 	if character then
 		local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -377,6 +388,14 @@ function MainGame.StartGame(map)
 
 	MainGame.GameActive = true
 	GameActiveBoolean.Value = true
+	
+	task.spawn(function()
+		ZoneHandler.SpawnZone()
+		task.wait(1)
+		ZoneHandler.StartZone()
+	end)
+
+
 
 	while RoundTime > 0 do
 		task.wait(1)
@@ -430,6 +449,8 @@ function MainGame.StartGame(map)
 	end
 
 	RoundHandlerModule.ChangeStatus("Game ended")
+	ZoneHandler._zoneActive = false
+	ZoneHandler.StopZone()
 
 	FinalizeRoundStats()
 	ApplyRoundRewards()

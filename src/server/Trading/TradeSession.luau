@@ -21,7 +21,7 @@ function TradeSession.new(player1: Player, player2: Player)
 	self.State = TradeState.PENDING
 	self.CreatedAt = os.clock()
 	self.LastActivity = os.clock()
-	self.Timeout = 120 -- 2 minutes
+	self.Timeout = 120 
 	
 	-- Items being traded
 	self.Player1Items = {}
@@ -82,7 +82,15 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
 		return false, "Item already in trade"
 	end
 	
-	local items = player == self.Player1 and self.Player1Items or self.Player2Items
+	local items
+
+	if player == self.Player1 then
+    	items = self.Player1Items
+	elseif player == self.Player2 then
+    	items = self.Player2Items
+	else
+    	return false, "Invalid player"
+	end
 	
 	-- Check if item exists and player owns it
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -96,7 +104,11 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
 	
 	local quantityValue = item:FindFirstChild("Quantity")
 	local ownedQuantity = quantityValue and quantityValue.Value or 1
-	
+
+	if typeof(quantity) ~= "number" or quantity <= 0 or quantity % 1 ~= 0 then
+		return false, "Invalid quantity"
+	end
+
 	if quantity > ownedQuantity then
 		return false, "Not enough quantity"
 	end
@@ -109,18 +121,34 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
 	})
 	
 	self:LockItem(userId, itemName)
+
+	self.Player1Locked = false
+	self.Player2Locked = false
+	self.State = TradeState.ACTIVE
 	return true
 end
 
 function TradeSession:RemoveItem(player: Player, itemName: string)
 	self:UpdateActivity()
 	
-	local items = player == self.Player1 and self.Player1Items or self.Player2Items
+
+	local items
+
+	if player == self.Player1 then
+    	items = self.Player1Items
+	elseif player == self.Player2 then
+    	items = self.Player2Items
+	else
+   	 return false, "Invalid player"
+	end
 	
 	for i, item in ipairs(items) do
 		if item.Name == itemName then
 			table.remove(items, i)
 			self:UnlockItem(player.UserId, itemName)
+			self.Player1Locked = false
+			self.Player2Locked = false
+			self.State = TradeState.ACTIVE
 			return true
 		end
 	end

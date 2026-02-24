@@ -72,6 +72,7 @@ local function AddPlayerToList(player : Player)
 	Template:WaitForChild("Level").Text = tostring(level)
 	Template.Name = player.Name
 	Template:WaitForChild("PlayerName").Text = player.Name
+	Template.LayoutOrder = -level
 	Template.MouseButton1Up:Connect(function()
 		RequestViewProfileRemote:FireServer(player.UserId)
 	end)
