@@ -56,6 +56,7 @@ StartVotingRemote.OnClientEvent:Connect(function(data : SharedTable, VotingTime 
         local Container = VoteWorkspace:WaitForChild("Container"):WaitForChild("VotePanel"..mapIndex):WaitForChild("Container")
         Container.MapImage.MapName.MapName.Text = mapData["Name"]
         Container.MapImage.Image = mapData["VotingImage"]
+        Container.MapImage.Votes.VoteAmount.Text = "0 votes"
         voteContainers[mapData["Name"]] = Container
 
         local selectionPart = Workspace:WaitForChild("IntermissionMap"):WaitForChild("Voting"):FindFirstChild(tostring(mapIndex) .. "_Selection")
