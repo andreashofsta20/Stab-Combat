@@ -5,6 +5,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local TradeManager = require(script.Parent.TradeManager)
 local CalculateLevel = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
+local ACTION_COOLDOWNS = {
+	SEND_REQUEST = 0.6,
+	ACCEPT_REQUEST = 0.4,
+	DECLINE_REQUEST = 0.4,
+	ADD_ITEM = 0.15,
+	REMOVE_ITEM = 0.15,
+	LOCK_TRADE = 0.1,
+	ACCEPT_TRADE = 0.1,
+	CANCEL_TRADE = 0.25,
+}
+local lastActionAt: {[number]: {[string]: number}} = {}
 
 -- Remotes (will be created in init.server.lua)
 local RemotesFolder
@@ -45,6 +56,21 @@ end
 function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
 	if type(action) ~= "string" then
 		return
+	end
+
+	local now = os.clock()
+	local userMap = lastActionAt[player.UserId]
+	if not userMap then
+		userMap = {}
+		lastActionAt[player.UserId] = userMap
+	end
+	local minGap = ACTION_COOLDOWNS[action]
+	if minGap then
+		local lastAt = userMap[action]
+		if lastAt and (now - lastAt) < minGap then
+			return
+		end
+		userMap[action] = now
 	end
 
 	if action == "SEND_REQUEST" then
@@ -91,6 +117,14 @@ function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
 end
 
 function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number)
+	if typeof(targetUserId) ~= "number" then
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Invalid target")
+	end
+	targetUserId = math.floor(targetUserId)
+	if targetUserId <= 0 or targetUserId == sender.UserId then
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Invalid target")
+	end
+
 	local target = Players:GetPlayerByUserId(targetUserId)
 	if not target then
 		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Player not found")
@@ -106,8 +140,8 @@ function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number
 
 	local senderLevel = CalculateLevel.GetLevel(senderXp.Value)
 	local targetLevel = CalculateLevel.GetLevel(targetXp.Value)
-	if senderLevel < 20 or targetLevel < 20 then
-		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Both players must be level 20+")
+	if senderLevel < 10 or targetLevel < 10 then
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Both players must be level 10+")
 	end
 	
 	local success, sessionOrErr = TradeManager.SendRequest(sender, target)
@@ -140,6 +174,14 @@ function TradeRequestsHandler.OnDeclineRequest(target: Player)
 end
 
 function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemName: string, quantity: number)
+	if type(itemType) ~= "string" or type(itemName) ~= "string" or typeof(quantity) ~= "number" then
+		return TradeRequestsHandler.FireResult(player, "ADD_ITEM", false, "Invalid item payload")
+	end
+	quantity = math.floor(quantity)
+	if quantity <= 0 then
+		return TradeRequestsHandler.FireResult(player, "ADD_ITEM", false, "Invalid quantity")
+	end
+
 	local success, err = TradeManager.AddItemToTrade(player, itemType, itemName, quantity)
 	
 	if success then
@@ -153,6 +195,19 @@ function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemNa
 end
 
 function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string, quantity: number?)
+	if type(itemName) ~= "string" then
+		return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid item")
+	end
+	if quantity ~= nil then
+		if typeof(quantity) ~= "number" then
+			return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid quantity")
+		end
+		quantity = math.floor(quantity)
+		if quantity <= 0 then
+			return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid quantity")
+		end
+	end
+
 	local success, err = TradeManager.RemoveItemFromTrade(player, itemName, quantity)
 	
 	if success then
@@ -166,6 +221,10 @@ function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string, qua
 end
 
 function TradeRequestsHandler.OnLockTrade(player: Player, locked: boolean)
+	if typeof(locked) ~= "boolean" then
+		return TradeRequestsHandler.FireResult(player, "LOCK_TRADE", false, "Invalid lock state")
+	end
+
 	local session = TradeManager.GetTradeSession(player)
 	if not session then
 		return TradeRequestsHandler.FireResult(player, "LOCK_TRADE", false, "Not in trade")
@@ -184,6 +243,10 @@ function TradeRequestsHandler.OnLockTrade(player: Player, locked: boolean)
 end
 
 function TradeRequestsHandler.OnAcceptTrade(player: Player, accepted: boolean)
+	if accepted ~= nil and typeof(accepted) ~= "boolean" then
+		return TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", false, "Invalid accept state")
+	end
+
 	local session = TradeManager.GetTradeSession(player)
 	if not session then
 		return TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", false, "Not in trade")
@@ -214,5 +277,9 @@ function TradeRequestsHandler.OnCancelTrade(player: Player)
 	
 	TradeRequestsHandler.FireResult(player, "CANCEL_TRADE", true)
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	lastActionAt[player.UserId] = nil
+end)
 
 return TradeRequestsHandler

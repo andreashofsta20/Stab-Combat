@@ -1,7 +1,7 @@
 local Module = {}
 local MarketplaceService = game:GetService("MarketplaceService")
 local IncreasedXPGamepassId = 1733058985
-function Module.XpReward(player: Player, action: string, totalPlayers: number?)
+function Module.XpReward(player: Player, action: string, totalPlayers: number?, rewardMultiplier: number?)
 	if not player then return 0 end
 	local xp = 0
 	local xpValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("XP")
@@ -29,16 +29,34 @@ function Module.XpReward(player: Player, action: string, totalPlayers: number?)
 		end
 	elseif action == "lose" then
 		xp = 15
+	elseif action == "case_open" then
+		xp = 20
 	end
 
-	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, IncreasedXPGamepassId) then
+	local hasXpPass = false
+	local passOk, passResult = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, IncreasedXPGamepassId)
+	end)
+	if passOk and passResult then
+		hasXpPass = true
+	end
+
+	if hasXpPass then
 		xp = math.floor(xp * 1.5)
+	end
+
+	if type(rewardMultiplier) == "number" then
+		xp = math.floor(xp * math.max(0, rewardMultiplier))
+	end
+
+	if xp <= 0 then
+		return 0
 	end
 	xpValue.Value += xp
 	return xp
 end
 
-function Module.CashReward(player: Player, action: string, totalPlayers: number?)
+function Module.CashReward(player: Player, action: string, totalPlayers: number?, rewardMultiplier: number?)
 	if not player then return 0 end
 	local cash = 0
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -67,6 +85,14 @@ function Module.CashReward(player: Player, action: string, totalPlayers: number?
 		end
 	elseif action == "lose" then
 		cash = 25
+	end
+
+	if type(rewardMultiplier) == "number" then
+		cash = math.floor(cash * math.max(0, rewardMultiplier))
+	end
+
+	if cash <= 0 then
+		return 0
 	end
 
 	cashValue.Value += cash

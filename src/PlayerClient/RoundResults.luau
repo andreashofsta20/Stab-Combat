@@ -156,7 +156,7 @@ local function applyResults(gameResults, playerResults)
             local kills = result.Kills or 0
 
             local template = OtherPlayersTemplate:Clone()
-            template.Username.Text = "#" .. placement .. " " .. playerName
+            template.Username.Text = tostring(playerName)
             if placement == 1 then
                 template.ColorTab.ImageColor3 = GoldColor
             elseif placement == 2 then

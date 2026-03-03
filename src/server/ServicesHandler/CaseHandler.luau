@@ -10,6 +10,7 @@ local AbbreviateModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitF
 local RarityColorModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
+local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("GameReward"))
 
 local GetRarity = require(script.Parent.GetRarityWeight)
 
@@ -31,11 +32,23 @@ local OnSpinningAnimation = {
 	
 	
 }
+local lastCaseOpenAt: {[number]: number} = {}
+local CASE_OPEN_MIN_GAP = 0.35
 
 
 
 
 OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string)
+	if not player then return end
+	if type(CaseName) ~= "string" then return end
+	if #CaseName < 1 or #CaseName > 64 then return end
+
+	local now = os.clock()
+	local prev = lastCaseOpenAt[player.UserId]
+	if prev and (now - prev) < CASE_OPEN_MIN_GAP then
+		return
+	end
+	lastCaseOpenAt[player.UserId] = now
 	
 	if OnSpinningAnimation[player] then
 		return NotificationHandler.SendNotification(player, "Debounce", 3, "Error")
@@ -46,8 +59,6 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		return
 	end
 	
-	
-	if not player then return end
 	
 	if not CaseName then return end
 	
@@ -158,6 +169,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	else
 		InventoryHandler.AddKnife(player, tostring(chosenSkin.Knife))
 	end
+	GameRewardModule.XpReward(player, "case_open")
 		
 		
 	
@@ -169,5 +181,10 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 	
 end)
+
+	_Players.PlayerRemoving:Connect(function(player)
+		OnSpinningAnimation[player] = nil
+		lastCaseOpenAt[player.UserId] = nil
+	end)
 
 return {}

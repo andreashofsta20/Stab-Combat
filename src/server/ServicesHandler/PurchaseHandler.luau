@@ -27,10 +27,29 @@ local VIP_PRODUCT_DURATIONS = {
 	[3548752161] = 7 * 24 * 60 * 60,
 	[3548752035] = 30 * 24 * 60 * 60,
 }
+local PURCHASE_PROMPT_COOLDOWN = 0.75
+local lastPromptAt: {[number]: number} = {}
+
+local function canPrompt(player: Player): boolean
+	local now = os.clock()
+	local previous = lastPromptAt[player.UserId]
+	if previous and (now - previous) < PURCHASE_PROMPT_COOLDOWN then
+		return false
+	end
+	lastPromptAt[player.UserId] = now
+	return true
+end
 
 
 
 PurchaseGamePassRemote.OnServerEvent:Connect(function(player, msg: string)
+	if type(msg) ~= "string" then
+		return
+	end
+	if not canPrompt(player) then
+		return
+	end
+
 	local GamepassID
 
 	if msg == "1" then
@@ -70,6 +89,17 @@ local function processPurchase(player, productId, goldAmount)
 end
 
 PurchaseGoldRemote.OnServerEvent:Connect(function(player: Player, productID: number)
+	if typeof(productID) ~= "number" then
+		return
+	end
+	productID = math.floor(productID)
+	if productID <= 0 then
+		return
+	end
+	if not canPrompt(player) then
+		return
+	end
+
 	local productInfo = ProductINFO[productID]
 	if not productInfo then
 		return
@@ -86,6 +116,10 @@ PurchaseGoldRemote.OnServerEvent:Connect(function(player: Player, productID: num
 		NotificationHandler.SendNotification(player, "Something wrong happend", 3, "Error")
 		return
 	end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	lastPromptAt[player.UserId] = nil
 end)
 
 

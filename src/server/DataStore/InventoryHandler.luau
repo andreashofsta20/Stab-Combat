@@ -202,6 +202,8 @@ end
 
 EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : string)
 	if not player then return end
+	if type(KnifeName) ~= "string" then return end
+	if #KnifeName < 1 or #KnifeName > 64 then return end
 
 	if not KnivesInfoModule[KnifeName] then
 		print("couldnt find")

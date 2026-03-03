@@ -26,7 +26,7 @@ local SadLevelRequirementTemplate = TradeTemplatesFolder:WaitForChild("LevelRequ
 
 local playerEntries = {}
 local levelRequirementFrame = nil
-local MIN_TRADE_LEVEL = 20
+local MIN_TRADE_LEVEL = 10
 
 local function getLocalLevel()
     local leaderstats = plr:FindFirstChild("leaderstats")

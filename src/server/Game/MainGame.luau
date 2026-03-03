@@ -23,6 +23,7 @@ MainGame.LobbyModeLock = false
 
 local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 local GameRewardModule = require(script.Parent:WaitForChild("GameReward"))
+local AntiFarmModule = require(script.Parent:WaitForChild("AntiFarm"))
 local SpawnMapModule = require(script.Parent:WaitForChild("SpawnMap"))
 local QuestsHandler = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("QuestsHandler"))
 
@@ -201,22 +202,24 @@ local function ApplyRoundRewards()
 	if not stats then return end
 
 	local totalPlayers = stats.startCount
+	local serverPlayerCount = #Players:GetPlayers()
 	local OnJoined = require(script.Parent.Parent.DataStore:WaitForChild("OnJoined"))
 
 	for userId, data in pairs(stats.players) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
+			local policy = AntiFarmModule.GetRewardPolicy(player, totalPlayers, serverPlayerCount)
 			QuestsHandler.AddProgress(player, "ROUNDS_PLAYED", 1)
 
 			local isWinner = data.placement == 1
 			-- Only compute rewards if not already set (winner reward may have been set early)
 			if (data.rewardXp or 0) == 0 and (data.rewardGold or 0) == 0 then
 				if isWinner then
-					data.rewardXp = GameRewardModule.XpReward(player, "win", totalPlayers) or 0
-					data.rewardGold = GameRewardModule.CashReward(player, "win", totalPlayers) or 0
+					data.rewardXp = GameRewardModule.XpReward(player, "win", serverPlayerCount, policy.RewardMultiplier) or 0
+					data.rewardGold = GameRewardModule.CashReward(player, "win", serverPlayerCount, policy.RewardMultiplier) or 0
 				else
-					data.rewardXp = GameRewardModule.XpReward(player, "lose", totalPlayers) or 0
-					data.rewardGold = GameRewardModule.CashReward(player, "lose", totalPlayers) or 0
+					data.rewardXp = GameRewardModule.XpReward(player, "lose", serverPlayerCount, policy.RewardMultiplier) or 0
+					data.rewardGold = GameRewardModule.CashReward(player, "lose", serverPlayerCount, policy.RewardMultiplier) or 0
 				end
 			end
 
@@ -312,12 +315,19 @@ function MainGame.OnDeath(player: Player)
 	-- FIX: Credit the kill to the killer if there's a pending kill
 	local killer = pendingKills[userId]
 	if killer and killer ~= player then
+		local roundParticipants = (MainGame.RoundStats and MainGame.RoundStats.startCount) or 0
+		local serverPlayerCount = #Players:GetPlayers()
+		local killerPolicy = AntiFarmModule.GetRewardPolicy(killer, roundParticipants, serverPlayerCount)
+		local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
+
 		MainGame.AddRoundKill(killer)
-		GameRewardModule.XpReward(killer, "kill")
-		GameRewardModule.CashReward(killer, "kill")
-		GameRewardModule.XpReward(player, "lose")
-		GameRewardModule.CashReward(player, "lose")
-		QuestsHandler.AddProgress(killer, "KILLS", 1)
+		GameRewardModule.XpReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
+		GameRewardModule.CashReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
+		GameRewardModule.XpReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+		GameRewardModule.CashReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+		if killerPolicy.RewardMultiplier > 0 then
+			QuestsHandler.AddProgress(killer, "KILLS", 1)
+		end
 		pendingKills[userId] = nil
 	end
 
@@ -448,12 +458,14 @@ function MainGame.StartGame(map)
 
 				local winner = Players:GetPlayerByUserId(winnerUserId)
 				if winner then
+					local serverPlayerCount = #Players:GetPlayers()
+					local winnerPolicy = AntiFarmModule.GetRewardPolicy(winner, PlayerTotal, serverPlayerCount)
 					RoundHandlerModule.ChangeStatus(winner.Name .. " won!")
 
 					-- Store winner rewards in stats (ApplyRoundRewards will use them)
 					if MainGame.RoundStats and MainGame.RoundStats.players[winnerUserId] then
-						local xpAwarded = GameRewardModule.XpReward(winner, "win", PlayerTotal) or 0
-						local cashAwarded = GameRewardModule.CashReward(winner, "win", PlayerTotal) or 0
+						local xpAwarded = GameRewardModule.XpReward(winner, "win", serverPlayerCount, winnerPolicy.RewardMultiplier) or 0
+						local cashAwarded = GameRewardModule.CashReward(winner, "win", serverPlayerCount, winnerPolicy.RewardMultiplier) or 0
 						MainGame.RoundStats.players[winnerUserId].rewardXp = xpAwarded
 						MainGame.RoundStats.players[winnerUserId].rewardGold = cashAwarded
 					end
@@ -461,9 +473,11 @@ function MainGame.StartGame(map)
 					local leaderstats = winner:WaitForChild("leaderstats")
 					local wins = leaderstats:FindFirstChild("Wins")
 					local winStreak = leaderstats:FindFirstChild("WinStreak")
-					if wins then wins.Value += 1 end
-					if winStreak then winStreak.Value += 1 end
-					QuestsHandler.AddProgress(winner, "WINS", 1)
+					if winnerPolicy.CanReceiveWinCredit then
+						if wins then wins.Value += 1 end
+						if winStreak then winStreak.Value += 1 end
+						QuestsHandler.AddProgress(winner, "WINS", 1)
+					end
 				end
 
 				task.wait(4)

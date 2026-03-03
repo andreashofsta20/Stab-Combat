@@ -87,21 +87,18 @@ local function getDaySeed(dayKey: string): number
     return (numeric % 2147483647)
 end
 
-local function deterministicShuffle(input)
+local function deterministicShuffle(input, rng)
     local output = table.clone(input)
     for i = #output, 2, -1 do
-        local j = math.random(1, i)
+        local j = rng:NextInteger(1, i)
         output[i], output[j] = output[j], output[i]
     end
     return output
 end
 
 local function getGlobalDailyQuestDefinitions(dayKey: string)
-    local previousSeed = math.randomseed(getDaySeed(dayKey))
-    local shuffled = deterministicShuffle(DAILY_QUEST_POOL)
-    if previousSeed then
-        math.randomseed(previousSeed)
-    end
+    local rng = Random.new(getDaySeed(dayKey))
+    local shuffled = deterministicShuffle(DAILY_QUEST_POOL, rng)
 
     local selected = {}
     for i = 1, math.min(ACTIVE_QUESTS_PER_DAY, #shuffled) do

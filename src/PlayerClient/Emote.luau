@@ -59,8 +59,8 @@ end)
 
 while not decided do task.wait() end
 
-local emoteFrame = MainUI:WaitForChild("Mobile")
-local emoteButton = emoteFrame:WaitForChild("StuffContainer"):WaitForChild("Emote"):WaitForChild("TextButton")
+-- local emoteFrame = MainUI:WaitForChild("Mobile")
+-- local emoteButton = emoteFrame:WaitForChild("StuffContainer"):WaitForChild("Emote"):WaitForChild("TextButton")
 
 Player.CharacterAdded:Connect(function(char)
 	Character = char
@@ -314,15 +314,15 @@ EmotesFolder.ChildRemoved:Connect(function(child)
 	teardownEmote(child.Name)
 end)
 
-if isMobile then
-	emoteFrame.Visible = true
-	emoteButton.Visible = true
+-- if isMobile then
+-- 	emoteFrame.Visible = true
+-- 	emoteButton.Visible = true
 
-	emoteButton.MouseButton1Up:Connect(function()
-		open = not open
-		animateVisibility()
-	end)
-end
+-- 	emoteButton.MouseButton1Up:Connect(function()
+-- 		open = not open
+-- 		animateVisibility()
+-- 	end)
+-- end
 
 
 

@@ -2,6 +2,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Commands = require(script.Parent:WaitForChild("Commands"))
 
 local AdminRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminRemote")
+local MAX_ARGS = 8
+local MAX_STRING_ARG_LENGTH = 256
 
 local function dispatch(player, category: string, command: string, args: { any })
     print("Dispatch from", player.UserId, category, command, args)
@@ -32,7 +34,24 @@ local function dispatch(player, category: string, command: string, args: { any }
 end
 
 AdminRemote.OnServerEvent:Connect(function(player, category, command, ...)
-    dispatch(player, category, command, { ... })
+    if type(category) ~= "string" or type(command) ~= "string" then
+        return
+    end
+    if #category > 64 or #command > 64 then
+        return
+    end
+
+    local args = { ... }
+    if #args > MAX_ARGS then
+        return
+    end
+    for _, arg in ipairs(args) do
+        if type(arg) == "string" and #arg > MAX_STRING_ARG_LENGTH then
+            return
+        end
+    end
+
+    dispatch(player, category, command, args)
 end)
 
 return {}

@@ -16,6 +16,7 @@ local AbbreviateModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitF
 local RarityColorModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local RandomItem = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RandomItems"))
 local KnivesInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
+local ProductINFO = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProductIDS"))
 
 
 local EmotesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Emotes"))
@@ -101,6 +102,84 @@ local PurchaseGoldFrame = RobuxShopFrame:WaitForChild("Gold")
 local buyConnection
 
 local LastCase
+local OpenFrame
+local PurchaseGold
+local SetRobuxTab
+local ActiveRobuxTabName
+
+local function getDefaultRobuxTabName(): string
+	for _, button in pairs(ShopTabsSelectionFrame:GetChildren()) do
+		if button:IsA("ImageButton") then
+			return button.Name
+		end
+	end
+	return "Gold"
+end
+
+local function getLocalCashAmount(): number
+	local leaderstats = Player:FindFirstChild("leaderstats")
+	local cashValue = leaderstats and leaderstats:FindFirstChild("Cash")
+	return cashValue and cashValue.Value or 0
+end
+
+local function getBestGoldProductId(requiredGold: number): number?
+	local chosenId = nil
+	local chosenAmount = math.huge
+	local highestId = nil
+	local highestAmount = -1
+
+	for productId, goldAmount in pairs(ProductINFO) do
+		local idNum = tonumber(productId)
+		local amountNum = tonumber(goldAmount)
+		if idNum and amountNum then
+			if amountNum >= requiredGold and amountNum < chosenAmount then
+				chosenAmount = amountNum
+				chosenId = idNum
+			end
+			if amountNum > highestAmount then
+				highestAmount = amountNum
+				highestId = idNum
+			end
+		end
+	end
+
+	return chosenId or highestId
+end
+
+local function openGoldPurchaseFlow(requiredGold: number)
+	if CasesPopUpFrame.Visible then
+		CasesPopUpFrame.Visible = false
+	end
+
+	OpenFrame("Robux")
+	if SetRobuxTab then
+		SetRobuxTab("Gold")
+	else
+		GoldShopFrame.Visible = true
+		PasssesShopFrame.Visible = false
+		VIPShopFrame.Visible = false
+	end
+
+	local productId = getBestGoldProductId(requiredGold)
+	if productId then
+		PurchaseGold(productId)
+	end
+end
+
+local function tryOpenCase(caseName: string)
+	local caseInfo = CaseInfoModule[caseName]
+	if not caseInfo then
+		return
+	end
+
+	local currentCash = getLocalCashAmount()
+	if currentCash < caseInfo.Price then
+		openGoldPurchaseFlow(caseInfo.Price - currentCash)
+		return
+	end
+
+	OpenCaseRemote:FireServer(caseName)
+end
 
 
 local function CasePopUp(CaseName : string)
@@ -178,7 +257,7 @@ local function CasePopUp(CaseName : string)
 
 
 		buyConnection = BuyContainer.Buy.MouseButton1Up:Connect(function()
-			OpenCaseRemote:FireServer(CaseName)
+			tryOpenCase(CaseName)
 		end)
 		return
 	end
@@ -226,7 +305,7 @@ local function CasePopUp(CaseName : string)
 	
 	
 	buyConnection = BuyContainer.Buy.MouseButton1Up:Connect(function()
-		OpenCaseRemote:FireServer(CaseName)
+		tryOpenCase(CaseName)
 	end)
 	
 	
@@ -310,11 +389,14 @@ end
 
 
 
-local function OpenFrame(FrameName : string)
+OpenFrame = function(FrameName : string)
 	local Frame : Frame = OtherFramesFolder:FindFirstChild(FrameName)
 	if Frame then
 		HideAllFrames()
 		Frame.Visible = true
+		if FrameName == "Robux" and SetRobuxTab then
+			SetRobuxTab(ActiveRobuxTabName or getDefaultRobuxTabName())
+		end
 	else
 		print("couldnt find")
 	end
@@ -332,7 +414,7 @@ for i , v in pairs(MenuFrame:GetDescendants()) do
 end
 
 
-local function PurchaseGold(productid : number)
+PurchaseGold = function(productid : number)
 	print(productid)
 	PurchaseGoldRemote:FireServer(productid)
 end
@@ -543,12 +625,11 @@ end)
 
 
 local function RobuxShopFrameTabs()
-	local activeTabName = nil
 	local selectedColor = Color3.fromRGB(71, 81, 95)
 	local defaultColor = Color3.fromRGB(46, 53, 63)
 
 	local function setTab(tabName: string)
-		if activeTabName == tabName then
+		if ActiveRobuxTabName == tabName then
 			return
 		end
 
@@ -566,8 +647,10 @@ local function RobuxShopFrameTabs()
 			end
 		end
 
-		activeTabName = tabName
+		ActiveRobuxTabName = tabName
 	end
+
+	SetRobuxTab = setTab
 
 	for _, button in pairs(ShopTabsSelectionFrame:GetChildren()) do
 		if button:IsA("ImageButton") then
@@ -575,7 +658,7 @@ local function RobuxShopFrameTabs()
 				setTab(button.Name)
 			end)
 
-			if not activeTabName then
+			if not ActiveRobuxTabName then
 				setTab(button.Name)
 			end
 		end

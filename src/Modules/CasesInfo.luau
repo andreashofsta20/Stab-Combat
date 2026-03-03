@@ -67,11 +67,11 @@ return {
 	["Emote Case"] = {
 		Price = 1000;
 		Percentages = {
-			Common = 40;
-			Rare = 30;
+			Common = 60;
+			Rare = 27.5;
 			Epic = 0;
-			Legendary = 25;
-			Godly = 5;
+			Legendary = 12;
+			Godly = 0.5;
 		};
 		CaseImage = "rbxassetid://116321142920388";
 		EmoteCase = true;

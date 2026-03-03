@@ -30,6 +30,7 @@
       },
 
       "StarterCharacterScripts": {
+          "$path": "src/PlayerCharacterClient"
       }
     },
 
