@@ -52,6 +52,12 @@ local defaultWalkSpeed = 16
 local sprintWalkSpeed = 24
 local sprintEnabled = false
 
+local function hasKnifeEquipped()
+	local character = player.Character
+	if not character then return false end
+	return character:FindFirstChildWhichIsA("Tool") ~= nil
+end
+
 local function isCharging()
 	return (chargeTrack and chargeTrack.IsPlaying) or (chargeHoldTrack and chargeHoldTrack.IsPlaying)
 end
@@ -238,6 +244,7 @@ end
 
 local function stab()
 	if tick() - lastStab < STAB_COOLDOWN then return false end
+	if not hasKnifeEquipped() then return false end
 	lastStab = tick()
 
 	playStabAnimation()
@@ -264,6 +271,10 @@ end
 function CombatController.BeginCharge()
 	CombatController.Init()
 	if charging then
+		return false
+	end
+
+	if not hasKnifeEquipped() then
 		return false
 	end
 
