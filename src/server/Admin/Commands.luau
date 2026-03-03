@@ -6,8 +6,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11_")
-local adminLogStore = DataStoreService:GetDataStore("AdminActionLogs_v1")
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11__TESTING")
+local adminLogStore = DataStoreService:GetDataStore("AdminActionLogs_v1_TESTING")
 local wipeDebounce = {}
 local AdminClientRecieve = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminClientRecieve")
 

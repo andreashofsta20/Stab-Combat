@@ -34,6 +34,11 @@ local OpenCaseAnimation = CaseOpeningFolder:WaitForChild("CaseAnimationClient")
 
 local GamePass = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ShopRemotes"):WaitForChild("Gamepass"):WaitForChild("BuyGamePass")
 
+local VIPRemotesFolder = ShopRemotesFolder:WaitForChild("VIP")
+local VIPBuyRemote = VIPRemotesFolder:WaitForChild("BuyVIP")
+local VIPStatusRemote = VIPRemotesFolder:WaitForChild("VIPStatus")
+
+
 
 -- // TEMPLATES // --
 local ClientTemplatesFolder = ReplicatedStorage:WaitForChild("UITemplates")
@@ -83,6 +88,10 @@ local HeaderText = SpinnerButtonsContainer:WaitForChild("Header")
 
 -- // ROBUX SHOP UI // --
 local RobuxShopFrame = OtherFramesFolder:WaitForChild("Robux")
+local GoldShopFrame = RobuxShopFrame:WaitForChild("Gold")
+local PasssesShopFrame = RobuxShopFrame:WaitForChild("Passes")
+local VIPShopFrame = RobuxShopFrame:WaitForChild("VIP")
+local ShopTabsSelectionFrame = RobuxShopFrame:WaitForChild("TabSelection")
 
 
 -- // Purchase Gold SHOP UI // --
@@ -533,13 +542,118 @@ SpinnerExit.MouseButton1Up:Connect(function()
 end)
 
 
+local function RobuxShopFrameTabs()
+	local activeTabName = nil
+	local selectedColor = Color3.fromRGB(71, 81, 95)
+	local defaultColor = Color3.fromRGB(46, 53, 63)
+
+	local function setTab(tabName: string)
+		if activeTabName == tabName then
+			return
+		end
+
+		for _, frame in pairs(RobuxShopFrame:GetChildren()) do
+			if frame:IsA("ScrollingFrame") and frame.Name ~= "TabSelection" then
+				frame.Visible = (frame.Name == tabName)
+			end
+		end
+
+		for _, button in pairs(ShopTabsSelectionFrame:GetChildren()) do
+			if button:IsA("ImageButton") then
+				local isSelected = button.Name == tabName
+				button.BackgroundColor3 = isSelected and selectedColor or defaultColor
+				button.ImageColor3 = isSelected and selectedColor or defaultColor
+			end
+		end
+
+		activeTabName = tabName
+	end
+
+	for _, button in pairs(ShopTabsSelectionFrame:GetChildren()) do
+		if button:IsA("ImageButton") then
+			button.MouseButton1Up:Connect(function()
+				setTab(button.Name)
+			end)
+
+			if not activeTabName then
+				setTab(button.Name)
+			end
+		end
+	end
+end
+
+local function HandleRobuxGamepassButtons()
+	for i , v in pairs(RobuxShopFrame:WaitForChild("Passes"):GetChildren()) do
+		if v:IsA("ImageButton") then
+			v.MouseButton1Up:Connect(function()
+				GamePass:FireServer(tostring(v.Name))
+			end)
+		end
+	end
+end
+
+local function HandleVIPShop()
+	local VIPFrame = RobuxShopFrame:WaitForChild("VIP")
+	local SubscribeFrame = VIPFrame:WaitForChild("SubscribeFrame")
+	local SubscriptionStatus = SubscribeFrame:WaitForChild("SubscriptionStatus")
+
+	local function formatRemaining(secondsLeft: number): string
+		secondsLeft = math.max(0, math.floor(secondsLeft))
+		local days = math.floor(secondsLeft / 86400)
+		local hours = math.floor((secondsLeft % 86400) / 3600)
+		local minutes = math.floor((secondsLeft % 3600) / 60)
+		return string.format("%dd %dh %dm", days, hours, minutes)
+	end
+
+	local function updateStatus(hasVIP: boolean, expiresAt: number, nowTime: number?)
+		local now = tonumber(nowTime) or os.time()
+		if hasVIP and expiresAt > now then
+			SubscriptionStatus.Text = "STATUS : ACTIVE (" .. formatRemaining(expiresAt - now) .. ")"
+		else
+			SubscriptionStatus.Text = "STATUS : NO SUBSCRIPTION"
+		end
+	end
+
+	SubscriptionStatus.Text = "STATUS : LOADING..."
+
+	local Subscribe1WeekButton = SubscribeFrame:WaitForChild("3548752161")
+	local Subscribe1MonthButton = SubscribeFrame:WaitForChild("3548752035")
+
+	Subscribe1WeekButton.MouseButton1Up:Connect(function()
+		VIPBuyRemote:FireServer(3548752161)
+	end)
+
+	Subscribe1MonthButton.MouseButton1Up:Connect(function()
+		VIPBuyRemote:FireServer(3548752035)
+	end)
+
+	VIPStatusRemote.OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" then
+			return
+		end
+
+		local hasVIP = payload.HasVIP == true
+		local expiresAt = tonumber(payload.ExpiresAt) or 0
+		local now = tonumber(payload.Now) or os.time()
+		updateStatus(hasVIP, expiresAt, now)
+	end)
+
+	VIPStatusRemote:FireServer("REQUEST_STATUS")
+
+
+	
+end
+
 
 local function SetUpShop()
 	SetUpGoldPurchase()
+	HandleVIPShop()
 end
 basics()
 SetUpShop()
 LoadCases()
+RobuxShopFrameTabs()
+HandleRobuxGamepassButtons()
 
 
 

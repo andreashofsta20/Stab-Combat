@@ -16,7 +16,11 @@ local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local ProfileHandlerRemotes = RemotesFolder:WaitForChild("ProfileHandler")
 local ViewProfileOnClient = ProfileHandlerRemotes:WaitForChild("ViewProfileClient")
 
+local TradeRemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Trading")
+local TradeRemote = TradeRemotesFolder:WaitForChild("TradeUpdate")
+
 local lastinventory = nil
+local viewedProfileUserId: number? = nil
 
 
 -- // MODULES // --
@@ -135,6 +139,10 @@ local function LoadInventory(data : SharedTable)
 			Item.LayoutOrder = 999 
 		end
 
+		if Item:FindFirstChild("Tradable") then
+			Item.Tradable.Visible = knifeData.Tradeable == false
+		end
+
 		Item.Parent = InventoryItemsHolder
 	end
 	
@@ -248,6 +256,7 @@ end
 PlayerProfileFrame.Close.MouseButton1Up:Connect(function()
 	PlayerProfileFrame.Visible = false
 	Lighting.Blur.Enabled = false
+	viewedProfileUserId = nil
 end)
 
 for i , v in pairs(ButtonsFrame:GetChildren()) do
@@ -255,6 +264,16 @@ for i , v in pairs(ButtonsFrame:GetChildren()) do
 		if v.Name == "Inventory" then
 			v.MouseButton1Up:Connect(function()
 				LoadInventory(lastinventory)
+			end)
+		elseif v.Name == "Trade" then
+			v.MouseButton1Up:Connect(function()
+				if not viewedProfileUserId then
+					return
+				end
+				if viewedProfileUserId == Player.UserId then
+					return
+				end
+				TradeRemote:FireServer("SEND_REQUEST", viewedProfileUserId)
 			end)
 		end
 		
@@ -264,8 +283,11 @@ end
 
 
 ViewProfileOnClient.OnClientEvent:Connect(function(BasicInfo : SharedTable, inventory : SharedTable)
+	viewedProfileUserId = tonumber(BasicInfo and BasicInfo.UserId) or nil
 	
 	if FramesFolder:FindFirstChild("Spinner").Visible == true then return end
+
+	if FramesFolder:FindFirstChild("Trade").Visible == true then return end
 	
 	for i , v in pairs(FramesFolder:GetChildren()) do
 		if v:IsA("Frame") then

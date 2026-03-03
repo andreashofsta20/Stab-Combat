@@ -27,18 +27,19 @@
 	7. Trade completes or rolls back on failure
 	
 	CLIENT INTEGRATION:
-	Use the remotes in ReplicatedStorage.TradeRemotes:
-	- SendRequest:FireServer(targetUserId)
-	- AcceptRequest:FireServer()
-	- DeclineRequest:FireServer()
-	- AddItem:FireServer(itemType, itemName, quantity)
-	- RemoveItem:FireServer(itemName)
-	- LockTrade:FireServer(true/false)
-	- CancelTrade:FireServer()
+	Use one remote in ReplicatedStorage.Remotes.Trading:
+	- TradeUpdate:FireServer("SEND_REQUEST", targetUserId)
+	- TradeUpdate:FireServer("ACCEPT_REQUEST")
+	- TradeUpdate:FireServer("DECLINE_REQUEST")
+	- TradeUpdate:FireServer("ADD_ITEM", itemType, itemName, quantity)
+	- TradeUpdate:FireServer("REMOVE_ITEM", itemName)
+	- TradeUpdate:FireServer("LOCK_TRADE", true/false)
+	- TradeUpdate:FireServer("CANCEL_TRADE")
 	
-	Listen to TradeUpdate for real-time updates:
-	TradeUpdate.OnClientEvent:Connect(function(tradeData)
-		-- UpdateType: "REQUEST_RECEIVED", "TRADE_STARTED", "ITEM_ADDED", etc.
+	Listen to TradeUpdate for both notifications and action results:
+	TradeUpdate.OnClientEvent:Connect(function(eventType, payload)
+		-- eventType: "TRADE_EVENT" | "ACTION_RESULT"
+		-- TRADE_EVENT payload has UpdateType: "REQUEST_RECEIVED", "TRADE_STARTED", etc.
 	end)
 ]]
 

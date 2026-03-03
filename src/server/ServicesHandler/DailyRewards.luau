@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local InventoryHandler = require(script.Parent.Parent.DataStore.InventoryHandler)
 local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
 local OnJoined = require(script.Parent.Parent.DataStore.OnJoined)
+local QuestsHandler = require(script.Parent:WaitForChild("QuestsHandler"))
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local DailyRewardsRemotesFolder = RemotesFolder:WaitForChild("DailyRewards")
@@ -216,6 +217,7 @@ ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action, dayIndex)
 		local ok, msg = claim(player, dayIndex)
 
 		if ok then
+			QuestsHandler.AddProgress(player, "DAILY_REWARD_CLAIMS", 1)
 			NotificationHandler.SendNotification(player, "Daily reward claimed!", 4, "Success")
 		else
 			NotificationHandler.SendNotification(player, msg, 3, "Error")

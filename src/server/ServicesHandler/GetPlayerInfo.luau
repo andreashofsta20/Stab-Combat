@@ -2,7 +2,7 @@ local GetPlayerInfo = {}
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11_")
+local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
 
 function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}
@@ -10,7 +10,7 @@ function GetPlayerInfo.AllInfo(UserId : number)
 
 	local dataFromStore = nil
 	local success, data = pcall(function()
-		return PlayerDataStore:GetAsync(UserId)
+		return PlayerDataStore:GetAsync(tostring(UserId))
 	end)
 	if success and type(data) == "table" then
 		dataFromStore = data
@@ -96,11 +96,13 @@ function GetPlayerInfo.Inventory(UserId : number)
 						local quantity = item:FindFirstChild("Quantity")
 						local rarity = item:FindFirstChild("Rarity")
 						local image = item:FindFirstChild("Image")
+						local tradeable = item:FindFirstChild("Tradeable")
 
 						InventoryInfo[item.Name] = {
 							Quantity = quantity and quantity.Value or 0,
 							Rarity = rarity and rarity.Value or "Unknown",
 							Image = image and image.Value or "",
+							Tradeable = tradeable and tradeable:IsA("BoolValue") and tradeable.Value or true,
 						}
 					end
 				end

@@ -11,6 +11,11 @@ local PendingRequests = {} -- [targetUserId] = {sender = Player, timestamp = num
 -- Rate limiting
 local RequestCooldowns = {} -- [userId] = lastRequestTime
 local REQUEST_COOLDOWN = 5 -- seconds
+local CancelCallbacks = {}
+
+function TradeManager.RegisterCancelCallback(callback: (any, string?) -> ())
+	table.insert(CancelCallbacks, callback)
+end
 
 function TradeManager.Init()
 	-- Handle player leaving mid-trade
@@ -31,7 +36,7 @@ function TradeManager.CheckTimeouts()
 	for userId, session in pairs(ActiveTrades) do
 		if session:IsTimedOut() then
 			warn("Trade timed out:", session.TradeId)
-			TradeManager.CancelTrade(session)
+			TradeManager.CancelTrade(session, "TIMEOUT")
 		end
 	end
 end
@@ -147,7 +152,7 @@ function TradeManager.AddItemToTrade(player: Player, itemType: string, itemName:
 	return session:AddItem(player, itemType, itemName, quantity)
 end
 
-function TradeManager.RemoveItemFromTrade(player: Player, itemName: string)
+function TradeManager.RemoveItemFromTrade(player: Player, itemName: string, quantity: number?)
 	local session = TradeManager.GetTradeSession(player)
 	if not session then
 		return false, "Not in a trade"
@@ -157,7 +162,7 @@ function TradeManager.RemoveItemFromTrade(player: Player, itemName: string)
 		return false, "Trade not active"
 	end
 	
-	return session:RemoveItem(player, itemName)
+	return session:RemoveItem(player, itemName, quantity)
 end
 
 function TradeManager.SetLockStatus(player: Player, locked: boolean)
@@ -168,11 +173,28 @@ function TradeManager.SetLockStatus(player: Player, locked: boolean)
 	
 	session:SetLock(player, locked)
 	
-	-- If both locked, execute trade
-	if session:BothPlayersLocked() then
+	return true
+end
+
+function TradeManager.SetAcceptStatus(player: Player, accepted: boolean)
+	local session = TradeManager.GetTradeSession(player)
+	if not session then
+		return false, "Not in a trade"
+	end
+
+	if session.State ~= "LOCKED" and accepted == true then
+		return false, "Trade is not ready for accept"
+	end
+
+	local success, err = session:SetAccepted(player, accepted)
+	if not success then
+		return false, err
+	end
+
+	if session:BothPlayersAccepted() then
 		return TradeManager.ExecuteTrade(session)
 	end
-	
+
 	return true
 end
 
@@ -180,7 +202,7 @@ function TradeManager.ExecuteTrade(session: any)
 	-- Final validation
 	local valid, err = TradeValidator.ValidateTrade(session)
 	if not valid then
-		TradeManager.CancelTrade(session)
+		TradeManager.CancelTrade(session, "VALIDATION_FAILED")
 		return false, "Trade validation failed: " .. err
 	end
 	
@@ -191,7 +213,7 @@ function TradeManager.ExecuteTrade(session: any)
 	
 	if not success then
 		warn("Trade execution failed:", executeErr)
-		TradeManager.CancelTrade(session)
+		TradeManager.CancelTrade(session, "EXECUTION_FAILED")
 		return false, "Trade failed to execute"
 	end
 	
@@ -204,8 +226,12 @@ function TradeManager.ExecuteTrade(session: any)
 	return true
 end
 
-function TradeManager.CancelTrade(session: any)
+function TradeManager.CancelTrade(session: any, reason: string?)
 	if not session then return end
+
+	for _, callback in ipairs(CancelCallbacks) do
+		task.spawn(callback, session, reason)
+	end
 	
 	session:Cancel()
 	
@@ -216,7 +242,7 @@ end
 function TradeManager.CancelTradeForPlayer(player: Player)
 	local session = TradeManager.GetTradeSession(player)
 	if session then
-		TradeManager.CancelTrade(session)
+		TradeManager.CancelTrade(session, "PLAYER_LEFT")
 	end
 	
 	-- Clear pending requests

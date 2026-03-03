@@ -18,14 +18,16 @@ MainGame.GameActive = false
 MainGame.PlayersInGame = {}
 MainGame.RoundTime = 3 * 60
 MainGame.CurrentMap = nil
-MainGame.TestMode = game:GetService("RunService"):IsStudio()
+MainGame.TestMode = false
+MainGame.LobbyModeLock = false
 
 local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 local GameRewardModule = require(script.Parent:WaitForChild("GameReward"))
 local SpawnMapModule = require(script.Parent:WaitForChild("SpawnMap"))
+local QuestsHandler = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("QuestsHandler"))
 
 local Players = game:GetService("Players")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111_")
+local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
 
 MainGame.RoundStats = nil
 
@@ -97,6 +99,8 @@ end
 local RoundHistoryMax = 10
 
 local function SaveLastRound(player: Player, opponents: number, kills: number, placement: number)
+	local entryTimestamp = os.time()
+	local entryId = string.format("%d_%d_%d", entryTimestamp, player.UserId, math.random(100000, 999999))
 	local success, err = pcall(function()
 		PlayerDataStore:UpdateAsync(tostring(player.UserId), function(oldData)
 			if type(oldData) ~= "table" then
@@ -106,11 +110,19 @@ local function SaveLastRound(player: Player, opponents: number, kills: number, p
 				Opponents = opponents,
 				Kills = kills,
 				Placement = placement,
-				Timestamp = os.time(),
+				Timestamp = entryTimestamp,
+				EntryId = entryId,
 			}
 			oldData.LastRound = lastRoundEntry
 			oldData.RoundHistory = oldData.RoundHistory or {}
-			table.insert(oldData.RoundHistory, 1, lastRoundEntry)
+			local top = oldData.RoundHistory[1]
+			local isDuplicateTop = type(top) == "table" and tostring(top.EntryId) == entryId
+
+			if not isDuplicateTop then
+				table.insert(oldData.RoundHistory, 1, lastRoundEntry)
+			else
+				oldData.RoundHistory[1] = lastRoundEntry
+			end
 			while #oldData.RoundHistory > RoundHistoryMax do
 				table.remove(oldData.RoundHistory)
 			end
@@ -194,6 +206,8 @@ local function ApplyRoundRewards()
 	for userId, data in pairs(stats.players) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
+			QuestsHandler.AddProgress(player, "ROUNDS_PLAYED", 1)
+
 			local isWinner = data.placement == 1
 			-- Only compute rewards if not already set (winner reward may have been set early)
 			if (data.rewardXp or 0) == 0 and (data.rewardGold or 0) == 0 then
@@ -211,6 +225,11 @@ local function ApplyRoundRewards()
 			player:SetAttribute("LastRoundOpponents", totalPlayers - 1)
 			player:SetAttribute("LastRoundKills", data.kills or 0)
 			player:SetAttribute("LastRoundPlacement", data.placement or 0)
+
+			if (data.placement or 999) <= 3 then
+				QuestsHandler.AddProgress(player, "TOP3_FINISHES", 1)
+			end
+			QuestsHandler.AddProgress(player, "MATCH_GOLD_EARNED", data.rewardGold or 0)
 
 			-- Update persistent leaderstats Kills/Deaths at round end
 			local leaderstats = player:FindFirstChild("leaderstats")
@@ -292,8 +311,13 @@ function MainGame.OnDeath(player: Player)
 
 	-- FIX: Credit the kill to the killer if there's a pending kill
 	local killer = pendingKills[userId]
-	if killer then
+	if killer and killer ~= player then
 		MainGame.AddRoundKill(killer)
+		GameRewardModule.XpReward(killer, "kill")
+		GameRewardModule.CashReward(killer, "kill")
+		GameRewardModule.XpReward(player, "lose")
+		GameRewardModule.CashReward(player, "lose")
+		QuestsHandler.AddProgress(killer, "KILLS", 1)
 		pendingKills[userId] = nil
 	end
 
@@ -334,7 +358,12 @@ function MainGame.WipeTools()
 	WipeTools:FireAllClients()
 end
 
+function MainGame.IsLobbyModeLocked()
+	return MainGame.LobbyModeLock == true or MainGame.GameActive == true
+end
+
 function MainGame.StartGame(map)
+	MainGame.LobbyModeLock = true
 	MainGame.CurrentMap = map
 
 	-- Reset per-player attributes
@@ -379,6 +408,7 @@ function MainGame.StartGame(map)
 	if CountPlayersInGame() == 0 then
 		MainGame.GameActive = false
 		GameActiveBoolean.Value = false
+		MainGame.LobbyModeLock = false
 		return
 	end
 
@@ -433,6 +463,7 @@ function MainGame.StartGame(map)
 					local winStreak = leaderstats:FindFirstChild("WinStreak")
 					if wins then wins.Value += 1 end
 					if winStreak then winStreak.Value += 1 end
+					QuestsHandler.AddProgress(winner, "WINS", 1)
 				end
 
 				task.wait(4)
@@ -506,6 +537,7 @@ function MainGame.StartGame(map)
 
 	MainGame.GameActive = false
 	GameActiveBoolean.Value = false
+	MainGame.LobbyModeLock = false
 	table.clear(MainGame.PlayersInGame)
 	table.clear(pendingKills) -- FIX: Clear pending kills for next round
 	MainGame.RoundStats = nil

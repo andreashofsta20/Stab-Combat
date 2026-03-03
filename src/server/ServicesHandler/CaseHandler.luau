@@ -72,14 +72,14 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	local DURATATION = 10 
 
 	local success, ownsPass = pcall(function()
-		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, 1269395072) 
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, 1733042964) 
 	end)
 	
 	local HasSkip = false
 
 	if success and ownsPass then
 		HasSkip = true
-		DURATATION = 3
+		DURATATION = 0
 	end
 
 	

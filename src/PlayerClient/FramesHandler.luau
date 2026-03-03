@@ -18,12 +18,17 @@ local TopFrame = MainGUI:WaitForChild("Top")
 local TopButtonsFrame = TopFrame:WaitForChild("Buttons")
 local FramesFolder = MainGUI:WaitForChild("Frames")
 
+-- // SOUNDS // --
+
+local SoundOnHover = game:GetService("ReplicatedStorage").Assets.Sounds:WaitForChild("Hover")
+
 
 -- // MAIN FUNCTIONS // --
 
 function Module.OpenFrame(FrameName : string)
 	
 	if FramesFolder:FindFirstChild("Spinner").Visible == true then return end
+	if FramesFolder:FindFirstChild("Trade").Visible == true then return end
 	
 	local FrameToOpen = FramesFolder:FindFirstChild(FrameName)
 	
@@ -67,6 +72,7 @@ for i , v in pairs(TopButtonsFrame:GetChildren()) do
 	if v:IsA("ImageButton") then
 		
 		v.MouseEnter:Connect(function()
+			SoundOnHover:Play()
 			HoverButton(v)
 		end)
 		

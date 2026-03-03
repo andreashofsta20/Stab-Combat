@@ -30,8 +30,8 @@ local function ApplySetting(player: Player, settingname: string)
         return
     end
 
-    if settingname == "LobbyMode" and MainGameModule.GameActive then
-        NotificationHandler.SendNotification(player, "Wait until game ends.", 2, "Alert")
+    if settingname == "LobbyMode" and MainGameModule.IsLobbyModeLocked() then
+        NotificationHandler.SendNotification(player, "Lobby Mode is locked right now.", 2, "Alert")
         return
     end
 

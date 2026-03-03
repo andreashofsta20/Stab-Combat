@@ -77,6 +77,7 @@ local function togglePanel()
     task.delay(0.3, function() debounce = false end)
 
     local visible = not AdminPanel.Visible
+    game:GetService("Lighting").Blur.Enabled = visible
     AdminPanel.Visible = visible
     TogglePanelFrame.Visible = not visible
 end

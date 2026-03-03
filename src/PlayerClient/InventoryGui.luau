@@ -144,6 +144,10 @@ local function RefreshKnivesInventory()
 			existingTemplate.KnifeImage.Image = knife:FindFirstChild("Image") and knife.Image.Value or ""
 			existingTemplate.Rarity.Image = RarityColors[tostring(knife.Rarity.Value)].Image
 			existingTemplate.LayoutOrder = -RarityColors[tostring(knife.Rarity.Value)].Priority
+			local tradeableValue = knife:FindFirstChild("Tradeable")
+			if existingTemplate:FindFirstChild("Tradable") then
+				existingTemplate.Tradable.Visible = (tradeableValue and tradeableValue:IsA("BoolValue") and tradeableValue.Value == false) or false
+			end
 
 			if not existingTemplate:GetAttribute("Connected") then
 				existingTemplate.MouseButton1Click:Connect(function()
@@ -161,6 +165,10 @@ local function RefreshKnivesInventory()
 			template.Rarity.Image = RarityColors[tostring(knife.Rarity.Value)].Image
 			template.LayoutOrder = -RarityColors[tostring(knife.Rarity.Value)].Priority
 			template.Quantity.Text = knife:FindFirstChild("Quantity") and "x" .. tostring(knife.Quantity.Value) or "x1"
+			local tradeableValue = knife:FindFirstChild("Tradeable")
+			if template:FindFirstChild("Tradable") then
+				template.Tradable.Visible = (tradeableValue and tradeableValue:IsA("BoolValue") and tradeableValue.Value == false) or false
+			end
 
 			template.Parent = KnivesInventoryFrame
 			template.Visible = true

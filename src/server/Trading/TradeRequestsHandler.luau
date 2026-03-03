@@ -8,34 +8,20 @@ local CalculateLevel = require(ReplicatedStorage:WaitForChild("Modules"):WaitFor
 
 -- Remotes (will be created in init.server.lua)
 local RemotesFolder
-local SendRequestRemote
-local AcceptRequestRemote
-local DeclineRequestRemote
-local AddItemRemote
-local RemoveItemRemote
-local LockTradeRemote
-local CancelTradeRemote
 local TradeUpdateRemote
 
 function TradeRequestsHandler.Init()
 	RemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Trading")
-	SendRequestRemote = RemotesFolder:WaitForChild("SendRequest")
-	AcceptRequestRemote = RemotesFolder:WaitForChild("AcceptRequest")
-	DeclineRequestRemote = RemotesFolder:WaitForChild("DeclineRequest")
-	AddItemRemote = RemotesFolder:WaitForChild("AddItem")
-	RemoveItemRemote = RemotesFolder:WaitForChild("RemoveItem")
-	LockTradeRemote = RemotesFolder:WaitForChild("LockTrade")
-	CancelTradeRemote = RemotesFolder:WaitForChild("CancelTrade")
 	TradeUpdateRemote = RemotesFolder:WaitForChild("TradeUpdate")
 	
-	-- Connect handlers
-	SendRequestRemote.OnServerEvent:Connect(TradeRequestsHandler.OnSendRequest)
-	AcceptRequestRemote.OnServerEvent:Connect(TradeRequestsHandler.OnAcceptRequest)
-	DeclineRequestRemote.OnServerEvent:Connect(TradeRequestsHandler.OnDeclineRequest)
-	AddItemRemote.OnServerEvent:Connect(TradeRequestsHandler.OnAddItem)
-	RemoveItemRemote.OnServerEvent:Connect(TradeRequestsHandler.OnRemoveItem)
-	LockTradeRemote.OnServerEvent:Connect(TradeRequestsHandler.OnLockTrade)
-	CancelTradeRemote.OnServerEvent:Connect(TradeRequestsHandler.OnCancelTrade)
+	TradeManager.RegisterCancelCallback(function(session, reason)
+		if reason == "TIMEOUT" or reason == "PLAYER_LEFT" then
+			TradeRequestsHandler.NotifyTrade(session, "TRADE_CANCELLED", {reason = reason})
+		end
+	end)
+
+	-- Connect single remote handler
+	TradeUpdateRemote.OnServerEvent:Connect(TradeRequestsHandler.OnTradeAction)
 end
 
 -- Notify players about trade updates
@@ -44,14 +30,70 @@ function TradeRequestsHandler.NotifyTrade(session: any, updateType: string, data
 	tradeData.UpdateType = updateType
 	tradeData.ExtraData = data
 	
-	TradeUpdateRemote:FireClient(session.Player1, tradeData)
-	TradeUpdateRemote:FireClient(session.Player2, tradeData)
+	TradeUpdateRemote:FireClient(session.Player1, "TRADE_EVENT", tradeData)
+	TradeUpdateRemote:FireClient(session.Player2, "TRADE_EVENT", tradeData)
+end
+
+function TradeRequestsHandler.FireResult(player: Player, action: string, success: boolean, err: string?)
+	TradeUpdateRemote:FireClient(player, "ACTION_RESULT", {
+		action = action,
+		success = success,
+		error = err,
+	})
+end
+
+function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
+	if type(action) ~= "string" then
+		return
+	end
+
+	if action == "SEND_REQUEST" then
+		TradeRequestsHandler.OnSendRequest(player, ...)
+		return
+	end
+
+	if action == "ACCEPT_REQUEST" then
+		TradeRequestsHandler.OnAcceptRequest(player)
+		return
+	end
+
+	if action == "DECLINE_REQUEST" then
+		TradeRequestsHandler.OnDeclineRequest(player)
+		return
+	end
+
+	if action == "ADD_ITEM" then
+		TradeRequestsHandler.OnAddItem(player, ...)
+		return
+	end
+
+	if action == "REMOVE_ITEM" then
+		TradeRequestsHandler.OnRemoveItem(player, ...)
+		return
+	end
+
+	if action == "LOCK_TRADE" then
+		TradeRequestsHandler.OnLockTrade(player, ...)
+		return
+	end
+
+	if action == "ACCEPT_TRADE" then
+		TradeRequestsHandler.OnAcceptTrade(player, ...)
+		return
+	end
+
+	if action == "CANCEL_TRADE" then
+		TradeRequestsHandler.OnCancelTrade(player)
+		return
+	end
+
+	TradeRequestsHandler.FireResult(player, action, false, "Unknown trade action")
 end
 
 function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number)
 	local target = Players:GetPlayerByUserId(targetUserId)
 	if not target then
-		return SendRequestRemote:FireClient(sender, {success = false, error = "Player not found"})
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Player not found")
 	end
 
 	local senderStats = sender:FindFirstChild("leaderstats")
@@ -59,26 +101,26 @@ function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number
 	local senderXp = senderStats and senderStats:FindFirstChild("XP")
 	local targetXp = targetStats and targetStats:FindFirstChild("XP")
 	if not senderXp or not targetXp then
-		return SendRequestRemote:FireClient(sender, {success = false, error = "Missing XP data"})
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Missing XP data")
 	end
 
 	local senderLevel = CalculateLevel.GetLevel(senderXp.Value)
 	local targetLevel = CalculateLevel.GetLevel(targetXp.Value)
 	if senderLevel < 20 or targetLevel < 20 then
-		return SendRequestRemote:FireClient(sender, {success = false, error = "Both players must be level 20+"})
+		return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Both players must be level 20+")
 	end
 	
 	local success, sessionOrErr = TradeManager.SendRequest(sender, target)
 	
 	if success then
 		-- Notify target player
-		TradeUpdateRemote:FireClient(target, {
+		TradeUpdateRemote:FireClient(target, "TRADE_EVENT", {
 			UpdateType = "REQUEST_RECEIVED",
 			Sender = {UserId = sender.UserId, Name = sender.Name}
 		})
 	end
 	
-	SendRequestRemote:FireClient(sender, {success = success, error = sessionOrErr})
+	TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", success, not success and sessionOrErr or nil)
 end
 
 function TradeRequestsHandler.OnAcceptRequest(target: Player)
@@ -89,12 +131,12 @@ function TradeRequestsHandler.OnAcceptRequest(target: Player)
 		TradeRequestsHandler.NotifyTrade(session, "TRADE_STARTED")
 	end
 	
-	AcceptRequestRemote:FireClient(target, {success = success, error = not success and sessionOrErr or nil})
+	TradeRequestsHandler.FireResult(target, "ACCEPT_REQUEST", success, not success and sessionOrErr or nil)
 end
 
 function TradeRequestsHandler.OnDeclineRequest(target: Player)
 	local success, err = TradeManager.DeclineRequest(target)
-	DeclineRequestRemote:FireClient(target, {success = success, error = err})
+	TradeRequestsHandler.FireResult(target, "DECLINE_REQUEST", success, err)
 end
 
 function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemName: string, quantity: number)
@@ -107,11 +149,11 @@ function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemNa
 		end
 	end
 	
-	AddItemRemote:FireClient(player, {success = success, error = err})
+	TradeRequestsHandler.FireResult(player, "ADD_ITEM", success, err)
 end
 
-function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string)
-	local success, err = TradeManager.RemoveItemFromTrade(player, itemName)
+function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string, quantity: number?)
+	local success, err = TradeManager.RemoveItemFromTrade(player, itemName, quantity)
 	
 	if success then
 		local session = TradeManager.GetTradeSession(player)
@@ -120,30 +162,47 @@ function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string)
 		end
 	end
 	
-	RemoveItemRemote:FireClient(player, {success = success, error = err})
+	TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", success, err)
 end
 
 function TradeRequestsHandler.OnLockTrade(player: Player, locked: boolean)
 	local session = TradeManager.GetTradeSession(player)
 	if not session then
-		return LockTradeRemote:FireClient(player, {success = false, error = "Not in trade"})
+		return TradeRequestsHandler.FireResult(player, "LOCK_TRADE", false, "Not in trade")
 	end
 	
 	local success, err = TradeManager.SetLockStatus(player, locked)
 	
 	if success then
 		TradeRequestsHandler.NotifyTrade(session, "LOCK_STATUS", {player = player.UserId, locked = locked})
-		
-		-- Check if trade completed
-		if session.State == "COMPLETED" then
-			TradeRequestsHandler.NotifyTrade(session, "TRADE_COMPLETED")
-		end
 	else
 		-- Trade failed
 		TradeRequestsHandler.NotifyTrade(session, "TRADE_FAILED", {error = err})
 	end
 	
-	LockTradeRemote:FireClient(player, {success = success, error = err})
+	TradeRequestsHandler.FireResult(player, "LOCK_TRADE", success, err)
+end
+
+function TradeRequestsHandler.OnAcceptTrade(player: Player, accepted: boolean)
+	local session = TradeManager.GetTradeSession(player)
+	if not session then
+		return TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", false, "Not in trade")
+	end
+
+	local shouldAccept = accepted == true
+	local success, err = TradeManager.SetAcceptStatus(player, shouldAccept)
+
+	if success then
+		TradeRequestsHandler.NotifyTrade(session, "ACCEPT_STATUS", {player = player.UserId, accepted = shouldAccept})
+
+		if session.State == "COMPLETED" then
+			TradeRequestsHandler.NotifyTrade(session, "TRADE_COMPLETED")
+		end
+	else
+		TradeRequestsHandler.NotifyTrade(session, "TRADE_FAILED", {error = err})
+	end
+
+	TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", success, err)
 end
 
 function TradeRequestsHandler.OnCancelTrade(player: Player)
@@ -153,7 +212,7 @@ function TradeRequestsHandler.OnCancelTrade(player: Player)
 		TradeManager.CancelTrade(session)
 	end
 	
-	CancelTradeRemote:FireClient(player, {success = true})
+	TradeRequestsHandler.FireResult(player, "CANCEL_TRADE", true)
 end
 
 return TradeRequestsHandler

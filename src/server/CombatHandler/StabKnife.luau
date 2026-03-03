@@ -155,25 +155,6 @@ function KnifeModule.Stab(player: Player)
 		end
 
 		victimHum:TakeDamage(DAMAGE)
-
-		-- FIX: Only handle rewards here - OnDeath handles elimination tracking and kill credits
-		task.defer(function()
-			task.wait()
-			if victimHum.Health <= 0 and victimPlayer and victimId then
-				-- Award kill rewards immediately
-				local playerCount = 0
-				for _ in pairs(MainGameModule.PlayersInGame) do
-					playerCount += 1
-				end
-				playerCount += 1
-
-				local GameRewardModule = require(script.Parent.Parent.Game.GameReward)
-				GameRewardModule.XpReward(player, "kill", playerCount)
-				GameRewardModule.CashReward(player, "kill", playerCount)
-				GameRewardModule.XpReward(victimPlayer, "lose", playerCount)
-				GameRewardModule.CashReward(victimPlayer, "lose", playerCount)
-			end
-		end)
 	end
 end
 

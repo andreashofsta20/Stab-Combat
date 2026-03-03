@@ -11,7 +11,6 @@ local Players = game:GetService("Players")
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
 local ThrewKnifeClient = ReplicatedStorage.Remotes.Knife:WaitForChild("ThrewClient")
-local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("GameReward"))
 
 -- // ANIMATIONS
 local KnivesFolder = ServerStorage:WaitForChild("Knives")
@@ -236,16 +235,6 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 				end
 
 				hitHumanoid:TakeDamage(DAMAGE)
-
-				-- FIX: Only handle rewards here - OnDeath handles elimination tracking and kill credits
-				hitHumanoid.Died:Once(function()
-					if hitVictim and victimId then
-						GameRewardModule.XpReward(player, "kill")
-						GameRewardModule.CashReward(player, "kill")
-						GameRewardModule.XpReward(hitVictim, "lose")
-						GameRewardModule.CashReward(hitVictim, "lose")
-					end
-				end)
 			end
 		end
 	end

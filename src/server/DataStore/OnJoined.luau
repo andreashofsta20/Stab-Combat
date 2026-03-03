@@ -2,12 +2,13 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local RS = game:GetService("ReplicatedStorage")
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111_")
+local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local test = require(script.Parent:WaitForChild("InventoryHandler"))
+local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
 
 
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
@@ -29,12 +30,14 @@ local function savePlayerData(player)
             local quantity = knife:FindFirstChild("Quantity")
             local rarity = knife:FindFirstChild("Rarity")
             local image = knife:FindFirstChild("Image")
+			local tradeable = knife:FindFirstChild("Tradeable")
 
             table.insert(inventoryData, {
                 Name = knife.Name,
                 Quantity = quantity and quantity.Value or 1,
                 Rarity = rarity and rarity.Value or "Common",
-                Image = image and image.Value or "1"
+				Image = image and image.Value or "1",
+				Tradeable = tradeable and tradeable.Value or (knife.Name ~= "Shadow Dagger")
             })
         end
     end
@@ -103,7 +106,19 @@ local function savePlayerData(player)
         dr.LastClaimTime = lct and lct.Value or 0
         dr.Streak = stv and stv.Value or 0
     end
-    local dataToSave = {
+	local lastRoundFromAttributes = nil
+	do
+		local placement = tonumber(player:GetAttribute("LastRoundPlacement")) or 0
+		if placement > 0 then
+			lastRoundFromAttributes = {
+				Opponents = tonumber(player:GetAttribute("LastRoundOpponents")) or 0,
+				Kills = tonumber(player:GetAttribute("LastRoundKills")) or 0,
+				Placement = placement,
+			}
+		end
+	end
+
+	local dataToSave = {
         Name = player.Name,
         DisplayName = player.DisplayName,
         Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
@@ -121,37 +136,34 @@ local function savePlayerData(player)
             LastClaimTime = dr.LastClaimTime or 0,
             Streak = dr.Streak or 0,
         },
-        LastRound = {
-            Opponents = player:GetAttribute("LastRoundOpponents") or 0,
-            Kills = player:GetAttribute("LastRoundKills") or 0,
-            Placement = player:GetAttribute("LastRoundPlacement") or 0,
-        },
+		VIP = {
+			HasVIP = player:GetAttribute("HasVIP") == true,
+			ExpiresAt = tonumber(player:GetAttribute("VIPExpiresAt")) or 0,
+		},
     }
 
-    local latestRound = {
-        Opponents = player:GetAttribute("LastRoundOpponents") or 0,
-        Kills = player:GetAttribute("LastRoundKills") or 0,
-        Placement = player:GetAttribute("LastRoundPlacement") or 0,
-        Timestamp = os.time(),
-    }
+    if lastRoundFromAttributes then
+		dataToSave.LastRound = lastRoundFromAttributes
+	end
 
     print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
 
 	local success, err = pcall(function()
-		playerDataStore:UpdateAsync(player.UserId, function(oldData)
+		playerDataStore:UpdateAsync(tostring(player.UserId), function(oldData)
 			if type(oldData) ~= "table" then
 				oldData = {}
 			end
-			-- Merge new round into existing RoundHistory: newest at front, keep only last 10
-			local oldHistory = oldData.RoundHistory or {}
-			table.insert(oldHistory, 1, latestRound)
-			while #oldHistory > 10 do
-				table.remove(oldHistory)
+			-- Round history is written at round end in MainGame.SaveLastRound.
+			-- Preserve it during periodic/player-leave saves.
+			if type(oldData.RoundHistory) == "table" then
+				dataToSave.RoundHistory = oldData.RoundHistory
 			end
-			dataToSave.RoundHistory = oldHistory
+			if dataToSave.LastRound == nil and type(oldData.LastRound) == "table" then
+				dataToSave.LastRound = oldData.LastRound
+			end
 			-- Also keep any other persistent fields from oldData that aren't being overwritten
 			for k, v in pairs(oldData) do
-				if dataToSave[k] == nil and k ~= "RoundHistory" then
+				if dataToSave[k] == nil then
 					dataToSave[k] = v
 				end
 			end
@@ -281,7 +293,7 @@ Players.PlayerAdded:Connect(function(player)
 
 	-- Load player data
 	local success, data = pcall(function()
-		return playerDataStore:GetAsync(player.UserId)
+		return playerDataStore:GetAsync(tostring(player.UserId))
 	end)
 
 	if success and data then
@@ -296,6 +308,15 @@ Players.PlayerAdded:Connect(function(player)
 		Wins.Value = data.Wins or 0
 		WinStreak.Value = data.WinStreak or 0
 		EquippedKnife.Value = data.EquippedKnife or "Shadow Dagger"
+
+		local vipExpiresAt = 0
+		if data.VIP and type(data.VIP) == "table" then
+			vipExpiresAt = tonumber(data.VIP.ExpiresAt) or 0
+			VIPService.ApplyToPlayer(player, vipExpiresAt)
+			VIPService.SetCachedExpiry(player.UserId, vipExpiresAt)
+		else
+			VIPService.RefreshPlayer(player)
+		end
 		
 		
 
@@ -369,6 +390,15 @@ Players.PlayerAdded:Connect(function(player)
 					ImageItem.Name = "Image"
 					ImageItem.Value = knifeData.Image or "422523523"
 					ImageItem.Parent = knife
+
+					local tradeable = Instance.new("BoolValue")
+					tradeable.Name = "Tradeable"
+					if knifeData.Tradeable ~= nil then
+						tradeable.Value = knifeData.Tradeable == true
+					else
+						tradeable.Value = knifeData.Name ~= "Shadow Dagger"
+					end
+					tradeable.Parent = knife
 				end
 			end
 		end
@@ -445,12 +475,14 @@ Players.PlayerAdded:Connect(function(player)
 		Notifications.Value = true
 		Trades.Value = true
 		EquippedKnife.Value = "Shadow Dagger"
-		test.AddKnife(player, "Shadow Dagger")
+		test.AddKnife(player, "Shadow Dagger", false)
 		player:SetAttribute("DailyLastClaimDay", 0)
 		player:SetAttribute("DailyStreak", 0)
 		player:SetAttribute("LastRoundOpponents", 0)
 		player:SetAttribute("LastRoundKills", 0)
 		player:SetAttribute("LastRoundPlacement", 0)
+		VIPService.ApplyToPlayer(player, 0)
+		VIPService.SetCachedExpiry(player.UserId, 0)
 		
 		
 		

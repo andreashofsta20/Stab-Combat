@@ -18,6 +18,11 @@ function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 		if not itemInstance then
 			return false, "Item not found: " .. item.Name
 		end
+
+		local tradeableValue = itemInstance:FindFirstChild("Tradeable")
+		if tradeableValue and tradeableValue:IsA("BoolValue") and tradeableValue.Value == false then
+			return false, "Item is not tradeable: " .. item.Name
+		end
 		
 		local quantityValue = itemInstance:FindFirstChild("Quantity")
 		local ownedQuantity = quantityValue and quantityValue.Value or 1
@@ -122,6 +127,11 @@ local function GiveItems(player: Player, items: {any})
 					image.Name = "Image"
 					image.Value = item.Image or "1"
 					image.Parent = newItem
+
+					local tradeable = Instance.new("BoolValue")
+					tradeable.Name = "Tradeable"
+					tradeable.Value = item.Tradeable ~= false
+					tradeable.Parent = newItem
 				end
 			end
 		end

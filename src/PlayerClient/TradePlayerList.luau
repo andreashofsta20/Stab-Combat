@@ -3,11 +3,12 @@ local Players = game:GetService("Players")
 local plr = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Teams = game:GetService("Teams")
+local CalculateLevelModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
 
 
 -- remotes
 local TradeRemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Trading")
-local SendTradeRequestRemote = TradeRemotesFolder:WaitForChild("SendRequest")
+local TradeRemote = TradeRemotesFolder:WaitForChild("TradeUpdate")
 
 -- UI
 local PlayerGui = plr:WaitForChild("PlayerGui")
@@ -21,8 +22,49 @@ local ExitButton = TradePlayerList:WaitForChild("Exit")
 local UITemplates = ReplicatedStorage:WaitForChild("UITemplates")
 local TradeTemplatesFolder = UITemplates:WaitForChild("TradeRequestTemplates")
 local PlayerTemplate = TradeTemplatesFolder:WaitForChild("PlayerTemplate")
+local SadLevelRequirementTemplate = TradeTemplatesFolder:WaitForChild("LevelRequirement")
 
 local playerEntries = {}
+local levelRequirementFrame = nil
+local MIN_TRADE_LEVEL = 20
+
+local function getLocalLevel()
+    local leaderstats = plr:FindFirstChild("leaderstats")
+    local xpValue = leaderstats and leaderstats:FindFirstChild("XP")
+    local xp = xpValue and xpValue.Value or 0
+    local level = CalculateLevelModule.GetLevel(xp)
+    return level
+end
+
+local function hasRequiredTradeLevel()
+    return getLocalLevel() >= MIN_TRADE_LEVEL
+end
+
+local function showLevelRequirementOnly()
+    if not levelRequirementFrame then
+        levelRequirementFrame = SadLevelRequirementTemplate:Clone()
+        levelRequirementFrame.Name = "LevelRequirementOnly"
+    end
+    levelRequirementFrame.Parent = TradePlayerListContainer
+end
+
+local function hideLevelRequirementOnly()
+    if levelRequirementFrame then
+        levelRequirementFrame.Parent = nil
+    end
+end
+
+local function ClearPlayerEntries()
+    for userId, entry in pairs(playerEntries) do
+        if entry.conn then
+            entry.conn:Disconnect()
+        end
+        if entry.frame then
+            entry.frame:Destroy()
+        end
+        playerEntries[userId] = nil
+    end
+end
 
 local function canReceiveTrades(player: Player)
     local leaderstats = player:FindFirstChild("leaderstats")
@@ -47,6 +89,9 @@ local function updateEntryState(frame: Frame, player: Player)
 end
 
 local function AddPlayer(plr : Player)
+    if not hasRequiredTradeLevel() then
+        return
+    end
 
 
     local existing = playerEntries[plr.UserId]
@@ -81,14 +126,10 @@ local function AddPlayer(plr : Player)
 
     
     if plr == Players.LocalPlayer then
-        template.SentOrNot.Visible = true
-        template.SendTrade.Interactable = false
-        template.SendTrade.Header.Text = "You"
-        template.LayoutOrder = 999
-        template.You.Visible = true
+        template.Visible = false
     end
     template.SendTrade.MouseButton1Click:Connect(function()
-        SendTradeRequestRemote:FireServer(plr.UserId)
+        TradeRemote:FireServer("SEND_REQUEST", plr.UserId)
     end)
 end
 
@@ -106,6 +147,14 @@ local function RemovePlayer(player: Player)
 end
 
 local function RefreshPlayerList()
+    if not hasRequiredTradeLevel() then
+        ClearPlayerEntries()
+        showLevelRequirementOnly()
+        return
+    end
+
+    hideLevelRequirementOnly()
+
     for _, player in ipairs(Players:GetPlayers()) do
         AddPlayer(player)
     end
@@ -123,6 +172,10 @@ local function RefreshPlayerList()
             updateEntryState(entry.frame, player)
         end
     end
+end
+
+local function ApplyTradeLevelGate()
+    RefreshPlayerList()
 end
 
 local function StartAutoRefresh()
@@ -152,7 +205,13 @@ Players.PlayerRemoving:Connect(function(player)
 	RemovePlayer(player)
 end)
 
-RefreshPlayerList()
+local localLeaderstats = plr:WaitForChild("leaderstats")
+local localXP = localLeaderstats:WaitForChild("XP")
+localXP:GetPropertyChangedSignal("Value"):Connect(function()
+    ApplyTradeLevelGate()
+end)
+
+ApplyTradeLevelGate()
 StartAutoRefresh()
 
 ExitButton.MouseButton1Click:Connect(function()

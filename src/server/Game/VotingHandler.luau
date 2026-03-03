@@ -15,6 +15,7 @@ local VoteUpdateRemote = VotingRemotesFolder:FindFirstChild("VoteUpdate")
 local Maps = RoundHandlerModule.GetMaps()
 
 local NotificationHandler = require(script.Parent:WaitForChild("SendNotification"))
+local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
 
 
 Voting.Votes = {}
@@ -56,6 +57,7 @@ end)
 
 
 function Voting.SubmitVote(player : Player, option : string)
+    local voteWeight = VIPService.HasVIPByUserId(player.UserId) and 2 or 1
     
     if not table.find(RoundHandlerModule.MapsAbleToVoteOn, option) then
         warn("VOTINGHANDLER. Error: Invalid vote option " .. tostring(option))
@@ -83,12 +85,15 @@ function Voting.SubmitVote(player : Player, option : string)
     -- Allow changing vote: remove previous vote
     local prevVote = Voting.Votes[player.UserId]
     if prevVote and Voting.Options[prevVote] then
-        Voting.Options[prevVote].Votecount -= 1
+		Voting.Options[prevVote].Votecount -= voteWeight
+		if Voting.Options[prevVote].Votecount < 0 then
+			Voting.Options[prevVote].Votecount = 0
+		end
     end
 
     if Voting.Options[option] then
         Voting.Votes[player.UserId] = option
-        Voting.Options[option].Votecount += 1
+		Voting.Options[option].Votecount += voteWeight
         NotificationHandler.SendNotification(player, "You voted for: " .. tostring(option), 3, "Success")
     else
         warn("couldnt find " .. option)

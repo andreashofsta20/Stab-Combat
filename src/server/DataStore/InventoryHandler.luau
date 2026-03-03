@@ -12,8 +12,12 @@ local EquipKnifeRemote = InventoryRemotesFolder:WaitForChild("EquipKnife")
 
 local EmotesInfo = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Emotes"))
 
+local DEFAULT_UNTRADEABLE_KNIVES = {
+	["Shadow Dagger"] = true,
+}
 
-local function CreateItem(player : Player, knifeName : string)
+
+local function CreateItem(player : Player, knifeName : string, tradeable: boolean?)
 	if not player then return end
 
 	print("sdadas" .. knifeName)
@@ -45,6 +49,15 @@ local function CreateItem(player : Player, knifeName : string)
 	local existing = inventoryFolder:FindFirstChild(knifeName)
 	if existing then
 		existing.Quantity.Value += 1
+		local tradeableFlag = existing:FindFirstChild("Tradeable")
+		if not tradeableFlag then
+			tradeableFlag = Instance.new("BoolValue")
+			tradeableFlag.Name = "Tradeable"
+			tradeableFlag.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+			tradeableFlag.Parent = existing
+		elseif tradeable ~= nil then
+			tradeableFlag.Value = tradeable
+		end
 		return
 	end
 
@@ -66,6 +79,11 @@ local function CreateItem(player : Player, knifeName : string)
 	ImageItem.Name = "Image"
 	ImageItem.Value = image
 	ImageItem.Parent = Knife
+
+	local Tradeable = Instance.new("BoolValue")
+	Tradeable.Name = "Tradeable"
+	Tradeable.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+	Tradeable.Parent = Knife
 
 
 	return Knife
@@ -167,8 +185,8 @@ function InventoryHandler.ViewInventory(player : Player)
 end
 
 
-function InventoryHandler.AddKnife(player : Player, knifeName : string)
-	CreateItem(player, knifeName)
+function InventoryHandler.AddKnife(player : Player, knifeName : string, tradeable: boolean?)
+	CreateItem(player, knifeName, tradeable)
 end
 
 

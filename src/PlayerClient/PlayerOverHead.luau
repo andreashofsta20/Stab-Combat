@@ -26,15 +26,32 @@ local function CreateOverhead(player: Player, character: Model)
 
 	local container = overhead:WaitForChild("Container")
 	local nameLabel = container:WaitForChild("PlayerName")
+	local membershipBadge = container:WaitForChild("PlayerMembership")
 	local leaderstats = player:WaitForChild("leaderstats")
+	local settingsFolder = leaderstats:WaitForChild("Settings")
+	local lobbyModeSetting = settingsFolder:WaitForChild("LobbyMode")
 	local winStreakValue = leaderstats:WaitForChild("WinStreak")
 
-	if player.Name == "sidra2pro" then
-		nameLabel.Text = "[SPECIAL] " .. player.Name
+	local function updateMembershipBadge()
+		membershipBadge.Visible = player:GetAttribute("HasVIP") == true
+	end
+	updateMembershipBadge()
+	player:GetAttributeChangedSignal("HasVIP"):Connect(updateMembershipBadge)
+
+	local isSpecial = player.UserId == 9304217232
+	local function updateDisplayName()
+		local baseName = isSpecial and ("[FRIEND] " .. player.Name) or player.Name
+		if lobbyModeSetting.Value == true then
+			nameLabel.Text = baseName .. " [AFK]"
+		else
+			nameLabel.Text = baseName
+		end
+	end
+	updateDisplayName()
+	lobbyModeSetting:GetPropertyChangedSignal("Value"):Connect(updateDisplayName)
+
+	if isSpecial then
 		nameLabel.TextColor3 = Color3.fromHex("#F5A9D0")
-		container:WaitForChild("Special").Visible = true
-	else
-		nameLabel.Text = player.Name
 	end
 	
 	
