@@ -73,6 +73,34 @@ local function preCountdown(seconds, fadeAtSeconds)
 	StartingText.Visible = false
 end
 
+local function roundOverAnimation()
+	RoundOverText.Text = "ROUND OVER"
+	RoundOverText.TextTransparency = 1
+	RoundOverText.TextStrokeTransparency = 1
+	RoundOverText.Size = UDim2.new(0.4, 0, 0.2, 0)
+	RoundOverText.Rotation = math.random(-30, 30)
+	RoundOverText.Visible = true
+
+	local tweenIn = TweenService:Create(RoundOverText, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		TextTransparency = 0,
+		Size = UDim2.new(0.8, 0, 0.8, 0),
+		Rotation = 0,
+	})
+	tweenIn:Play()
+	tweenIn.Completed:Wait()
+	task.wait(0.7)
+
+	local tweenOut = TweenService:Create(RoundOverText, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+		TextTransparency = 1,
+		Size = UDim2.new(0.95, 0, 0.95, 0),
+		Rotation = math.random(-20, 20),
+	})
+	tweenOut:Play()
+	tweenOut.Completed:Wait()
+	task.wait(0.1)
+	RoundOverText.Visible = false
+end
+
 local function fightCountdown()
 	for _, v in ipairs({"3", "2", "1"}) do
 		AttackText.Text = v
@@ -133,6 +161,8 @@ RoundCountdownRemote.OnClientEvent:Connect(function(phase, ...)
 		task.spawn(preCountdown, seconds, fadeAt)
 	elseif phase == "fight" then
 		task.spawn(fightCountdown)
+	elseif phase == "roundover" then
+		task.spawn(roundOverAnimation)
 	end
 end)
 

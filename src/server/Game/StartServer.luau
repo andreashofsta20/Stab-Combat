@@ -8,12 +8,11 @@ task.wait(2)
 
 
 
-RoundHandlerModule.ChangeStatus("Waiting for game to load")
+RoundHandlerModule.ChangeStatus("WAITING FOR GAME TO LOAD")
 
 
 task.wait(5)
 
-RoundHandlerModule.ChangeStatus("Game loaded")
 
 
 task.wait(3)

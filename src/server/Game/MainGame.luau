@@ -394,7 +394,7 @@ function MainGame.StartGame(map)
 
 	-- Phase 1: Fire the "ROUND BEGINS IN X" countdown (10s total, fades off at 6)
 	local COUNTDOWN_SECONDS = 10
-	local FADE_AT = 5
+	local FADE_AT = 6
 	RoundCountdownRemote:FireAllClients("pre", COUNTDOWN_SECONDS, FADE_AT)
 	RoundHandlerModule.ChangeStatus("")
 
@@ -407,8 +407,8 @@ function MainGame.StartGame(map)
 
 	-- Phase 2: Fire 3-2-1-FIGHT after map is loaded
 	RoundCountdownRemote:FireAllClients("fight")
-	-- 3-2-1 takes ~3.6s, FIGHT takes ~1.1s
-	task.wait(5)
+	-- 3-2-1 takes ~3.6s, FIGHT appears right after
+	task.wait(3.5)
 
 	-- Populate PlayersInGame BEFORE InitRoundStats so startCount is correct
 	if CountPlayersInGame() == 0 then
@@ -474,7 +474,6 @@ function MainGame.StartGame(map)
 				if winner then
 					local serverPlayerCount = #Players:GetPlayers()
 					local winnerPolicy = AntiFarmModule.GetRewardPolicy(winner, PlayerTotal, serverPlayerCount)
-					RoundHandlerModule.ChangeStatus(winner.Name .. " won!")
 
 					-- Store winner rewards in stats (ApplyRoundRewards will use them)
 					if MainGame.RoundStats and MainGame.RoundStats.players[winnerUserId] then
@@ -507,7 +506,7 @@ function MainGame.StartGame(map)
 		RoundHandlerModule.ChangeStatus(TimeToMinutesModule.MakeTimeMinute(RoundTime))
 	end
 
-	RoundHandlerModule.ChangeStatus("Game ended")
+
 	ZoneHandler._zoneActive = false
 	ZoneHandler.StopZone()
 
@@ -516,6 +515,8 @@ function MainGame.StartGame(map)
 
 	local gameResults, playerResults = BuildRoundResults()
 	if gameResults and playerResults then
+		RoundCountdownRemote:FireAllClients("roundover")
+		task.wait(1.9) 
 		GetRoundResultsRemote:FireAllClients(gameResults, playerResults)
 	end
 
@@ -539,7 +540,7 @@ function MainGame.StartGame(map)
 		end
 	end
 
-	task.wait(2)
+
 
 	-- Teleport surviving players back to lobby
 	for odUserId in pairs(MainGame.PlayersInGame) do

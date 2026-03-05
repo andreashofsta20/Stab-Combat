@@ -60,9 +60,9 @@ RoundHandler.StatusMessages = {
 		return "WAITING FOR " .. missing .. " " .. suffix .. " TO START THE MATCH"
 	end,
 	
-	Voting = "TIME TO VOTE FOR A MAP!",
+	Voting = "TIME TO VOTE FOR A MAP",
 	Starting = "Game is starting shortly.",
-	Ended = "Game Ended.",
+	Ended = "GAME ENDED",
 	ERROR1 = "Minimum players not found",
 	ERROR2 = "ERROR: Map not found",
 	ERROR3 = "Unknown error",
@@ -134,7 +134,7 @@ function RoundHandler.StartVoting()
 			countdown = duration
 		end
 		
-		RoundHandler.ChangeStatus(string.format("TIME TO VOTE FOR A MAP! (%.1f)", countdown))
+		RoundHandler.ChangeStatus(string.format("TIME TO VOTE FOR A MAP (%.1f)", countdown))
 		task.wait(0.1)
 		countdown -= 0.1
 	end
@@ -192,9 +192,6 @@ function RoundHandler.Intermission()
 		return false
 	end
 	
-	task.wait(0.3)
-	RoundHandler.ChangeStatus("Loading voting system")
-	task.wait(1)
 	RoundHandler.TimeToVote = true
 	return true
 end

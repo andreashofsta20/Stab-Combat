@@ -129,20 +129,21 @@ function Voting.CheckResults()
     local winner
 
     if highest == 0 then
-        RoundHandlerModule.ChangeStatus("No votes. Picking a random map")
+        RoundHandlerModule.ChangeStatus("NO VOTES. PICKING A RANDOM MAP")
         local Map = RoundHandlerModule.GetRandomMapFromVoting()
         print(Map)
         winner = Map
         print(winner)
+        task.wait(1.5)
     elseif #tiedMaps > 1 then
         winner = tiedMaps[math.random(1, #tiedMaps)]
-        print("VotingHandler. Tied winner is : " .. winner)
-        RoundHandlerModule.ChangeStatus("It's a tie. Picking a random map")
-        task.wait(2)
+    --    print("VotingHandler. Tied winner is : " .. winner)
+        RoundHandlerModule.ChangeStatus("IT'S A TIE. PICKING A RANDOM MAP")
+        task.wait(1.5)
     else
         winner = tiedMaps[1]
     end
-    print("VotingHandler. Winner is : " .. tostring(winner))
+   -- print("VotingHandler. Winner is : " .. tostring(winner))
     return winner
 end
 

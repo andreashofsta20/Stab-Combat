@@ -32,13 +32,8 @@ local function CanStart()
 end
 
 
-RoundHandlerModule.ChangeStatus("Waiting for server to be ready")
-local ServerBootTimer = 5
-while ServerBootTimer > 0 do
-	ServerBootTimer -= 1
-	task.wait(1)
-	RoundHandlerModule.ChangeStatus("Waiting for server to be ready (" .. tostring(ServerBootTimer) .. ")")
-end
+RoundHandlerModule.ChangeStatus("WAITING FOR SERVER")
+task.wait(2)
 
 while true do
 	
@@ -67,7 +62,7 @@ while true do
 
 	print(map)
 	task.wait(0.5)
-	RoundHandlerModule.ChangeStatus(map.. " Won!")
+	RoundHandlerModule.ChangeStatus(map.. " Won")
 	task.wait(3)
 
 
@@ -79,7 +74,7 @@ while true do
 	
 
 
-	RoundHandlerModule.ChangeStatus("Removing map")
+--	RoundHandlerModule.ChangeStatus("Removing map")
 	SpawnMapModule.RemoveAllMaps()
 
 
