@@ -142,9 +142,11 @@ TouchToMakeDailyRewardsVisible.Touched:Connect(function(hit)
 	local player = Players:GetPlayerFromCharacter(character)
 	if player and player == Player then
 		isInTouchZone = true
-		MakeDesign("Blue")
-		QuestsFrame.Visible = true
-        RequestQuestsRemote:FireServer()
+		if not QuestsFrame.Visible then
+			MakeDesign("Blue")
+			QuestsFrame.Visible = true
+			RequestQuestsRemote:FireServer()
+		end
 		startTouchMonitor()
 	end
 end)

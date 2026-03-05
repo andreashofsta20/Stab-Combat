@@ -60,12 +60,25 @@ function TradeManager.SendRequest(sender: Player, target: Player)
 		return false, err
 	end
 	
-	if ActiveTrades[sender.UserId] then
-		return false, "You're already in a trade"
+	-- Auto-clear stale trades (other player left, or session extremely old)
+	local staleSender = ActiveTrades[sender.UserId]
+	if staleSender then
+		local otherPlayer = staleSender:GetOtherPlayer(sender)
+		if not otherPlayer or not otherPlayer.Parent or (os.clock() - staleSender.LastActivity) > staleSender.Timeout then
+			TradeManager.CancelTrade(staleSender, "STALE")
+		else
+			return false, "You're already in a trade"
+		end
 	end
 	
-	if ActiveTrades[target.UserId] then
-		return false, target.Name .. " is already in a trade"
+	local staleTarget = ActiveTrades[target.UserId]
+	if staleTarget then
+		local otherPlayer = staleTarget:GetOtherPlayer(target)
+		if not otherPlayer or not otherPlayer.Parent or (os.clock() - staleTarget.LastActivity) > staleTarget.Timeout then
+			TradeManager.CancelTrade(staleTarget, "STALE")
+		else
+			return false, target.Name .. " is already in a trade"
+		end
 	end
 	
 	if PendingRequests[target.UserId] then
@@ -207,12 +220,18 @@ function TradeManager.ExecuteTrade(session: any)
 	end
 	
 	-- Execute atomically
-	local success, executeErr = pcall(function()
-		TradeValidator.ExecuteTrade(session)
+	local ok, executeResult = pcall(function()
+		return TradeValidator.ExecuteTrade(session)
 	end)
 	
-	if not success then
-		warn("Trade execution failed:", executeErr)
+	if not ok then
+		warn("Trade execution error:", executeResult)
+		TradeManager.CancelTrade(session, "EXECUTION_FAILED")
+		return false, "Trade failed to execute"
+	end
+	
+	if not executeResult then
+		warn("Trade execution returned false")
 		TradeManager.CancelTrade(session, "EXECUTION_FAILED")
 		return false, "Trade failed to execute"
 	end

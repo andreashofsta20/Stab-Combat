@@ -4,13 +4,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
+local PlayerHitbox = require(script.Parent.PlayerHitbox)
 -- // ANIMS
 local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations") 
 local StabAnimation = CombatAnimations:WaitForChild("Stab")
 -- // CONFIG
-local STAB_RANGE = 7
-local STAB_WIDTH = 4  -- Width of the stab hitbox
-local STAB_HEIGHT = 6 -- Height of the stab hitbox
+local STAB_RANGE = 12 -- How far in front of the player the stab reaches
+local STAB_WIDTH = 8  -- Width of the stab hitbox
+local STAB_HEIGHT = 8 -- Height of the stab hitbox
 local DAMAGE = 100
 local COOLDOWN = 0.6
 local Cooldown = {}
@@ -22,81 +23,6 @@ local function playStabAnim(humanoid)
 	track.Priority = Enum.AnimationPriority.Action4
 	track.Looped = false
 	--track:Play()
-end
-
-local function getPlayerFromHit(part)
-	local model = part and part:FindFirstAncestorOfClass("Model")
-	if not model then return nil, nil end
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	local plr = Players:GetPlayerFromCharacter(model)
-	return plr, humanoid
-end
-
--- Create multiple raycasts in a box pattern for better hit detection
-local function performStabHitbox(origin, direction, character)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { character }
-
-	-- Create a grid of raycasts to form a hitbox
-	local hitResults = {}
-
-	-- Calculate the right and up vectors for the hitbox
-	local lookVector = direction.Unit
-	local rightVector = lookVector:Cross(Vector3.new(0, 1, 0)).Unit
-	local upVector = rightVector:Cross(lookVector).Unit
-
-	-- Define hitbox grid points (3x3 grid for good coverage)
-	local gridPoints = {
-		Vector3.new(0, 0, 0),        -- Center
-		Vector3.new(-1, 0, 0),       -- Left
-		Vector3.new(1, 0, 0),        -- Right
-		Vector3.new(0, -1, 0),       -- Down
-		Vector3.new(0, 1, 0),        -- Up
-		Vector3.new(-1, -1, 0),      -- Bottom-left
-		Vector3.new(1, -1, 0),       -- Bottom-right
-		Vector3.new(-1, 1, 0),       -- Top-left
-		Vector3.new(1, 1, 0),        -- Top-right
-	}
-
-	-- Perform raycast for each grid point
-	for _, offset in ipairs(gridPoints) do
-		local rayOrigin = origin +
-			rightVector * (offset.X * STAB_WIDTH / 2) +
-			upVector * (offset.Y * STAB_HEIGHT / 2)
-
-		local result = workspace:Raycast(rayOrigin, direction, params)
-		if result then
-			table.insert(hitResults, result)
-		end
-	end
-
-	return hitResults
-end
-
--- Alternative method using Region3 for even better detection
-local function performStabRegion(origin, direction, character)
-	local hitbox = Instance.new("Part")
-	hitbox.Name = "StabHitbox"
-	hitbox.Size = Vector3.new(STAB_WIDTH, STAB_HEIGHT, STAB_RANGE)
-	hitbox.Transparency = 1
-	hitbox.CanCollide = false
-	hitbox.CanQuery = true
-	hitbox.CanTouch = false
-	hitbox.Anchored = true
-
-	-- Position the hitbox in front of the player
-	local centerPos = origin + direction.Unit * (STAB_RANGE / 2)
-	hitbox.CFrame = CFrame.lookAt(centerPos, centerPos + direction.Unit)
-	hitbox.Parent = workspace
-
-	-- Find all parts touching the hitbox
-	local touchingParts = workspace:GetPartBoundsInBox(hitbox.CFrame, hitbox.Size)
-
-	-- Clean up hitbox
-	hitbox:Destroy()
-
-	return touchingParts
 end
 
 function KnifeModule.Stab(player: Player)
@@ -122,15 +48,22 @@ function KnifeModule.Stab(player: Player)
 
 	playStabAnim(hum)
 
-	local origin = hrp.Position
-	local direction = hrp.CFrame.LookVector * STAB_RANGE
+	-- Use GetPartBoundsInBox centered in front of the player
+	local origin = hrp.Position + hrp.CFrame.LookVector * (STAB_RANGE / 2)
+	local hitboxCFrame = CFrame.lookAt(origin, origin + hrp.CFrame.LookVector)
+	local hitboxSize = Vector3.new(STAB_WIDTH, STAB_HEIGHT, STAB_RANGE)
 
-	local touchingParts = performStabRegion(origin, direction, character)
+	local overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	overlapParams.FilterDescendantsInstances = { character }
+
+	local touchingParts = workspace:GetPartBoundsInBox(hitboxCFrame, hitboxSize, overlapParams)
 
 	local damagedPlayers = {}
 
 	for _, part in ipairs(touchingParts) do
-		local victimPlayer, victimHum = getPlayerFromHit(part)
+		-- Use PlayerHitbox to resolve player from any part (hitbox or body)
+		local victimPlayer, victimHum = PlayerHitbox.GetPlayerFromHitbox(part)
 		local victimId = victimPlayer and victimPlayer.UserId or nil
 
 		if not victimHum or victimHum == hum or (victimId and damagedPlayers[victimId]) then
@@ -149,7 +82,7 @@ function KnifeModule.Stab(player: Player)
 			damagedPlayers[victimId] = true
 		end
 
-		-- FIX: Register pending kill BEFORE dealing damage
+		-- Register pending kill BEFORE dealing damage
 		if victimPlayer and victimId then
 			MainGameModule.RegisterPendingKill(player, victimId)
 		end

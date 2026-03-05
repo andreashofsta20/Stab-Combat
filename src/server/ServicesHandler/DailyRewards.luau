@@ -206,7 +206,13 @@ local function claim(player, requestedDayIndex)
    return true
 end
 
+local dailyRemoteCooldowns: {[number]: number} = {}
+local DAILY_REMOTE_COOLDOWN = 1.5
+
 ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action, dayIndex)
+	local now = os.clock()
+	if dailyRemoteCooldowns[player.UserId] and (now - dailyRemoteCooldowns[player.UserId]) < DAILY_REMOTE_COOLDOWN then return end
+	dailyRemoteCooldowns[player.UserId] = now
 
 	if action == "GetStatus" then
 		DailyRewardClientRemote:FireClient(player, getStatus(player))
@@ -229,6 +235,7 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastClaimTimes[player] = nil
+	dailyRemoteCooldowns[player.UserId] = nil
 end)
 
 return {

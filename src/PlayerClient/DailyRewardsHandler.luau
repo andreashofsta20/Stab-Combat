@@ -120,9 +120,11 @@ TouchToMakeDailyRewardsVisible.Touched:Connect(function(hit)
 	local player = Players:GetPlayerFromCharacter(character)
 	if player and player == Player then
 		isInTouchZone = true
-		MakeDesign("Blue")
-		ClaimDailyRewardRemote:FireServer("GetStatus")
-		DailyRewardsFrame.Visible = true
+		if not DailyRewardsFrame.Visible then
+			MakeDesign("Blue")
+			ClaimDailyRewardRemote:FireServer("GetStatus")
+			DailyRewardsFrame.Visible = true
+		end
 		startTouchMonitor()
 	end
 end)
@@ -225,7 +227,9 @@ local function startCountdownTimer()
 
 		if remainingSeconds <= 0 then
 			stopCountdown()
-			ClaimDailyRewardRemote:FireServer("GetStatus")
+			if DailyRewardsFrame.Visible then
+				ClaimDailyRewardRemote:FireServer("GetStatus")
+			end
 			return
 		end
 

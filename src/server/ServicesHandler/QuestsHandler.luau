@@ -364,7 +364,7 @@ local function claimQuest(player: Player, questId: string)
 end
 
 local questRemoteCooldowns: {[number]: number} = {}
-local QUEST_REMOTE_COOLDOWN = 2.0
+local QUEST_REMOTE_COOLDOWN = 1
 
 UpdateQuestsRemote.OnServerEvent:Connect(function(player: Player)
     local now = os.clock()

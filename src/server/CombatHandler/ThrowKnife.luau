@@ -11,6 +11,7 @@ local CollectionService = game:GetService("CollectionService")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
+local PlayerHitbox = require(script.Parent.PlayerHitbox)
 local ThrewKnifeClient = ReplicatedStorage.Remotes.Knife:WaitForChild("ThrewClient")
 
 -- // ANIMATIONS
@@ -23,7 +24,7 @@ local ThrowAnimation = CombatAnimations:WaitForChild("Throw")
 local KNIFE_SPEED = 10000  -- Studs per second for visual movement
 local MAX_DISTANCE = 350
 local LIFETIME = 5
-local DAMAGE = 100
+local DAMAGE = 50
 local COOLDOWN = 0.5
 local VISUAL_OFFSET = 0.8
 local MIN_SPEED_MULT = 0.7
@@ -171,12 +172,8 @@ local function stickKnife(knife, hitPart, pos, normal)
 end
 
 local function getPlayerFromHit(part)
-	local model = part and part:FindFirstAncestorOfClass("Model")
-	if not model then return nil, nil end
-
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	local plr = Players:GetPlayerFromCharacter(model)
-	return plr, humanoid
+	-- Use the hitbox system for hit resolution
+	return PlayerHitbox.GetPlayerFromHitbox(part)
 end
 
 function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPosition: Vector3, chargeRatio: number)
@@ -212,7 +209,8 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = { character }
 
-	local hitResult = workspace:Raycast(camOrigin, direction * MAX_DISTANCE, rayParams)
+	local KNIFE_HITBOX_RADIUS = 3 -- Generous sphere sweep radius; combined with 5x7 hitbox parts this is very forgiving
+	local hitResult = workspace:Spherecast(camOrigin, KNIFE_HITBOX_RADIUS, direction * MAX_DISTANCE, rayParams)
 	local finalHitPos = hitResult and hitResult.Position or (camOrigin + direction * MAX_DISTANCE)
 	local actualDistance = (finalHitPos - camOrigin).Magnitude
 	local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * math.clamp(chargeRatio, 0, 1))

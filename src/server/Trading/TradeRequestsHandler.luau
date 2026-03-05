@@ -26,9 +26,7 @@ function TradeRequestsHandler.Init()
 	TradeUpdateRemote = RemotesFolder:WaitForChild("TradeUpdate")
 	
 	TradeManager.RegisterCancelCallback(function(session, reason)
-		if reason == "TIMEOUT" or reason == "PLAYER_LEFT" then
-			TradeRequestsHandler.NotifyTrade(session, "TRADE_CANCELLED", {reason = reason})
-		end
+		TradeRequestsHandler.NotifyTrade(session, "TRADE_CANCELLED", {reason = reason})
 	end)
 
 	-- Connect single remote handler
@@ -234,9 +232,6 @@ function TradeRequestsHandler.OnLockTrade(player: Player, locked: boolean)
 	
 	if success then
 		TradeRequestsHandler.NotifyTrade(session, "LOCK_STATUS", {player = player.UserId, locked = locked})
-	else
-		-- Trade failed
-		TradeRequestsHandler.NotifyTrade(session, "TRADE_FAILED", {error = err})
 	end
 	
 	TradeRequestsHandler.FireResult(player, "LOCK_TRADE", success, err)
@@ -262,7 +257,14 @@ function TradeRequestsHandler.OnAcceptTrade(player: Player, accepted: boolean)
 			TradeRequestsHandler.NotifyTrade(session, "TRADE_COMPLETED")
 		end
 	else
-		TradeRequestsHandler.NotifyTrade(session, "TRADE_FAILED", {error = err})
+		-- Only broadcast failure if the trade was actually cancelled/destroyed on the server
+		if session.State == "CANCELLED" then
+			TradeRequestsHandler.NotifyTrade(session, "TRADE_FAILED", {error = err})
+		else
+			-- Non-fatal rejection (e.g. clicked too early) — just tell this player, don't nuke the trade
+			TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", false, err)
+			return
+		end
 	end
 
 	TradeRequestsHandler.FireResult(player, "ACCEPT_TRADE", success, err)

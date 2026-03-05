@@ -27,6 +27,8 @@ local TradeFrame = MainGui:WaitForChild("Frames"):WaitForChild("Trade")
 local requestTemplates = {}
 local currentTradeData = nil
 local uiRefreshLoopActive = false
+local localAcceptReadyAt = 0 -- tick() when accept becomes available (local clock)
+local ACCEPT_DELAY = 5 -- seconds after both confirm before accept is allowed
 
 local function getFirstDescendantByName(root: Instance, childName: string)
 	for _, descendant in ipairs(root:GetDescendants()) do
@@ -394,8 +396,7 @@ local function refreshTradeUi()
 	local tradeComplete = currentTradeData.State == "COMPLETED"
 	local bothLocked = localLocked and otherSide.Locked == true
 	local localAccepted = localSide.Accepted == true
-	local acceptReadyAt = tonumber(currentTradeData.AcceptReadyAt) or 0
-	local waitRemaining = math.max(0, acceptReadyAt - os.time())
+	local waitRemaining = math.max(0, localAcceptReadyAt - tick())
 
 	if tradeComplete then
 		setButtonText(ui.AcceptButton, "DONE")
@@ -404,9 +405,9 @@ local function refreshTradeUi()
 	elseif not bothLocked then
 		setButtonText(ui.AcceptButton, "UNCONFIRM")
 	elseif localAccepted then
-		setButtonText(ui.AcceptButton, "UNACCEPT")
-	elseif waitRemaining > 0 then
-		setButtonText(ui.AcceptButton, "UNCONFIRM (" .. tostring(waitRemaining) .. "S)")
+		setButtonText(ui.AcceptButton, "WAITING...")
+	elseif bothLocked and waitRemaining > 0 then
+		setButtonText(ui.AcceptButton, "UNCONFIRM (" .. tostring(math.ceil(waitRemaining)) .. "S)")
 	else
 		setButtonText(ui.AcceptButton, "ACCEPT")
 	end
@@ -424,7 +425,7 @@ local function ensureUiRefreshLoop()
 	uiRefreshLoopActive = true
 	task.spawn(function()
 		while uiRefreshLoopActive do
-			task.wait(0.2)
+			task.wait(1)
 			if not currentTradeData then
 				uiRefreshLoopActive = false
 				break
@@ -435,16 +436,21 @@ local function ensureUiRefreshLoop()
 				break
 			end
 
-			if (tonumber(currentTradeData.AcceptReadyAt) or 0) > 0 then
-				refreshTradeUi()
-			end
+			refreshTradeUi()
 		end
+		uiRefreshLoopActive = false
 	end)
 end
 
 local function closeTradeUi()
+	local hadTrade = currentTradeData ~= nil
 	currentTradeData = nil
+	localAcceptReadyAt = 0
 	TradeFrame.Visible = false
+	-- Always tell the server to clean up, so ActiveTrades can never get stuck
+	if hadTrade then
+		TradeRemote:FireServer("CANCEL_TRADE")
+	end
 end
 
 local function bindTradeButtons()
@@ -481,8 +487,8 @@ local function bindTradeButtons()
 					return
 				end
 
-				local acceptReadyAt = tonumber(currentTradeData.AcceptReadyAt) or 0
-				if os.time() < acceptReadyAt then
+				if tick() < localAcceptReadyAt then
+					-- Still in countdown, unconfirm instead
 					TradeRemote:FireServer("LOCK_TRADE", false)
 					return
 				end
@@ -551,10 +557,19 @@ local function onTradeEvent(tradeData)
 
 	currentTradeData = tradeData
 	if tradeData.UpdateType == "TRADE_STARTED" then
+		localAcceptReadyAt = 0
 		for senderUserId in pairs(requestTemplates) do
 			removeRequestTemplate(senderUserId)
 		end
 	end
+
+	-- When both players just locked, start a local 5-second countdown (only once)
+	if tradeData.State == "LOCKED" and localAcceptReadyAt == 0 then
+		localAcceptReadyAt = tick() + ACCEPT_DELAY
+	elseif tradeData.State ~= "LOCKED" then
+		localAcceptReadyAt = 0
+	end
+
 	bindTradeButtons()
 	refreshTradeUi()
 	ensureUiRefreshLoop()

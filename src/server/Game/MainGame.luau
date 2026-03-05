@@ -13,6 +13,10 @@ local TimeToMinutesModule = require(ReplicatedStorage:WaitForChild("Modules"):Wa
 local RecieveTools = StartGameClientFolder:WaitForChild("RecieveTools")
 local WipeTools = StartGameClientFolder:WaitForChild("WipeTools")
 
+local RoundCountdownRemote = RemotesFolder:FindFirstChild("RoundCountdown")
+
+
+
 MainGame.GameActive = false
 MainGame.PlayersInGame = {}
 MainGame.RoundTime = 3 * 60
@@ -388,17 +392,23 @@ function MainGame.StartGame(map)
 	task.wait(0.5)
 	RecieveTools:FireAllClients()
 
-	task.wait(0.5)
-	RoundHandlerModule.ChangeStatus("Loading Map")
+	-- Phase 1: Fire the "ROUND BEGINS IN X" countdown (10s total, fades off at 6)
+	local COUNTDOWN_SECONDS = 10
+	local FADE_AT = 5
+	RoundCountdownRemote:FireAllClients("pre", COUNTDOWN_SECONDS, FADE_AT)
+	RoundHandlerModule.ChangeStatus("")
+
+	-- Wait for countdown to reach the fade-off point (~4 seconds of visible text)
+	task.wait(COUNTDOWN_SECONDS - FADE_AT + 0.5)
+
+	-- Spawn the map while the text is sliding off
 	SpawnMapModule.Spawn(map)
-	RoundHandlerModule.ChangeStatus("Map Loaded")
+	task.wait(2)
 
-	task.wait(3)
-
-	for i = 3, 1, -1 do
-		RoundHandlerModule.ChangeStatus("Starting in " .. i .. "...")
-		task.wait(1)
-	end
+	-- Phase 2: Fire 3-2-1-FIGHT after map is loaded
+	RoundCountdownRemote:FireAllClients("fight")
+	-- 3-2-1 takes ~3.6s, FIGHT takes ~1.1s
+	task.wait(5)
 
 	-- Populate PlayersInGame BEFORE InitRoundStats so startCount is correct
 	if CountPlayersInGame() == 0 then
@@ -450,6 +460,13 @@ function MainGame.StartGame(map)
 				local winnerUserId
 				for odUserId in pairs(MainGame.PlayersInGame) do
 					winnerUserId = odUserId
+					break
+				end
+
+				if not winnerUserId then
+					-- Everyone died simultaneously — no winner
+					RoundHandlerModule.ChangeStatus("Draw!")
+					task.wait(4)
 					break
 				end
 
