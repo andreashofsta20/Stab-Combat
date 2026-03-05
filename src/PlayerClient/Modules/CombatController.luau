@@ -2,9 +2,16 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
+
+local touchAimPosition: Vector2? = nil
+local mobileShiftLockEnabled = false 
+local isMobileInput = false
 
 local COOLDOWN = 0.5
 local STAB_COOLDOWN = 0.3
@@ -13,6 +20,13 @@ local MIN_CHARGE_RATIO = 0
 local MAX_CHARGE_RATIO = 1
 local MAX_RAYCAST_DISTANCE = 1000
 local THROW_THRESHOLD = 0.2
+
+-- VISUAL SETTINGS (Matching Server for prediction)
+local KNIFE_SPEED = 10000
+local VISUAL_OFFSET = 0.8
+local MIN_SPEED_MULT = 0.7
+local MAX_SPEED_MULT = 1.7
+local LIFETIME = 5
 
 local ThrowKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrowKnife")
 local ThrewKnifeClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrewClient")
@@ -51,6 +65,150 @@ local currentHumanoid: Humanoid? = nil
 local defaultWalkSpeed = 16
 local sprintWalkSpeed = 24
 local sprintEnabled = false
+
+local function addTrail(part)
+	local frontAttachment = Instance.new("Attachment", part)
+	local backAttachment = Instance.new("Attachment", part)
+
+	frontAttachment.Position = Vector3.new(0, 0, 0.5)
+	backAttachment.Position = Vector3.new(0, 0, -0.5)
+
+	local mainTrail = Instance.new("Trail")
+	mainTrail.Attachment0 = frontAttachment
+	mainTrail.Attachment1 = backAttachment
+	mainTrail.Lifetime = 0.3
+	mainTrail.MinLength = 0
+	mainTrail.FaceCamera = true
+	mainTrail.LightEmission = 1
+	mainTrail.LightInfluence = 0
+
+	mainTrail.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.3, Color3.fromRGB(0, 162, 255)),
+		ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 64, 64)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
+	}
+
+	mainTrail.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.5, 0.3),
+		NumberSequenceKeypoint.new(1, 1)
+	}
+
+	mainTrail.WidthScale = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.5, 0.4),
+		NumberSequenceKeypoint.new(1, 0.1)
+	}
+
+	mainTrail.Parent = part
+
+	local secondaryTrail = Instance.new("Trail")
+	secondaryTrail.Attachment0 = frontAttachment
+	secondaryTrail.Attachment1 = backAttachment
+	secondaryTrail.Lifetime = 0.15
+	secondaryTrail.MinLength = 0
+	secondaryTrail.FaceCamera = true
+	secondaryTrail.LightEmission = 0.8
+	secondaryTrail.LightInfluence = 0.2
+
+	secondaryTrail.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 128, 0))
+	}
+
+	secondaryTrail.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.7),
+		NumberSequenceKeypoint.new(1, 1)
+	}
+
+	secondaryTrail.WidthScale = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.5, 0.2),
+		NumberSequenceKeypoint.new(1, 0.05)
+	}
+
+	secondaryTrail.Parent = part
+
+	local particles = Instance.new("Attachment", part)
+	particles.Position = Vector3.new(0, 0, -0.3)
+
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Parent = particles
+	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparks.Lifetime = NumberRange.new(0.1, 0.3)
+	sparks.Rate = 100
+	sparks.SpreadAngle = Vector2.new(45, 45)
+	sparks.Speed = NumberRange.new(2, 8)
+	sparks.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 200, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0))
+	}
+	sparks.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.8, 0.5),
+		NumberSequenceKeypoint.new(1, 1)
+	}
+	sparks.Size = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.5, 0.05),
+		NumberSequenceKeypoint.new(1, 0.01)
+	}
+	sparks.LightEmission = 1
+	sparks.LightInfluence = 0
+
+	task.spawn(function()
+		task.wait(0.5)
+		sparks.Enabled = false
+		Debris:AddItem(sparks, 2)
+	end)
+
+	return frontAttachment, backAttachment
+end
+
+local function stickKnife(knife, hitPart, pos, normal)
+	knife.Anchored = true
+	knife.CFrame = CFrame.new(pos, pos + normal) * CFrame.Angles(math.rad(90), 0, 0)
+
+	if hitPart and hitPart:IsA("BasePart") then
+		local model = hitPart:FindFirstAncestorOfClass("Model")
+		if model and model:FindFirstChildOfClass("Humanoid") then
+			return
+		else
+			knife.Anchored = true
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = knife
+			weld.Part1 = hitPart
+			weld.Parent = knife
+		end
+	end
+end
+
+local function getAimRay()
+	local cam = workspace.CurrentCamera
+	if not cam then return nil end
+
+	local viewport = cam.ViewportSize
+	local shouldLockToCenter = UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
+
+	if shouldLockToCenter or mobileShiftLockEnabled then
+		return cam:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
+	end
+
+	if isMobileInput then
+		if touchAimPosition then
+			return cam:ScreenPointToRay(touchAimPosition.X, touchAimPosition.Y)
+		else
+			return cam:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
+		end
+	else
+		local mouse = player:GetMouse()
+		return mouse.UnitRay
+	end
+end
 
 local function hasKnifeEquipped()
 	local character = player.Character
@@ -98,7 +256,6 @@ end
 
 local function playStabAnimation()
 	if isCharging() then return end
-
 	stopAllAnimations()
 	if stabTrack then
 		stabTrack.Looped = false
@@ -112,7 +269,6 @@ local function playChargeAnimation()
 	if not chargeTrack then return end
 
 	local sessionId = chargeSessionId
-
 	chargeTrack.Looped = false
 	chargeTrack:AdjustSpeed(1)
 	chargeTrack:Play()
@@ -134,9 +290,7 @@ end
 
 local function playThrowAnimation()
 	stopAllAnimations()
-	if throwTrack then
-		throwTrack:Play()
-	end
+	if throwTrack then throwTrack:Play() end
 end
 
 local function uiAnimation()
@@ -199,9 +353,7 @@ end
 
 local function applySprintToHumanoid()
 	local humanoid = currentHumanoid
-	if not humanoid then
-		return
-	end
+	if not humanoid then return end
 
 	if sprintEnabled then
 		humanoid.WalkSpeed = sprintWalkSpeed
@@ -225,19 +377,101 @@ local function throw(chargeRatio)
 	lastThrow = tick()
 
 	local clampedCharge = math.clamp(chargeRatio or 0, MIN_CHARGE_RATIO, MAX_CHARGE_RATIO)
-	local mousePos = UserInputService:GetMouseLocation()
-	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+
+	local ray = getAimRay()
+	if not ray then return false end
+
+	local character = player.Character
+	local throwOrigin = ray.Origin
+	if character then
+		local hand = character:FindFirstChild("RightHand")
+		if hand then
+			throwOrigin = hand.Position
+		else
+			local hrp = character:FindFirstChild("HumanoidRootPart")
+			throwOrigin = hrp and hrp.Position or ray.Origin
+		end
+	end
 
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	if player.Character then
-		rayParams.FilterDescendantsInstances = { player.Character }
+	if character then
+		rayParams.FilterDescendantsInstances = { character }
 	end
 
 	local result = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
 	local targetPos = result and result.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
 
+	local trueDirection = (targetPos - throwOrigin).Unit
+	local trueTargetPos = throwOrigin + trueDirection * (targetPos - throwOrigin).Magnitude
+
 	playThrowAnimation()
+	
+	-- Instantly hide hand tool for feedback
+	local equippedTool = character and character:FindFirstChildWhichIsA("Tool")
+	if equippedTool then
+		local toolHandle = equippedTool:FindFirstChild("Handle")
+		if toolHandle then
+			task.delay(0.15, function() if toolHandle then toolHandle.Transparency = 1 end end)
+			task.delay(0.65, function() if toolHandle then toolHandle.Transparency = 0 end end)
+		end
+	end
+
+	-- INSTANT ZERO-DELAY VISUAL PREDICTION
+	local KnivesFolder = ReplicatedStorage:FindFirstChild("Knives")
+	if KnivesFolder then
+		local visualOrigin = throwOrigin + (trueDirection * VISUAL_OFFSET)
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local equippedKnifeValue = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
+		local EquippedKnife = equippedKnifeValue and equippedKnifeValue.Value
+
+		if EquippedKnife then
+			local Template = KnivesFolder:FindFirstChild(EquippedKnife)
+			if Template and Template:FindFirstChild("Handle") then
+				local handle = Template.Handle:Clone()
+				handle.CanCollide = false
+				handle.CanQuery = false
+				handle.Massless = true
+				handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + trueDirection)
+				handle.Parent = workspace
+
+				addTrail(handle)
+
+				local actualDistance = (trueTargetPos - visualOrigin).Magnitude
+				local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * clampedCharge)
+				local travelTime = actualDistance / (KNIFE_SPEED * speedMult)
+				local startTime = os.clock()
+
+				local visualTravelDirection = (trueTargetPos - visualOrigin).Unit
+				if actualDistance <= 0.001 then visualTravelDirection = trueDirection end
+
+				local conn
+				conn = RunService.Heartbeat:Connect(function()
+					local elapsed = os.clock() - startTime
+					local progress = elapsed / travelTime
+
+					if progress >= 1 then
+						handle.CFrame = CFrame.lookAt(trueTargetPos, trueTargetPos + visualTravelDirection)
+						if result then
+							stickKnife(handle, result.Instance, trueTargetPos, result.Normal)
+						else
+							Debris:AddItem(handle, 3)
+						end
+						conn:Disconnect()
+						return
+					end
+
+					local currentPos = visualOrigin:Lerp(trueTargetPos, progress)
+					handle.CFrame = CFrame.lookAt(currentPos, currentPos + visualTravelDirection)
+				end)
+
+				Debris:AddItem(handle, LIFETIME)
+			end
+		end
+	else
+		warn("CLIENT PREDICTION FAILED: Please move your 'Knives' folder to ReplicatedStorage!")
+	end
+
 	ThrowKnifeRemote:FireServer(ray.Origin, targetPos, clampedCharge)
 	return true
 end
@@ -246,17 +480,34 @@ local function stab()
 	if tick() - lastStab < STAB_COOLDOWN then return false end
 	if not hasKnifeEquipped() then return false end
 	lastStab = tick()
-
 	playStabAnimation()
 	StabKnifeRemote:FireServer()
 	return true
 end
 
 function CombatController.Init()
-	if initialized then
-		return
-	end
+	if initialized then return end
 	initialized = true
+
+	-- Hide the server's delayed knife when it spawns so we only see our instant prediction
+	CollectionService:GetInstanceAddedSignal("ServerKnife_" .. player.UserId):Connect(function(handle)
+		handle.Transparency = 1
+		for _, desc in ipairs(handle:GetDescendants()) do
+			if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
+				desc.Enabled = false
+			elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
+				desc.Transparency = 1
+			end
+		end
+		-- Failsafe for trails that load a frame later
+		handle.DescendantAdded:Connect(function(desc)
+			if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
+				desc.Enabled = false
+			elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
+				desc.Transparency = 1
+			end
+		end)
+	end)
 
 	player.CharacterAdded:Connect(onCharacterAdded)
 	if player.Character then
@@ -270,13 +521,8 @@ end
 
 function CombatController.BeginCharge()
 	CombatController.Init()
-	if charging then
-		return false
-	end
-
-	if not hasKnifeEquipped() then
-		return false
-	end
+	if charging then return false end
+	if not hasKnifeEquipped() then return false end
 
 	charging = true
 	chargeStart = tick()
@@ -295,9 +541,7 @@ end
 
 function CombatController.ReleaseCharge()
 	CombatController.Init()
-	if not charging then
-		return false
-	end
+	if not charging then return false end
 
 	charging = false
 	local heldFor = tick() - chargeStart
@@ -311,6 +555,30 @@ function CombatController.ReleaseCharge()
 
 	local ratio = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
 	return throw(ratio)
+end
+
+function CombatController.CancelCharge()
+	if not charging then return end
+	charging = false
+	chargeSessionId += 1
+	stopChargeTween()
+	stopAllAnimations()
+end
+
+function CombatController.IsCharging()
+	return charging
+end
+
+function CombatController.SetTouchAimPosition(pos: Vector2?)
+	touchAimPosition = pos
+end
+
+function CombatController.SetMobileShiftLock(enabled: boolean)
+	mobileShiftLockEnabled = enabled
+end
+
+function CombatController.SetInputMode(isMobile: boolean)
+	isMobileInput = isMobile
 end
 
 function CombatController.SetSprintEnabled(enabled: boolean)

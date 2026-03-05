@@ -212,10 +212,9 @@ local function LoadProfileUI(PlayerInfo)
 	StatFrame.Deaths["Death#"].Text = PlayerInfo.Deaths or "N/A"
 	StatFrame.Kills["Kill#"].Text = PlayerInfo.Kills or "N/A"
 
-	local kdr = 0
-	if (PlayerInfo.Deaths or 0) > 0 then
-		kdr = (PlayerInfo.Kills or 0) / PlayerInfo.Deaths
-	end
+	local kills = PlayerInfo.Kills or 0
+	local deaths = PlayerInfo.Deaths or 0
+	local kdr = deaths > 0 and (kills / deaths) or kills
 	StatFrame.KDR["KDR#"].Text = string.format("%.2f", kdr)
 
 	local LevelFrame = PlayerInfoFrame:WaitForChild("LevelBar")

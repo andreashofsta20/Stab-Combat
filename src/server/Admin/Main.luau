@@ -46,7 +46,11 @@ AdminRemote.OnServerEvent:Connect(function(player, category, command, ...)
         return
     end
     for _, arg in ipairs(args) do
-        if type(arg) == "string" and #arg > MAX_STRING_ARG_LENGTH then
+        local t = type(arg)
+        if t ~= "string" and t ~= "number" and t ~= "boolean" then
+            return
+        end
+        if t == "string" and #arg > MAX_STRING_ARG_LENGTH then
             return
         end
     end

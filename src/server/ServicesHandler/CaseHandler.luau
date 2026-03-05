@@ -28,10 +28,7 @@ local MarketplaceService = game:GetService("MarketplaceService")
 
 -- // DEBOUNCE // --
 
-local OnSpinningAnimation = {
-	
-	
-}
+local OnSpinningAnimation: {[number]: boolean} = {}
 local lastCaseOpenAt: {[number]: number} = {}
 local CASE_OPEN_MIN_GAP = 0.35
 
@@ -50,7 +47,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	end
 	lastCaseOpenAt[player.UserId] = now
 	
-	if OnSpinningAnimation[player] then
+	if OnSpinningAnimation[player.UserId] then
 		return NotificationHandler.SendNotification(player, "Debounce", 3, "Error")
 	end
 	
@@ -67,9 +64,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	local deducted = false
 
 	local function clearDebounce()
-		if OnSpinningAnimation[player] then
-			OnSpinningAnimation[player] = nil
-		end
+		OnSpinningAnimation[player.UserId] = nil
 	end
 
 	local function fail(message: string)
@@ -101,7 +96,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		if cashValue.Value >= CaseInfo.Price then
 			cashValue.Value -= CaseInfo.Price
 			deducted = true
-			OnSpinningAnimation[player] = true
+			OnSpinningAnimation[player.UserId] = true
 		else
 			fail("You can't afford this case")
 			return
@@ -150,6 +145,14 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 
 	
 	
+	-- Grant the item IMMEDIATELY (before animation) to prevent loss on disconnect/crash
+	if CaseInfo.EmoteCase == true then
+		InventoryHandler.AddEmote(player, tostring(chosenSkin.Knife))
+	else
+		InventoryHandler.AddKnife(player, tostring(chosenSkin.Knife))
+	end
+	GameRewardModule.XpReward(player, "case_open")
+
 	CaseAnimationClient:FireClient(player, {
 		SkinName = chosenSkin.Data.SkinName;
 		Rarity = chosenRarity;
@@ -158,21 +161,8 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		Case = CaseName,
 	}, DURATATION, HasSkip, CaseName)
 
-	
 	task.wait(DURATATION + 0.8)
-	
 
-	
-	
-	if CaseInfo.EmoteCase == true then
-		InventoryHandler.AddEmote(player, tostring(chosenSkin.Knife))
-	else
-		InventoryHandler.AddKnife(player, tostring(chosenSkin.Knife))
-	end
-	GameRewardModule.XpReward(player, "case_open")
-		
-		
-	
 	clearDebounce()
 	
 	
@@ -183,7 +173,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 end)
 
 	_Players.PlayerRemoving:Connect(function(player)
-		OnSpinningAnimation[player] = nil
+		OnSpinningAnimation[player.UserId] = nil
 		lastCaseOpenAt[player.UserId] = nil
 	end)
 

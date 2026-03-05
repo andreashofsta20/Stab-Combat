@@ -132,15 +132,24 @@ Players.PlayerAdded:Connect(function(player)
 	bindLeaderstats(player)
 end)
 
+local lastLeaderboardRequestAt: {[number]: number} = {}
+local LEADERBOARD_REQUEST_COOLDOWN = 30
+
 Players.PlayerRemoving:Connect(function(player)
 	updateOrderedStores(player, true)
 	LAST_UPDATE[player.UserId] = nil
+	lastLeaderboardRequestAt[player.UserId] = nil
 end)
 
 RequestLeaderboardsRemote.OnServerEvent:Connect(function(player)
+   local now = os.clock()
+   if lastLeaderboardRequestAt[player.UserId] and (now - lastLeaderboardRequestAt[player.UserId]) < LEADERBOARD_REQUEST_COOLDOWN then
+       return
+   end
+   lastLeaderboardRequestAt[player.UserId] = now
 
    -- Update player's stats in DataStore before sending leaderboard
-   updateOrderedStores(player, true)
+   updateOrderedStores(player)
    local topCount = DEFAULT_TOP_COUNT
    local payload = {
 	   Levels = getLeaderboardData(LevelsStore, topCount),

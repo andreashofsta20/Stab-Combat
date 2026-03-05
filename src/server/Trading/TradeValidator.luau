@@ -2,6 +2,16 @@ local TradeValidator = {}
 
 local Players = game:GetService("Players")
 
+local function countKnifeSlots(items: {any})
+	local count = 0
+	for _, item in ipairs(items or {}) do
+		if item.Type == "Inventory" then
+			count += 1
+		end
+	end
+	return count
+end
+
 function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then
@@ -50,6 +60,10 @@ function TradeValidator.ValidateTrade(session: any)
 	local valid2, err2 = TradeValidator.ValidatePlayerItems(session.Player2, session.Player2Items)
 	if not valid2 then
 		return false, "Player2 validation failed: " .. err2
+	end
+
+	if countKnifeSlots(session.Player1Items) > 4 or countKnifeSlots(session.Player2Items) > 4 then
+		return false, "You can only offer 4 knives"
 	end
 	
 	-- Check both players locked
@@ -140,14 +154,31 @@ local function GiveItems(player: Player, items: {any})
 	return true
 end
 
--- Execute the trade atomically
+-- Execute the trade atomically with rollback safety
 function TradeValidator.ExecuteTrade(session: any)
+	-- Re-validate ownership right before execution (TOCTOU protection)
+	local valid1, err1 = TradeValidator.ValidatePlayerItems(session.Player1, session.Player1Items)
+	if not valid1 then
+		return false, "Trade failed: " .. err1
+	end
+	local valid2, err2 = TradeValidator.ValidatePlayerItems(session.Player2, session.Player2Items)
+	if not valid2 then
+		return false, "Trade failed: " .. err2
+	end
+
 	-- Remove items from both players
 	local removed1 = RemoveItems(session.Player1, session.Player1Items)
 	local removed2 = RemoveItems(session.Player2, session.Player2Items)
 	
 	if not removed1 or not removed2 then
-		error("Failed to remove items")
+		-- Rollback: give back any items that were removed
+		if removed1 then
+			GiveItems(session.Player1, session.Player1Items)
+		end
+		if removed2 then
+			GiveItems(session.Player2, session.Player2Items)
+		end
+		return false, "Failed to remove items — trade rolled back"
 	end
 	
 	-- Give items to both players
@@ -155,7 +186,14 @@ function TradeValidator.ExecuteTrade(session: any)
 	local given2 = GiveItems(session.Player2, session.Player1Items)
 	
 	if not given1 or not given2 then
-		error("Failed to give items")
+		-- Critical failure — items removed but can't give. Attempt rollback.
+		if not given1 then
+			GiveItems(session.Player1, session.Player1Items)
+		end
+		if not given2 then
+			GiveItems(session.Player2, session.Player2Items)
+		end
+		return false, "Failed to give items — trade rolled back"
 	end
 	
 	return true

@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
-local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -15,7 +14,6 @@ local EmoteFrame = UI:WaitForChild("EmoteFrame"):WaitForChild("background")
 
 local ShiftLockToggled = false
 local ShiftLockImage = MobileFrame:WaitForChild("ShiftLockToogled")
-
 
 local OtherButtonsFrame = MobileFrame:WaitForChild("BasicControls")
 local EmoteButton = OtherButtonsFrame:WaitForChild("Emote")
@@ -33,13 +31,16 @@ local DefaultColor = Color3.fromRGB(255, 255, 255)
 
 local currentHumanoid: Humanoid? = nil
 local throwHolding = false
+local touchHolding = false
+local pendingTouch: InputObject? = nil
+local pendingTouchStartPos: Vector2? = nil
+local lastTouchAimPos: Vector2? = nil
 local shiftLockConnection: RBXScriptConnection? = nil
 local decided = false
 local isMobile = false
 local sprintToggled = false
 local walkSpeedConnection: RBXScriptConnection? = nil
-
-local DISABLE_DEFAULT_JUMP_ACTION = "DisableDefaultMobileJumpAction"
+local jumpDebounce = false
 
 local function getCharacter(): Model
     return player.Character or player.CharacterAdded:Wait()
@@ -55,10 +56,7 @@ local function getHrp(character: Model): BasePart?
 end
 
 local function setButtonToggled(button: GuiObject, toggled: boolean)
-    if not button:IsA("ImageButton") then
-        return
-    end
-
+    if not button:IsA("ImageButton") then return end
     button:WaitForChild("deco").ImageColor3 = toggled and ToggledOrActivatedColor or DefaultColor
 end
 
@@ -67,7 +65,6 @@ local function updateShiftLockVisual()
     ShiftLockButton:WaitForChild("deco").ImageColor3 = ShiftLockToggled and ToggledOrActivatedColor or DefaultColor
     ShiftLockButton:WaitForChild("deco").ImageTransparency = 0.5
     ShiftLockImage.Visible = ShiftLockToggled
-    
 end
 
 local function updateSprintVisual()
@@ -102,20 +99,13 @@ local function updateShiftLockLoop(enabled: boolean)
         local camera = workspace.CurrentCamera
         local humanoid = currentHumanoid
 
-        if not character or not camera or not humanoid then
-            return
-        end
-
+        if not character or not camera or not humanoid then return end
         local hrp = getHrp(character)
-        if not hrp then
-            return
-        end
+        if not hrp then return end
 
         local look = camera.CFrame.LookVector
         local flatLook = Vector3.new(look.X, 0, look.Z)
-        if flatLook.Magnitude <= 0.001 then
-            return
-        end
+        if flatLook.Magnitude <= 0.001 then return end
 
         humanoid.AutoRotate = false
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + flatLook.Unit)
@@ -126,6 +116,12 @@ local function setShiftLock(enabled: boolean)
     ShiftLockToggled = enabled
     updateShiftLockVisual()
     updateShiftLockLoop(ShiftLockToggled)
+
+    if UserInputService.MouseEnabled then
+        UserInputService.MouseBehavior = ShiftLockToggled and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
+    end
+    
+    CombatController.SetMobileShiftLock(ShiftLockToggled)
 end
 
 local function toggleEmoteFrame()
@@ -133,20 +129,14 @@ local function toggleEmoteFrame()
 end
 
 local function onThrowPressed()
-    if throwHolding then
-        return
-    end
-
+    if throwHolding then return end
     throwHolding = true
     CombatController.BeginCharge()
     setButtonToggled(ThrowKnifeButton, true)
 end
 
 local function onThrowReleased()
-    if not throwHolding then
-        return
-    end
-
+    if not throwHolding then return end
     throwHolding = false
     setButtonToggled(ThrowKnifeButton, false)
     CombatController.ReleaseCharge()
@@ -169,6 +159,21 @@ local function onCharacterAdded(character: Model)
     updateShiftLockLoop(ShiftLockToggled)
 end
 
+local TOUCH_DRAG_THRESHOLD = 50
+
+local function touchOverGui(position: Vector2): boolean
+    local playerGui = player:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return false end
+
+    local uiObjects = playerGui:GetGuiObjectsAtPosition(position.X, position.Y)
+    for _, obj in ipairs(uiObjects) do
+        if obj:IsA("GuiButton") or obj:IsDescendantOf(MobileFrame) then
+            return true
+        end
+    end
+    return false
+end
+
 local function detectInputMode()
     if UserInputService.TouchEnabled then
         isMobile = true
@@ -178,10 +183,7 @@ local function detectInputMode()
 
     local inputConnection: RBXScriptConnection? = nil
     inputConnection = UserInputService.InputBegan:Connect(function(input)
-        if decided then
-            return
-        end
-
+        if decided then return end
         if input.UserInputType == Enum.UserInputType.Touch then
             isMobile = true
             decided = true
@@ -196,53 +198,30 @@ local function detectInputMode()
         end
     end)
 
-    while not decided do
-        task.wait()
-    end
+    while not decided do task.wait() end
 end
 
 local function hideJumpButtonInTouchGui(container: Instance)
     local jumpButton = container:FindFirstChild("JumpButton", true)
     if jumpButton and jumpButton:IsA("GuiObject") then
         jumpButton.Visible = false
-
         jumpButton:GetPropertyChangedSignal("Visible"):Connect(function()
-            if jumpButton.Visible then
-                jumpButton.Visible = false
-            end
+            if jumpButton.Visible then jumpButton.Visible = false end
         end)
     end
 end
 
-local function blockDefaultJumpAction()
-    ContextActionService:BindActionAtPriority(
-        DISABLE_DEFAULT_JUMP_ACTION,
-        function()
-            return Enum.ContextActionResult.Sink
-        end,
-        false,
-        Enum.ContextActionPriority.High.Value,
-        Enum.PlayerActions.CharacterJump
-    )
-end
-
 local function disableRobloxDefaultJumpButton()
-    blockDefaultJumpAction()
-
     local playerGui = player:WaitForChild("PlayerGui")
     local touchGui = playerGui:FindFirstChild("TouchGui")
 
     if touchGui then
         hideJumpButtonInTouchGui(touchGui)
-
         touchGui.DescendantAdded:Connect(function(descendant)
             if descendant.Name == "JumpButton" and descendant:IsA("GuiObject") then
                 descendant.Visible = false
-
                 descendant:GetPropertyChangedSignal("Visible"):Connect(function()
-                    if descendant.Visible then
-                        descendant.Visible = false
-                    end
+                    if descendant.Visible then descendant.Visible = false end
                 end)
             end
         end)
@@ -250,10 +229,7 @@ local function disableRobloxDefaultJumpButton()
 
     playerGui.ChildAdded:Connect(function(child)
         if child.Name == "TouchGui" then
-            task.defer(function()
-                hideJumpButtonInTouchGui(child)
-            end)
-
+            task.defer(function() hideJumpButtonInTouchGui(child) end)
             child.DescendantAdded:Connect(function(descendant)
                 if descendant.Name == "JumpButton" and descendant:IsA("GuiObject") then
                     descendant.Visible = false
@@ -265,6 +241,9 @@ end
 
 local function setUp()
     detectInputMode()
+    
+    -- NEW: Tell CombatController whether this device is mobile or PC
+    CombatController.SetInputMode(isMobile)
 
     if not isMobile then
         MobileFrame.Visible = false
@@ -277,15 +256,26 @@ local function setUp()
     updateShiftLockVisual()
     setButtonToggled(ThrowKnifeButton, false)
 
-    EmoteButton.MouseButton1Up:Connect(function()
-        toggleEmoteFrame()
-    end)
+    EmoteButton.MouseButton1Up:Connect(toggleEmoteFrame)
 
     local function tryJump()
+        if jumpDebounce then return end
         local humanoid = currentHumanoid or getHumanoid()
-        if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
-            humanoid.Jump = true
-        end
+        if not humanoid then return end
+
+        local state = humanoid:GetState()
+        local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
+        local canJump = grounded
+            or state == Enum.HumanoidStateType.Running
+            or state == Enum.HumanoidStateType.RunningNoPhysics
+            or state == Enum.HumanoidStateType.Landed
+
+        if not canJump then return end
+
+        jumpDebounce = true
+        humanoid.Jump = true
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        task.delay(0.6, function() jumpDebounce = false end)
     end
 
     JumpButton.MouseButton1Up:Connect(tryJump)
@@ -299,6 +289,89 @@ local function setUp()
     ThrowKnifeButton.MouseButton1Up:Connect(onThrowReleased)
     ThrowKnifeButton.MouseLeave:Connect(onThrowReleased)
 
+    UserInputService.TouchStarted:Connect(function(input, _processed)
+        if not isMobile or touchHolding or throwHolding then return end
+        
+        local pos = Vector2.new(input.Position.X, input.Position.Y)
+        if touchOverGui(pos) then return end
+
+        pendingTouch = input
+        pendingTouchStartPos = pos
+        lastTouchAimPos = pos
+        CombatController.SetTouchAimPosition(pos)
+
+        task.delay(0.15, function()
+            if pendingTouch == input and not touchHolding then
+                touchHolding = true
+                CombatController.BeginCharge()
+            end
+        end)
+    end)
+
+    UserInputService.TouchMoved:Connect(function(input, _processed)
+        if pendingTouch ~= input then return end
+
+        local currentPos = Vector2.new(input.Position.X, input.Position.Y)
+
+        if touchHolding then
+            lastTouchAimPos = currentPos
+            CombatController.SetTouchAimPosition(currentPos)
+            return
+        end
+
+        local delta = (currentPos - pendingTouchStartPos).Magnitude
+        lastTouchAimPos = currentPos
+        CombatController.SetTouchAimPosition(currentPos)
+
+        if delta > TOUCH_DRAG_THRESHOLD then
+            pendingTouch = nil
+            pendingTouchStartPos = nil
+        end
+    end)
+
+    UserInputService.TouchEnded:Connect(function(input, _processed)
+        if not isMobile or pendingTouch ~= input then return end
+
+        local wasCharging = touchHolding
+        pendingTouch = nil
+        pendingTouchStartPos = nil
+        touchHolding = false
+
+        if wasCharging then
+            CombatController.ReleaseCharge()
+        end
+        
+        lastTouchAimPos = nil
+        CombatController.SetTouchAimPosition(nil)
+    end)
+
+    UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)
+        if not isMobile or processedByUI or throwHolding or touchHolding then return end
+
+        local cam = workspace.CurrentCamera
+        if cam then
+            local screenPos: Vector2?
+            if typeof(position) == "Vector3" then
+                local vpPos = cam:WorldToViewportPoint(position)
+                screenPos = Vector2.new(vpPos.X, vpPos.Y)
+            elseif typeof(position) == "Vector2" then
+                screenPos = position
+            end
+
+            if screenPos then
+                lastTouchAimPos = screenPos
+                CombatController.SetTouchAimPosition(lastTouchAimPos)
+            end
+        end
+        
+        CombatController.BeginCharge()
+        task.defer(function()
+            CombatController.ReleaseCharge()
+            lastTouchAimPos = nil
+            CombatController.SetTouchAimPosition(nil)
+        end)
+    end)
+
     player.CharacterAdded:Connect(onCharacterAdded)
     if player.Character then
         onCharacterAdded(player.Character)
@@ -308,5 +381,4 @@ local function setUp()
 end
 
 setUp()
-
 return {}

@@ -23,9 +23,11 @@ local UITemplates = ReplicatedStorage:WaitForChild("UITemplates")
 local TradeTemplatesFolder = UITemplates:WaitForChild("TradeRequestTemplates")
 local PlayerTemplate = TradeTemplatesFolder:WaitForChild("PlayerTemplate")
 local SadLevelRequirementTemplate = TradeTemplatesFolder:WaitForChild("LevelRequirement")
+local NoPlayersInGameTemplate = TradeTemplatesFolder:WaitForChild("NoPlayers")
 
 local playerEntries = {}
 local levelRequirementFrame = nil
+local noPlayersFrame = nil
 local MIN_TRADE_LEVEL = 10
 
 local function getLocalLevel()
@@ -54,10 +56,43 @@ local function hideLevelRequirementOnly()
     end
 end
 
+local function getOtherPlayerCount()
+    local count = 0
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= plr then
+            count += 1
+        end
+    end
+    return count
+end
+
+local function updateNoPlayersMessage()
+    if not hasRequiredTradeLevel() then
+        if noPlayersFrame then
+            noPlayersFrame.Parent = nil
+        end
+        return
+    end
+
+    if getOtherPlayerCount() == 0 then
+        if not noPlayersFrame then
+            noPlayersFrame = NoPlayersInGameTemplate:Clone()
+            noPlayersFrame.Name = "NoPlayersMessage"
+        end
+        noPlayersFrame.Parent = TradePlayerListContainer
+    else
+        if noPlayersFrame then
+            noPlayersFrame.Parent = nil
+        end
+    end
+end
+
 local function ClearPlayerEntries()
     for userId, entry in pairs(playerEntries) do
-        if entry.conn then
-            entry.conn:Disconnect()
+        if entry.connections then
+            for _, conn in ipairs(entry.connections) do
+                conn:Disconnect()
+            end
         end
         if entry.frame then
             entry.frame:Destroy()
@@ -76,15 +111,28 @@ local function canReceiveTrades(player: Player)
     return tradesSetting.Value == true
 end
 
+local function getPlayerLevel(player: Player)
+    local leaderstats = player:FindFirstChild("leaderstats")
+    local xpValue = leaderstats and leaderstats:FindFirstChild("XP")
+    local xp = xpValue and xpValue.Value or 0
+    return CalculateLevelModule.GetLevel(xp)
+end
 
 local function updateEntryState(frame: Frame, player: Player)
-    if canReceiveTrades(player) then
-        frame.SentOrNot.Visible = false
-        frame.SendTrade.Interactable = true
-    else
+    local level = getPlayerLevel(player)
+
+    if level < MIN_TRADE_LEVEL then
+        frame.SentOrNot.Visible = true
+        frame.SendTrade.Header.Text = "UNDER LV. 10"
+        frame.SendTrade.Interactable = false
+    elseif not canReceiveTrades(player) then
         frame.SentOrNot.Visible = true
         frame.SendTrade.Header.Text = "TRADES OFF"
         frame.SendTrade.Interactable = false
+    else
+        frame.SentOrNot.Visible = false
+        frame.SendTrade.Header.Text = "SEND TRADE"
+        frame.SendTrade.Interactable = true
     end
 end
 
@@ -109,19 +157,26 @@ local function AddPlayer(plr : Player)
     PlayerName.Text = plr.Name
     template.Name = tostring(plr.UserId)
     template.Parent = TradePlayerListContainer
-    local tradesConn = nil
+    local connections = {}
     local leaderstats = plr:FindFirstChild("leaderstats")
     local settings = leaderstats and leaderstats:FindFirstChild("Settings")
     local tradesSetting = settings and settings:FindFirstChild("Trades")
     if tradesSetting then
-        tradesConn = tradesSetting:GetPropertyChangedSignal("Value"):Connect(function()
+        table.insert(connections, tradesSetting:GetPropertyChangedSignal("Value"):Connect(function()
             updateEntryState(template, plr)
-        end)
+        end))
+    end
+
+    local xpValue = leaderstats and leaderstats:FindFirstChild("XP")
+    if xpValue then
+        table.insert(connections, xpValue:GetPropertyChangedSignal("Value"):Connect(function()
+            updateEntryState(template, plr)
+        end))
     end
 
     playerEntries[plr.UserId] = {
         frame = template,
-        conn = tradesConn,
+        connections = connections,
     }
 
     
@@ -136,8 +191,10 @@ end
 local function RemovePlayer(player: Player)
     local entry = playerEntries[player.UserId]
     if entry then
-        if entry.conn then
-            entry.conn:Disconnect()
+        if entry.connections then
+            for _, conn in ipairs(entry.connections) do
+                conn:Disconnect()
+            end
         end
         if entry.frame then
             entry.frame:Destroy()
@@ -154,6 +211,7 @@ local function RefreshPlayerList()
     end
 
     hideLevelRequirementOnly()
+    updateNoPlayersMessage()
 
     for _, player in ipairs(Players:GetPlayers()) do
         AddPlayer(player)
@@ -199,10 +257,12 @@ end
 
 Players.PlayerAdded:Connect(function(player)
 	AddPlayer(player)
+	updateNoPlayersMessage()
 end)
 
 Players.PlayerRemoving:Connect(function(player)
 	RemovePlayer(player)
+	updateNoPlayersMessage()
 end)
 
 local localLeaderstats = plr:WaitForChild("leaderstats")

@@ -5,8 +5,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
  local MainGameModule = require(ServerScriptService:WaitForChild("Game"):WaitForChild("MainGame"))
 local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
+local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("ProfileManager"))
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA11__TESTING")
 local adminLogStore = DataStoreService:GetDataStore("AdminActionLogs_v1_TESTING")
 local wipeDebounce = {}
 local AdminClientRecieve = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminClientRecieve")
@@ -177,29 +177,17 @@ Commands.PlayerManagement = {
                 InventoryHandler.AddKnife(player, "Shadow Dagger")
             end
 
-            local success, err = pcall(function()
-                playerDataStore:UpdateAsync(player.UserId, function(oldData)
-                    oldData = oldData or {}
-                    oldData.Inventory = {}
-                    oldData.Emotes = {}
-                    oldData.EquippedKnife = "Shadow Dagger"
-                    return oldData
-                end)
-            end)
+            -- Save immediately via ProfileStore
+            ProfileManager.SaveProfile(player)
 
-            if not success then
-                warn("Failed to wipe inventory for", player.Name, err)
-                NotificationHandler.SendNotification(player, "Inventory wipe failed. Try again later.", 4, "Error")
-            else
-                local adminName = Players:GetNameFromUserIdAsync(adminUserID)
-                NotificationHandler.SendNotification(player, "Your inventory was wiped by " .. tostring(adminName) .. ".", 5, "Skull")
-                local adminPlayer = Players:GetPlayerByUserId(adminUserID)
-                if adminPlayer then
-                    NotificationHandler.SendNotification(adminPlayer, "Wiped inventory for " .. player.Name .. ".", 4, "Success")
-                end
-
-                logAdminAction("WipeInventory", adminUserID, targetUserID, "Inventory and emotes wiped")
+            local adminName = Players:GetNameFromUserIdAsync(adminUserID)
+            NotificationHandler.SendNotification(player, "Your inventory was wiped by " .. tostring(adminName) .. ".", 5, "Skull")
+            local adminPlayer = Players:GetPlayerByUserId(adminUserID)
+            if adminPlayer then
+                NotificationHandler.SendNotification(adminPlayer, "Wiped inventory for " .. player.Name .. ".", 4, "Success")
             end
+
+            logAdminAction("WipeInventory", adminUserID, targetUserID, "Inventory and emotes wiped")
         end,
     },
 }

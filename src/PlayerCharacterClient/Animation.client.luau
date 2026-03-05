@@ -40,8 +40,8 @@ local SLIDE_ANIMATION = "rbxassetid://75213495477739"
 local WALK_SPEED = 16
 local RUN_SPEED = 32
 local CROUCH_SPEED = 8
-local SLIDE_SPEED = 50 -- Faster initial slide speed
-local SLIDE_MAX_DURATION = 0.5
+local SLIDE_SPEED = 60 -- Faster initial slide speed
+local SLIDE_MAX_DURATION = 0.7
 local SLIDE_END_SPEED = 12 -- Slower than walk speed at the end
 local SLIDE_COOLDOWN = 1 -- Cooldown time in seconds before you can slide again
 
@@ -323,7 +323,7 @@ local function initializeCrouchKeybind()
 	local crouchKey = parseKeyCode(crouchKeyBind.Value) or Enum.KeyCode.LeftControl 
 
 	if crouchKey then
-		ContextActionService:BindAction("CrouchAction", crouchAction, true, crouchKey)
+		ContextActionService:BindAction("CrouchAction", crouchAction, false, crouchKey)
 	else
 	end
 
@@ -342,7 +342,7 @@ local function initializeSlideKeybind()
 	local slideKey = parseKeyCode(slideKeyBind.Value) or Enum.KeyCode.C
 
 	if slideKey then
-		ContextActionService:BindAction("SlideAction", slideAction, true, slideKey)
+		ContextActionService:BindAction("SlideAction", slideAction, false, slideKey)
 	else
 	end
 
@@ -366,7 +366,7 @@ local function initializeSprintKeybind()
 		ContextActionService:BindActionAtPriority(
 			"SprintAction",
 			sprintAction,
-			true,
+			false,
 			SPRINT_PRIORITY,
 			sprintKey
 		)
@@ -386,7 +386,7 @@ KeyBindsFolder:WaitForChild("Sprint").Changed:Connect(function()
 		ContextActionService:BindActionAtPriority(
 			"SprintAction",
 			sprintAction,
-			true,
+			false,
 			SPRINT_PRIORITY,
 			newKey
 		)
@@ -400,7 +400,7 @@ KeyBindsFolder:WaitForChild("Crouch").Changed:Connect(function()
 	local newKey = parseKeyCode(newValue)
 	if newKey then
 		ContextActionService:UnbindAction("CrouchAction")
-		ContextActionService:BindAction("CrouchAction", crouchAction, true, newKey)
+		ContextActionService:BindAction("CrouchAction", crouchAction, false, newKey)
 		crouchKey = newKey
 	else
 	end
@@ -413,7 +413,7 @@ if slideKeyBindValue then
 		local newKey = parseKeyCode(newValue)
 		if newKey then
 			ContextActionService:UnbindAction("SlideAction")
-			ContextActionService:BindAction("SlideAction", slideAction, true, newKey)
+			ContextActionService:BindAction("SlideAction", slideAction, false, newKey)
 			slideKey = newKey
 		else
 		end

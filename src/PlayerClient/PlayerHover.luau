@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- // LOCALPLAYER // --
 local Player = Players.LocalPlayer
@@ -35,6 +36,39 @@ local AbleToClick = false
 local HoveredPlayer = nil
 local UserID = nil
 
+local adorneeConnections = {}
+
+local function clearHighlight()
+	PlayerHoverFrame.Visible = false
+	highlight.Adornee = nil
+	AbleToClick = false
+	HoveredPlayer = nil
+	UserID = nil
+	for _, conn in ipairs(adorneeConnections) do
+		conn:Disconnect()
+	end
+	adorneeConnections = {}
+end
+
+local function trackAdornee(model)
+	for _, conn in ipairs(adorneeConnections) do
+		conn:Disconnect()
+	end
+	adorneeConnections = {}
+
+	local humanoid = model:FindFirstChild("Humanoid")
+	if humanoid then
+		table.insert(adorneeConnections, humanoid.Died:Connect(function()
+			clearHighlight()
+		end))
+	end
+
+	table.insert(adorneeConnections, model.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			clearHighlight()
+		end
+	end))
+end
 
 local function GetThumbnail(UserId: number)
 	local success, result = pcall(function()
@@ -73,11 +107,7 @@ end
 
 mouse.Move:Connect(function()
 	if workspace:FindFirstChild("Cargo Port") or workspace:FindFirstChild("Farm") or workspace:FindFirstChild("Grids") or workspace:FindFirstChild("Tropical Island") or workspace:FindFirstChild("Classic ROBLOX") then
-		PlayerHoverFrame.Visible = false
-		highlight.Adornee = nil
-		AbleToClick = false
-		HoveredPlayer = nil
-		UserID = nil
+		clearHighlight()
 		return
 	end
 	local target = mouse.Target
@@ -99,17 +129,14 @@ mouse.Move:Connect(function()
 		changeplayer(modelToHighlight)
 		PlayerHoverFrame.Visible = true
 		highlight.Adornee = modelToHighlight
+		trackAdornee(modelToHighlight)
 		AbleToClick = true
 
 		local possiblePlayer = Players:FindFirstChild(modelToHighlight.Name)
 		HoveredPlayer = possiblePlayer or nil
 		UserID = HoveredPlayer and HoveredPlayer.UserId or nil
 	else
-		PlayerHoverFrame.Visible = false
-		highlight.Adornee = nil
-		AbleToClick = false
-		HoveredPlayer = nil
-		UserID = nil
+		clearHighlight()
 	end
 
 	local mousePos = UserInputService:GetMouseLocation()
@@ -134,10 +161,19 @@ mouse.Button1Up:Connect(function()
 		print("none hovered player")
 		return
 	end
-	
 
 	RequestViewProfile:FireServer(HoveredPlayer.UserId)
-		
+end)
+
+Player.CharacterAdded:Connect(function()
+	clearHighlight()
+end)
+
+RunService.Heartbeat:Connect(function()
+	local adornee = highlight.Adornee
+	if adornee and (not adornee.Parent or not adornee:FindFirstChild("Humanoid")) then
+		clearHighlight()
+	end
 end)
 
 return {}

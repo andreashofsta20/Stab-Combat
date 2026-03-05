@@ -233,6 +233,16 @@ local function getOfferedQuantityByName(items)
 	return offered
 end
 
+local function countKnifeSlots(items)
+	local count = 0
+	for _, item in ipairs(items or {}) do
+		if item.Type == "Inventory" then
+			count += 1
+		end
+	end
+	return count
+end
+
 local function buildItemButton(itemName: string, quantity: number, image: string?, rarity: string?)
 	local itemClone = TradeItemTemplate:Clone()
 	itemClone.Name = itemName
@@ -320,6 +330,8 @@ local function refreshTradeUi()
 	end
 
 	local offeredByName = getOfferedQuantityByName(localSide.Items)
+	local knifeSlotsUsed = countKnifeSlots(localSide.Items)
+	local knifeSlotsFull = knifeSlotsUsed >= 4
 	local localLocked = localSide.Locked == true
 
 	clearItemButtons(ui.InventoryContainer)
@@ -333,13 +345,16 @@ local function refreshTradeUi()
 		local offeredQuantity = offeredByName[item.Name] or 0
 		local remainingQuantity = math.max(0, ownedQuantity - offeredQuantity)
 
+		local isOffered = offeredQuantity > 0
+		local canAddKnife = (not knifeSlotsFull) or isOffered
+
 		if remainingQuantity > 0 then
 			local itemButton = buildItemButton(item.Name, remainingQuantity, image, rarity)
 			itemButton.Parent = ui.InventoryContainer
 			if itemButton:IsA("GuiButton") then
-				itemButton.Active = not localLocked
+				itemButton.Active = not localLocked and canAddKnife
 			end
-			if not localLocked then
+			if not localLocked and canAddKnife then
 				itemButton.MouseButton1Click:Connect(function()
 					TradeRemote:FireServer("ADD_ITEM", "Inventory", item.Name, 1)
 				end)

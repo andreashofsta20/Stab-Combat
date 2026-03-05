@@ -40,6 +40,7 @@ end
 
 
 ReceiveVoteRemote.OnServerEvent:Connect(function(player : Player, mapname : string)
+    if type(mapname) ~= "string" then return end
     -- Server-side debounce check
     if Voting.Debounce[player.UserId] then
         return
@@ -71,7 +72,10 @@ function Voting.SubmitVote(player : Player, option : string)
         return
     end
     
-    if player:FindFirstChild("leaderstats"):FindFirstChild("Settings"):FindFirstChild("LobbyMode").Value then
+    local leaderstats = player:FindFirstChild("leaderstats")
+    local settings = leaderstats and leaderstats:FindFirstChild("Settings")
+    local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
+    if lobbyMode and lobbyMode.Value then
         print("Can't vote with lobby mode enabled")
         NotificationHandler.SendNotification(player, "Can't vote with lobby mode enabled", 3, "Error")
         return

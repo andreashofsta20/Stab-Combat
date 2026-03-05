@@ -363,11 +363,21 @@ local function claimQuest(player: Player, questId: string)
     return true
 end
 
+local questRemoteCooldowns: {[number]: number} = {}
+local QUEST_REMOTE_COOLDOWN = 2.0
+
 UpdateQuestsRemote.OnServerEvent:Connect(function(player: Player)
+    local now = os.clock()
+    if questRemoteCooldowns[player.UserId] and (now - questRemoteCooldowns[player.UserId]) < QUEST_REMOTE_COOLDOWN then return end
+    questRemoteCooldowns[player.UserId] = now
     pushQuestUpdate(player)
 end)
 
 ClaimQuestRemote.OnServerEvent:Connect(function(player: Player, questId: string)
+    if type(questId) ~= "string" then return end
+    local now = os.clock()
+    if questRemoteCooldowns[player.UserId] and (now - questRemoteCooldowns[player.UserId]) < QUEST_REMOTE_COOLDOWN then return end
+    questRemoteCooldowns[player.UserId] = now
     local ok, msg = claimQuest(player, questId)
     if ok then
         savePlayerState(player, true)
@@ -392,6 +402,7 @@ Players.PlayerRemoving:Connect(function(player)
     savePlayerState(player, true)
     pendingSaveJobs[player.UserId] = nil
     playerQuestState[player.UserId] = nil
+    questRemoteCooldowns[player.UserId] = nil
 end)
 
 task.spawn(function()

@@ -200,47 +200,42 @@ function InventoryHandler.RemoveKnife(player : Player, knifeName : string)
 end
 
 
+local equipCooldowns: {[number]: number} = {}
+local EQUIP_KNIFE_COOLDOWN = 0.3
+
 EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : string)
 	if not player then return end
 	if type(KnifeName) ~= "string" then return end
 	if #KnifeName < 1 or #KnifeName > 64 then return end
 
+	local now = os.clock()
+	if equipCooldowns[player.UserId] and (now - equipCooldowns[player.UserId]) < EQUIP_KNIFE_COOLDOWN then return end
+	equipCooldowns[player.UserId] = now
+
 	if not KnivesInfoModule[KnifeName] then
-		print("couldnt find")
 		return
 	end
 
-	local leaderstats = player:WaitForChild("leaderstats")
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
 
 	local inventoryFolder = leaderstats:FindFirstChild("Inventory")
 	if not inventoryFolder then
-		warn("inventory folder not found")
 		return
 	end
 
-
-	local EquippedKnife = leaderstats:WaitForChild("EquippedKnife")
-
+	local EquippedKnife = leaderstats:FindFirstChild("EquippedKnife")
 	if not EquippedKnife then
-		warn("couldnt find equipped knife in leaderstats")
 		return
 	end
 
 	if inventoryFolder:FindFirstChild(KnifeName) then
 		EquippedKnife.Value = KnifeName
-	else
-		warn("knife not found in inventory")
 	end
-
-
-
-
-
-
-
-
-
 end)
 
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	equipCooldowns[player.UserId] = nil
+end)
 
 return InventoryHandler

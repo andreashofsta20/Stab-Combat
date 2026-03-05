@@ -1,19 +1,20 @@
 local GetPlayerInfo = {}
 
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
+local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("ProfileManager"))
 
 function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}
 	local foundPlayer = nil
 
+	-- Try to get saved data (for RoundHistory, offline fallback, etc.)
 	local dataFromStore = nil
-	local success, data = pcall(function()
-		return PlayerDataStore:GetAsync(tostring(UserId))
-	end)
-	if success and type(data) == "table" then
-		dataFromStore = data
+	local profileObj = ProfileManager.GetAsync(UserId)
+	if profileObj then
+		dataFromStore = profileObj.Data
+	else
+		-- Fallback: player may not have migrated yet
+		dataFromStore = ProfileManager.GetOldDataAsync(UserId)
 	end
 
 	for _, player in pairs(Players:GetPlayers()) do

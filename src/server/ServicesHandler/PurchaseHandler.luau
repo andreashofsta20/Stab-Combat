@@ -123,8 +123,30 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 
+local DataStoreService = game:GetService("DataStoreService")
+local PurchaseReceiptStore = DataStoreService:GetDataStore("PurchaseReceipts_v1")
+
+local function isReceiptProcessed(purchaseId: string): boolean
+	local success, result = pcall(function()
+		return PurchaseReceiptStore:GetAsync(purchaseId)
+	end)
+	return success and result == true
+end
+
+local function markReceiptProcessed(purchaseId: string)
+	pcall(function()
+		PurchaseReceiptStore:SetAsync(purchaseId, true)
+	end)
+end
+
 MarketPlaceService.ProcessReceipt = function(receiptInfo)
-	print("[Purchase] ProcessReceipt received productId=", receiptInfo.ProductId, "playerId=", receiptInfo.PlayerId)
+	local purchaseId = tostring(receiptInfo.PurchaseId)
+
+	-- Idempotency: check if this receipt was already processed
+	if isReceiptProcessed(purchaseId) then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
 	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 	if not player then
 		warn("[Purchase] Player not in server for receipt", receiptInfo.PlayerId)
@@ -147,7 +169,7 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 			Now = os.time(),
 		})
 		NotificationHandler.SendNotification(player, "VIP purchase successful", 4, "Success")
-		print("[Purchase] VIP granted to", player.Name, "newExpiry=", newExpiry)
+		markReceiptProcessed(purchaseId)
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
@@ -162,7 +184,7 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 
 	processPurchase(player, productId, goldAmount)
 
-
+	markReceiptProcessed(purchaseId)
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 

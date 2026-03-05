@@ -1,181 +1,18 @@
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
 local RS = game:GetService("ReplicatedStorage")
 
-local playerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
-local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local test = require(script.Parent:WaitForChild("InventoryHandler"))
 local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
-
+local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
 
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
 
--- Function to save player data
+-- Backward-compatible wrapper so other modules can still call OnJoined.SavePlayerData(player)
 local function savePlayerData(player)
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then
-        warn("No leaderstats found for", player.Name)
-        return
-    end
-
-    -- INVENTORY
-    local inventoryFolder = leaderstats:FindFirstChild("Inventory")
-    local inventoryData = {}
-
-    if inventoryFolder then
-        for _, knife in pairs(inventoryFolder:GetChildren()) do
-            local quantity = knife:FindFirstChild("Quantity")
-            local rarity = knife:FindFirstChild("Rarity")
-            local image = knife:FindFirstChild("Image")
-			local tradeable = knife:FindFirstChild("Tradeable")
-
-            table.insert(inventoryData, {
-                Name = knife.Name,
-                Quantity = quantity and quantity.Value or 1,
-                Rarity = rarity and rarity.Value or "Common",
-				Image = image and image.Value or "1",
-				Tradeable = tradeable and tradeable.Value or (knife.Name ~= "Shadow Dagger")
-            })
-        end
-    end
-
-    -- SETTINGS
-    local settingsFolder = leaderstats:FindFirstChild("Settings")
-    local settingsData = {
-        MusicSetting = true,
-        LobbySetting = false,
-        Notifications = true,
-        Trades = true
-    }
-
-    if settingsFolder then
-        local musicValue = settingsFolder:FindFirstChild("Music")
-        local lobbyValue = settingsFolder:FindFirstChild("LobbyMode")
-        local notifValue = settingsFolder:FindFirstChild("Notifications")
-        local tradesValue = settingsFolder:FindFirstChild("Trades")
-
-        if musicValue then settingsData.MusicSetting = musicValue.Value end
-        if lobbyValue then settingsData.LobbySetting = lobbyValue.Value end
-        if notifValue then settingsData.Notifications = notifValue.Value end
-        if tradesValue then settingsData.Trades = tradesValue.Value end
-    end
-
-    local emotesFolder = leaderstats:FindFirstChild("Emotes")
-    local emotesData = {}
-
-    if emotesFolder then
-        for _, emote in ipairs(emotesFolder:GetChildren()) do
-            if emote:IsA("StringValue") then
-                local quantity = emote:FindFirstChild("Quantity")
-                local rarity = emote:FindFirstChild("Rarity")
-
-                table.insert(emotesData, {
-                    Name = emote.Name,
-                    EmoteId = emote.Value or "",
-                    Quantity = quantity and quantity.Value or 1,
-                    Rarity = rarity and rarity.Value or "Common",
-                })
-            end
-        end
-    end
-   
-    local keybindsFolder = leaderstats:WaitForChild("KeyBinds")
-    local keybindsData = {}
-
-
-    if keybindsFolder then
-        for _, bind in ipairs(keybindsFolder:GetChildren()) do
-            if bind:IsA("StringValue") then
-                keybindsData[bind.Name] = bind.Value
-            end
-        end
-    end
-
-    -- DailyRewards from leaderstats IntValues
-    local drFolder = leaderstats:FindFirstChild("DailyRewards")
-    local dr = {
-        LastClaimTime = 0,
-        Streak = 0,
-    }
-    if drFolder then
-        local lct = drFolder:FindFirstChild("LastClaimTime")
-        local stv = drFolder:FindFirstChild("Streak")
-        dr.LastClaimTime = lct and lct.Value or 0
-        dr.Streak = stv and stv.Value or 0
-    end
-	local lastRoundFromAttributes = nil
-	do
-		local placement = tonumber(player:GetAttribute("LastRoundPlacement")) or 0
-		if placement > 0 then
-			lastRoundFromAttributes = {
-				Opponents = tonumber(player:GetAttribute("LastRoundOpponents")) or 0,
-				Kills = tonumber(player:GetAttribute("LastRoundKills")) or 0,
-				Placement = placement,
-			}
-		end
-	end
-
-	local dataToSave = {
-        Name = player.Name,
-        DisplayName = player.DisplayName,
-        Kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0,
-        XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0,
-        Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0,
-        Deaths = leaderstats:FindFirstChild("Deaths") and leaderstats.Deaths.Value or 0,
-        Wins = leaderstats:FindFirstChild("Wins") and leaderstats.Wins.Value or 0,
-        WinStreak = leaderstats:FindFirstChild("WinStreak") and leaderstats.WinStreak.Value or 0,
-        EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or "Shadow Dagger",
-        Settings = settingsData,
-        Inventory = inventoryData,
-        Emotes = emotesData,
-        KeyBinds = keybindsData,
-        DailyRewards = {
-            LastClaimTime = dr.LastClaimTime or 0,
-            Streak = dr.Streak or 0,
-        },
-		VIP = {
-			HasVIP = player:GetAttribute("HasVIP") == true,
-			ExpiresAt = tonumber(player:GetAttribute("VIPExpiresAt")) or 0,
-		},
-    }
-
-    if lastRoundFromAttributes then
-		dataToSave.LastRound = lastRoundFromAttributes
-	end
-
-    print("Saving data for", player.Name, "Settings:", dataToSave.Settings)
-
-	local success, err = pcall(function()
-		playerDataStore:UpdateAsync(tostring(player.UserId), function(oldData)
-			if type(oldData) ~= "table" then
-				oldData = {}
-			end
-			-- Round history is written at round end in MainGame.SaveLastRound.
-			-- Preserve it during periodic/player-leave saves.
-			if type(oldData.RoundHistory) == "table" then
-				dataToSave.RoundHistory = oldData.RoundHistory
-			end
-			if dataToSave.LastRound == nil and type(oldData.LastRound) == "table" then
-				dataToSave.LastRound = oldData.LastRound
-			end
-			-- Also keep any other persistent fields from oldData that aren't being overwritten
-			for k, v in pairs(oldData) do
-				if dataToSave[k] == nil then
-					dataToSave[k] = v
-				end
-			end
-			return dataToSave
-		end)
-	end)
-
-	if success then
-		print("Successfully saved data for", player.Name)
-	else
-		warn("Failed to save data for", player.Name, ":", err)
-	end
+	ProfileManager.SaveProfile(player)
 end
 
 Players.PlayerAdded:Connect(function(player)
@@ -291,12 +128,11 @@ Players.PlayerAdded:Connect(function(player)
 	
 
 
-	-- Load player data
-	local success, data = pcall(function()
-		return playerDataStore:GetAsync(tostring(player.UserId))
-	end)
+	-- Load player data via ProfileStore (session-locked, auto-saving)
+	local profile = ProfileManager.LoadProfile(player)
 
-	if success and data then
+	if profile then
+		local data = profile.Data
 		print("Loading data for", player.Name, "Settings:", data.Settings)
 
 
@@ -461,69 +297,21 @@ Players.PlayerAdded:Connect(function(player)
 			player:SetAttribute("LastRoundKills", 0)
 			player:SetAttribute("LastRoundPlacement", 0)
 		end
+
+		-- If this is the first session ever (new player with migrated-or-default data),
+		-- give the starter knife if inventory is empty
+		if #data.Inventory == 0 then
+			test.AddKnife(player, "Shadow Dagger", false)
+		end
 	else
-		-- First time player or data failed to load
-		print("Setting default values for", player.Name)
-		Kills.Value = 0
-		XP.Value = 100
-		Cash.Value = 1000
-		Deaths.Value = 0
-		Wins.Value = 0
-		WinStreak.Value = 0
-		MusicSetting.Value = true
-		LobbySetting.Value = false
-		Notifications.Value = true
-		Trades.Value = true
-		EquippedKnife.Value = "Shadow Dagger"
-		test.AddKnife(player, "Shadow Dagger", false)
-		player:SetAttribute("DailyLastClaimDay", 0)
-		player:SetAttribute("DailyStreak", 0)
-		player:SetAttribute("LastRoundOpponents", 0)
-		player:SetAttribute("LastRoundKills", 0)
-		player:SetAttribute("LastRoundPlacement", 0)
-		VIPService.ApplyToPlayer(player, 0)
-		VIPService.SetCachedExpiry(player.UserId, 0)
-		
-		
-		
-
-		-- OPTIONAL: give default emotes (uncomment & change ids if you want)
-		--[[
-		local defaultEmotes = {
-			Wave = "rbxassetid://123",
-			Laugh = "rbxassetid://456"
-		}
-		for name, value in pairs(defaultEmotes) do
-			local emote = Instance.new("StringValue")
-			emote.Name = name
-			emote.Value = value
-			emote.Parent = Emotes
-		end
-		]]
+		-- Profile failed to load (player was kicked by ProfileManager)
+		return
 	end
-
-	-- Auto-save every 5 minutes
-	task.spawn(function()
-		while player.Parent do
-			task.wait(300)
-			if player.Parent then
-				savePlayerData(player)
-			end
-		end
-	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	savePlayerData(player)
+	ProfileManager.EndSession(player)
 	MainGameModule.PlayersInGame[player.UserId] = nil
-end)
-
--- Save all players' data when server is shutting down
-game:BindToClose(function()
-	for _, player in pairs(Players:GetPlayers()) do
-		savePlayerData(player)
-	end
-	task.wait(3) -- Give time for saves to complete
 end)
 
 return {

@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
@@ -13,7 +14,8 @@ local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
 local ThrewKnifeClient = ReplicatedStorage.Remotes.Knife:WaitForChild("ThrewClient")
 
 -- // ANIMATIONS
-local KnivesFolder = ServerStorage:WaitForChild("Knives")
+-- CHANGED: Knives must now be in ReplicatedStorage so the client can predict them!
+local KnivesFolder = ReplicatedStorage:WaitForChild("Knives")
 local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
 local ThrowAnimation = CombatAnimations:WaitForChild("Throw")
 
@@ -229,42 +231,30 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 			end
 
 			if canDamage then
-				-- FIX: Register pending kill BEFORE dealing damage
 				if hitVictim and victimId then
 					MainGameModule.RegisterPendingKill(player, victimId)
 				end
-
 				hitHumanoid:TakeDamage(DAMAGE)
 			end
 		end
 	end
 
-	-- Now create visual knife for the animation
-
-	-- Play throw animation
 	playThrowAnim(humanoid)
 
-	-- Hide the tool after a brief delay (during the throw animation)
 	local toolHandle = equippedTool:FindFirstChild("Handle")
 	if toolHandle then
 		task.delay(0.15, function()
-			if toolHandle then
-				toolHandle.Transparency = 1
-			end
+			if toolHandle then toolHandle.Transparency = 1 end
 		end)
 		task.delay(0.65, function()
-			if toolHandle then
-				toolHandle.Transparency = 0
-			end
+			if toolHandle then toolHandle.Transparency = 0 end
 		end)
 	end
 
-	-- Get hand position for visual starting point
 	local hand = character and character:FindFirstChild("RightHand")
 	local baseOrigin = hand and hand.Position or (hrp and hrp.Position) or camOrigin
 	local visualOrigin = baseOrigin + (direction * VISUAL_OFFSET)
 
-	-- Create knife visual
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
 	local equippedKnifeValue = leaderstats:FindFirstChild("EquippedKnife")
@@ -280,22 +270,27 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 	handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + direction)
 	handle.Parent = workspace
 	handle:SetNetworkOwner(nil)
+	
+	-- NEW: Tag the knife so the thrower's local script knows to hide it
+	CollectionService:AddTag(handle, "ServerKnife_" .. player.UserId)
 
 	local att0, att1 = addTrail(handle)
 
-	-- Calculate travel time for visual
 	local travelTime = actualDistance / (KNIFE_SPEED * speedMult)
 	local startTime = os.clock()
 
-	-- Visual movement animation
+	local visualTravelDirection = (finalHitPos - visualOrigin).Unit
+	if actualDistance <= 0.001 then
+		visualTravelDirection = direction
+	end
+
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
 		local elapsed = os.clock() - startTime
 		local progress = elapsed / travelTime
 
 		if progress >= 1 then
-			-- Animation complete - stick the knife
-			handle.CFrame = CFrame.lookAt(finalHitPos, finalHitPos + direction)
+			handle.CFrame = CFrame.lookAt(finalHitPos, finalHitPos + visualTravelDirection)
 			if hitResult then
 				stickKnife(handle, hitResult.Instance, finalHitPos, hitResult.Normal)
 			else
@@ -305,13 +300,15 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 			return
 		end
 
-		-- Interpolate position
 		local currentPos = visualOrigin:Lerp(finalHitPos, progress)
-		handle.CFrame = CFrame.lookAt(currentPos, currentPos + direction)
+		handle.CFrame = CFrame.lookAt(currentPos, currentPos + visualTravelDirection)
 	end)
 
-	-- Cleanup after lifetime
 	Debris:AddItem(handle, LIFETIME)
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	Cooldown[player.UserId] = nil
+end)
 
 return KnifeModule

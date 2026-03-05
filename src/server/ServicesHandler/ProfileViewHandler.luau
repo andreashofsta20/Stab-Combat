@@ -20,29 +20,28 @@ local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):Wa
 
 
 
+local profileCooldowns: {[number]: number} = {}
+local PROFILE_VIEW_COOLDOWN = 1.0
+
 RecieveProfileRequest.OnServerEvent:Connect(function(player : Player, TargetID)
-	if not TargetID then return end
-	
 	if not player then return end
-	
-	
-	
-	
-	print(player.Name)
-	print(TargetID)
+	if typeof(TargetID) ~= "number" then return end
+	TargetID = math.floor(TargetID)
+	if TargetID <= 0 then return end
+
+	local now = os.clock()
+	if profileCooldowns[player.UserId] and (now - profileCooldowns[player.UserId]) < PROFILE_VIEW_COOLDOWN then return end
+	profileCooldowns[player.UserId] = now
 	
 	local info = GetPlayerInfo.AllInfo(TargetID)
 	
 	local Inventory = GetPlayerInfo.Inventory(TargetID)
 	
-	print(info)
-	
-	
 	ViewProfileCliend:FireClient(player, info, Inventory)
-	
-	
-	
-	
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	profileCooldowns[player.UserId] = nil
 end)
 
 return {}

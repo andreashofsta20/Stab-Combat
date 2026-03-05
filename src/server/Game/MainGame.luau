@@ -1,6 +1,5 @@
 local MainGame = {}
 local RoundHandlerModule = require(script.Parent.RoundHandler)
-local DataStoreService = game:GetService("DataStoreService")
 local ZoneHandler = require(script.Parent.GameZone)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -28,7 +27,7 @@ local SpawnMapModule = require(script.Parent:WaitForChild("SpawnMap"))
 local QuestsHandler = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("QuestsHandler"))
 
 local Players = game:GetService("Players")
-local PlayerDataStore = DataStoreService:GetDataStore("PlayerStats_v2BETA111TEST111__TESTING")
+local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("ProfileManager"))
 
 MainGame.RoundStats = nil
 
@@ -100,39 +99,38 @@ end
 local RoundHistoryMax = 10
 
 local function SaveLastRound(player: Player, opponents: number, kills: number, placement: number)
+	local profile = ProfileManager.GetProfile(player)
+	if not profile or not profile:IsActive() then return end
+
+	local data = profile.Data
 	local entryTimestamp = os.time()
 	local entryId = string.format("%d_%d_%d", entryTimestamp, player.UserId, math.random(100000, 999999))
-	local success, err = pcall(function()
-		PlayerDataStore:UpdateAsync(tostring(player.UserId), function(oldData)
-			if type(oldData) ~= "table" then
-				oldData = {}
-			end
-			local lastRoundEntry = {
-				Opponents = opponents,
-				Kills = kills,
-				Placement = placement,
-				Timestamp = entryTimestamp,
-				EntryId = entryId,
-			}
-			oldData.LastRound = lastRoundEntry
-			oldData.RoundHistory = oldData.RoundHistory or {}
-			local top = oldData.RoundHistory[1]
-			local isDuplicateTop = type(top) == "table" and tostring(top.EntryId) == entryId
 
-			if not isDuplicateTop then
-				table.insert(oldData.RoundHistory, 1, lastRoundEntry)
-			else
-				oldData.RoundHistory[1] = lastRoundEntry
-			end
-			while #oldData.RoundHistory > RoundHistoryMax do
-				table.remove(oldData.RoundHistory)
-			end
-			return oldData
-		end)
-	end)
-	if not success then
-		warn("Failed to save LastRound data for", player.Name, err)
+	local lastRoundEntry = {
+		Opponents = opponents,
+		Kills = kills,
+		Placement = placement,
+		Timestamp = entryTimestamp,
+		EntryId = entryId,
+	}
+
+	data.LastRound = lastRoundEntry
+	data.RoundHistory = data.RoundHistory or {}
+
+	local top = data.RoundHistory[1]
+	local isDuplicateTop = type(top) == "table" and tostring(top.EntryId) == entryId
+	if not isDuplicateTop then
+		table.insert(data.RoundHistory, 1, lastRoundEntry)
+	else
+		data.RoundHistory[1] = lastRoundEntry
 	end
+	while #data.RoundHistory > RoundHistoryMax do
+		table.remove(data.RoundHistory)
+	end
+
+	player:SetAttribute("LastRoundOpponents", opponents)
+	player:SetAttribute("LastRoundKills", kills)
+	player:SetAttribute("LastRoundPlacement", placement)
 end
 
 local function FinalizeRoundStats()
@@ -203,7 +201,6 @@ local function ApplyRoundRewards()
 
 	local totalPlayers = stats.startCount
 	local serverPlayerCount = #Players:GetPlayers()
-	local OnJoined = require(script.Parent.Parent.DataStore:WaitForChild("OnJoined"))
 
 	for userId, data in pairs(stats.players) do
 		local player = Players:GetPlayerByUserId(userId)
@@ -248,7 +245,7 @@ local function ApplyRoundRewards()
 			end
 
 			SaveLastRound(player, totalPlayers - 1, data.kills or 0, data.placement or 0)
-			OnJoined.SavePlayerData(player)
+			ProfileManager.SaveProfile(player)
 		end
 	end
 end

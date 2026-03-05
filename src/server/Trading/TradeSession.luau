@@ -86,8 +86,14 @@ function TradeSession:UnlockItem(userId: number, itemName: string)
 	end
 end
 
+local VALID_TRADE_ITEM_TYPES = { Inventory = true, Emotes = true }
+
 function TradeSession:AddItem(player: Player, itemType: string, itemName: string, quantity: number)
 	self:UpdateActivity()
+
+	if not VALID_TRADE_ITEM_TYPES[itemType] then
+		return false, "Invalid item type"
+	end
 
 	if self:IsPlayerLocked(player) then
 		return false, "Unconfirm before editing items"
@@ -132,6 +138,18 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
 		if offeredItem.Name == itemName and offeredItem.Type == itemType then
 			existingTradeItem = offeredItem
 			break
+		end
+	end
+
+	if itemType == "Inventory" and not existingTradeItem then
+		local knifeSlots = 0
+		for _, offeredItem in ipairs(items) do
+			if offeredItem.Type == "Inventory" then
+				knifeSlots += 1
+			end
+		end
+		if knifeSlots >= 4 then
+			return false, "You can only offer 4 knives"
 		end
 	end
 

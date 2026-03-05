@@ -6,20 +6,26 @@ local RequestKnife = StartGameClientFolder:WaitForChild("RequestKnife")
 local WipeToolsServer = StartGameClientFolder:WaitForChild("WipeToolServer")
 local NotificationHandler = require(script.Parent:WaitForChild("SendNotification"))
 
+local requestKnifeCooldowns: {[number]: number} = {}
+local REQUEST_KNIFE_COOLDOWN = 1.0
+
 local MainGameModule = require(script.Parent:WaitForChild("MainGame"))
 
 RequestKnife.OnServerEvent:Connect(function(player)
-	print("ddada")
+	local now = os.clock()
+	if requestKnifeCooldowns[player.UserId] and (now - requestKnifeCooldowns[player.UserId]) < REQUEST_KNIFE_COOLDOWN then return end
+	requestKnifeCooldowns[player.UserId] = now
 	
 
 	if not MainGameModule.GameActive then
-		print("game is NOT active, cannot give tools")
 		NotificationHandler.SendNotification(player, "Game is not active.", 3, "Error")
 		return
 	end
 	
-	if player:FindFirstChild("leaderstats"):FindFirstChild("Settings"):FindFirstChild("LobbyMode").Value then
-		print("Lobby mode enabled")
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local settings = leaderstats and leaderstats:FindFirstChild("Settings")
+	local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
+	if lobbyMode and lobbyMode.Value then
 		return
 	end
 
@@ -58,17 +64,20 @@ end)
 
 
 WipeToolsServer.OnServerEvent:Connect(function(player)
+	local now = os.clock()
+	if requestKnifeCooldowns[player.UserId] and (now - requestKnifeCooldowns[player.UserId]) < REQUEST_KNIFE_COOLDOWN then return end
+	requestKnifeCooldowns[player.UserId] = now
 
-
-	print("losadosa")
-
-	
 	if MainGameModule.PlayersInGame[player.UserId] then
 		MainGameModule.PlayersInGame[player.UserId] = nil
 	end
 
 
 	NotificationHandler.SendNotification(player, "Wiped tools", 2, "Success")
+end)
+
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	requestKnifeCooldowns[player.UserId] = nil
 end)
 
 return {}

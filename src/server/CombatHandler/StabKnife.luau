@@ -158,4 +158,8 @@ function KnifeModule.Stab(player: Player)
 	end
 end
 
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	Cooldown[player.UserId] = nil
+end)
+
 return KnifeModule

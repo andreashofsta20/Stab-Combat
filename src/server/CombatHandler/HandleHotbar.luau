@@ -36,8 +36,9 @@ local function UnequipOtherTools(player : Player)
 end
 
 local function EquipKnife(player : Player)
-	local leaderstats = player:WaitForChild("leaderstats")
-	local EquippedKnife = leaderstats:WaitForChild("EquippedKnife")
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+	local EquippedKnife = leaderstats:FindFirstChild("EquippedKnife")
 	
 	if leaderstats and EquippedKnife then
 		local Knife = KnivesFolder:FindFirstChild(EquippedKnife.Value)
@@ -53,8 +54,13 @@ local function EquipKnife(player : Player)
 end
 
 
+local equipCooldowns: {[number]: number} = {}
+local EQUIP_COOLDOWN = 0.3
+
 local function CheckIfEquipped(player : Player)
-	for i , v in pairs(player.Character:GetChildren()) do
+	local character = player.Character
+	if not character then return false end
+	for i , v in pairs(character:GetChildren()) do
 		if v:IsA("Tool") then
 			return true
 		end
@@ -64,6 +70,10 @@ local function CheckIfEquipped(player : Player)
 end
 
 EquipRemote.OnServerEvent:Connect(function(player, category)
+	if typeof(category) ~= "string" then return end
+	local now = os.clock()
+	if equipCooldowns[player.UserId] and (now - equipCooldowns[player.UserId]) < EQUIP_COOLDOWN then return end
+	equipCooldowns[player.UserId] = now
 	
 	
 
@@ -82,5 +92,9 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 	
 end)
 
+
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	equipCooldowns[player.UserId] = nil
+end)
 
 return {}

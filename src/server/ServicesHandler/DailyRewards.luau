@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local InventoryHandler = require(script.Parent.Parent.DataStore.InventoryHandler)
 local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
-local OnJoined = require(script.Parent.Parent.DataStore.OnJoined)
+local ProfileManager = require(script.Parent.Parent.DataStore:WaitForChild("ProfileManager"))
 local QuestsHandler = require(script.Parent:WaitForChild("QuestsHandler"))
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
@@ -200,7 +200,7 @@ local function claim(player, requestedDayIndex)
    if stv then stv.Value = streak end
 
    task.spawn(function()
-	   OnJoined.SavePlayerData(player)
+	   ProfileManager.SaveProfile(player)
    end)
 
    return true
@@ -229,9 +229,6 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastClaimTimes[player] = nil
-	-- Always save on leave
-	task.wait(0.1) -- Give time for any last updates
-	OnJoined.SavePlayerData(player)
 end)
 
 return {
