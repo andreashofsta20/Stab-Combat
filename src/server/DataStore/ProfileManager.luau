@@ -13,8 +13,8 @@ local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitFo
 
 local ProfileManager = {}
 
-local STORE_NAME = "PlayerData_v1"
-local OLD_STORE_NAME = "PlayerStats_v2BETA111TEST111__TESTING"
+local STORE_NAME = "PlayerData_v1.0"
+local OLD_STORE_NAME = "PlayerStats_v2BETA111TEST111__TESTING111"
 
 local PROFILE_TEMPLATE = {
 	Name = "",
@@ -23,8 +23,8 @@ local PROFILE_TEMPLATE = {
 	Deaths = 0,
 	Wins = 0,
 	WinStreak = 0,
-	XP = 0,
-	Cash = 0,
+	XP = 500000,
+	Cash = 999999,
 	EquippedKnife = "Shadow Dagger",
 	Settings = {
 		MusicSetting = true,

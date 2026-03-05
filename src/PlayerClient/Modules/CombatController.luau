@@ -45,6 +45,8 @@ local ChargeLoopAnimation = CombatAnimations:WaitForChild("ChargeHold")
 local ReleaseKnifeAnimation = CombatAnimations:WaitForChild("Throw")
 local StabAnimation = CombatAnimations:WaitForChild("Stab")
 
+local GameActive = ReplicatedStorage:WaitForChild("GameActive")
+
 local CombatController = {}
 
 local initialized = false
@@ -373,6 +375,7 @@ local function onCharacterAdded(character: Model)
 end
 
 local function throw(chargeRatio)
+	if not GameActive.Value then return false end
 	if tick() - lastThrow < COOLDOWN then return false end
 	lastThrow = tick()
 
@@ -420,6 +423,7 @@ local function throw(chargeRatio)
 	-- INSTANT ZERO-DELAY VISUAL PREDICTION
 	local KnivesFolder = ReplicatedStorage:FindFirstChild("Knives")
 	if KnivesFolder then
+		if GameActive.Value == false then return end
 		local visualOrigin = throwOrigin + (trueDirection * VISUAL_OFFSET)
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local equippedKnifeValue = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
