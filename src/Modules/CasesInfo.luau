@@ -76,8 +76,8 @@ return {
 		CaseImage = "rbxassetid://116321142920388";
 		EmoteCase = true;
 		Skins = {
-			["emote1"] = {
-				SkinName = "emote1";
+			["Out the Sky"] = {
+				SkinName = "Out the Sky";
 				Rarity = "Legendary";
 				Image = ""; -- no image provided, leave empty or update later
 			};

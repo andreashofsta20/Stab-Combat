@@ -1,8 +1,8 @@
 return {
-	["emote1"] = {
+	["Out the Sky"] = {
 		Rarity = "Legendary",
 		EmoteId = "rbxassetid://98351745309102",
-		EmoteName = "Shot me out of the sky"
+		EmoteName = "Out the Sky"
 
 	} , 
 

@@ -38,6 +38,7 @@ local StuffContainerFrame = BottomLeftFrame:WaitForChild("StuffContainer")
 local AbilityFrame = StuffContainerFrame:WaitForChild("Ability")
 local OnClickFrame = AbilityFrame:WaitForChild("OnClick")
 local OnClickFrameBar = OnClickFrame:WaitForChild("OnClickFrame")
+local FramesFolder = MainUi:WaitForChild("Frames")
 
 local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
 local ChargeAnimation = CombatAnimations:WaitForChild("Charge")
@@ -67,6 +68,15 @@ local currentHumanoid: Humanoid? = nil
 local defaultWalkSpeed = 16
 local sprintWalkSpeed = 24
 local sprintEnabled = false
+
+local function isAnyFrameVisible()
+	for _, child in ipairs(FramesFolder:GetChildren()) do
+		if child:IsA("GuiObject") and child.Visible == true then
+			return true
+		end
+	end
+	return false
+end
 
 local function addTrail(part)
 	local frontAttachment = Instance.new("Attachment", part)
@@ -376,6 +386,7 @@ end
 
 local function throw(chargeRatio)
 	if not GameActive.Value then return false end
+	if isAnyFrameVisible() then return false end
 	if tick() - lastThrow < COOLDOWN then return false end
 	lastThrow = tick()
 
@@ -527,6 +538,7 @@ function CombatController.BeginCharge()
 	CombatController.Init()
 	if charging then return false end
 	if not hasKnifeEquipped() then return false end
+	if isAnyFrameVisible() then return false end
 
 	charging = true
 	chargeStart = tick()
