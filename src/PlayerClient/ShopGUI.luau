@@ -467,54 +467,6 @@ OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails : SharedTable, dur
 	SpinnerOpenAgain.Visible = false
 	SpinnerExit.Visible = false
 
-	local isEmoteCase = CaseInfoModule[casename] and CaseInfoModule[casename].EmoteCase == true
-	local function showInstantResult()
-		SpinFrame:ClearAllChildren()
-		local template
-		if isEmoteCase then
-			template = CaseSpinnerTemplateEmote:Clone()
-			template.Name = "Winner"
-			template.Rarity.Image = RarityColorModule[KnifeDetails.Rarity].Image
-			template.AnchorPoint = Vector2.new(0.5, 0.5)
-			template.Position = UDim2.new(0.5, 0, 0.5, 0)
-			template.Visible = true
-			template.Parent = SpinFrame
-
-			local ViewportFrame1 = template:WaitForChild("EmoteViewport")
-			local World1 = ViewportFrame1:WaitForChild("World")
-			local Rig1 = World1:WaitForChild("Rig")
-			local RigHumanoid1 = Rig1:WaitForChild("Humanoid")
-
-			local AnimationRig1:Animation = Instance.new("Animation")
-			AnimationRig1.AnimationId = EmotesModule[tostring(KnifeDetails.Knife)].EmoteId
-
-
-			local AnimationTrack1 = RigHumanoid1:LoadAnimation(AnimationRig1)
-			AnimationTrack1.Looped = true
-			AnimationTrack1:Play()
-		else
-			template = CaseSpinnerTemplate:Clone()
-			template.Name = "Winner"
-			template.KnifeImage.Image = KnifeDetails.Image
-			template.Rarity.Image = RarityColorModule[KnifeDetails.Rarity].Image
-			template.AnchorPoint = Vector2.new(0.5, 0.5)
-			template.Position = UDim2.new(0.5, 0, 0.5, 0)
-			template.Visible = true
-			template.Parent = SpinFrame
-		end
-
-		FRAMETOMOVEPOSITION.Position = UDim2.new(-3.99, 0, 0.5, 0)
-		SpinnerSkipButton.Visible = false
-		SpinnerExit.Visible = true
-		SpinnerOpenAgain.Visible = true
-		HeaderText.Text = "You Unboxed: " .. tostring(KnifeDetails.Knife)
-	end
-
-	if hasskip or duration <= 0 then
-		showInstantResult()
-		return
-	end
-
 	
 	for i = 1, 150 do
 		
@@ -599,7 +551,6 @@ OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails : SharedTable, dur
 	tween:Play()
 	task.spawn(function()
 		if hasskip then
-			SpinnerSkipButton.Visible = false
 			
 		else
 			SpinnerSkipButton.Visible = true
@@ -662,7 +613,6 @@ SpinnerExit.MouseButton1Up:Connect(function()
 	SpinnerFrame.Visible = false
 	SpinnerExit.Visible = false
 	SpinnerOpenAgain.Visible = false
-	SpinnerSkipButton.Visible = false
 	SpinFrame.Position = UDim2.new(5, 0,0.5, 0)
 	for i , v in pairs(SpinFrame:GetChildren()) do
 		if v:IsA("ImageButton") then
