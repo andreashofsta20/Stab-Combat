@@ -101,6 +101,11 @@ function Leaderboards.Broadcast(count: number?)
 	RequestLeaderboardsRemote:FireAllClients(payload)
 end
 
+-- Allow other modules (e.g., data loading) to force a fresh write after stats are populated
+function Leaderboards.UpdatePlayer(player: Player)
+	updateOrderedStores(player, true)
+end
+
 local function bindLeaderstats(player: Player)
 	local leaderstats = player:WaitForChild("leaderstats", 10)
 	if not leaderstats then

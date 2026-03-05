@@ -7,6 +7,7 @@ local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitFor
 local test = require(script.Parent:WaitForChild("InventoryHandler"))
 local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
 local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
+local Leaderboards = require(script.Parent:WaitForChild("LeaderboardsHandler"))
 
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
 
@@ -259,6 +260,9 @@ Players.PlayerAdded:Connect(function(player)
 					rarity.Parent = emote
 
 				end
+
+				-- Push freshly loaded stats to leaderboards immediately (avoids initial zero write)
+				Leaderboards.UpdatePlayer(player)
 			end
 		end
 
