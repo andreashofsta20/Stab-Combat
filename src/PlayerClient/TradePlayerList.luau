@@ -5,7 +5,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Teams = game:GetService("Teams")
 local CalculateLevelModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
 
-
 -- remotes
 local TradeRemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Trading")
 local TradeRemote = TradeRemotesFolder:WaitForChild("TradeUpdate")
@@ -26,9 +25,11 @@ local SadLevelRequirementTemplate = TradeTemplatesFolder:WaitForChild("LevelRequ
 local NoPlayersInGameTemplate = TradeTemplatesFolder:WaitForChild("NoPlayers")
 
 local playerEntries = {}
+local activeCooldowns = {}
 local levelRequirementFrame = nil
 local noPlayersFrame = nil
 local MIN_TRADE_LEVEL = 10
+local SEND_COOLDOWN_TIME = 15
 
 local function getLocalLevel()
     local leaderstats = plr:FindFirstChild("leaderstats")
@@ -120,8 +121,15 @@ end
 
 local function updateEntryState(frame: Frame, player: Player)
     local level = getPlayerLevel(player)
+    
+    local cooldownEnd = activeCooldowns[player.UserId] or 0
+    local inCooldown = os.clock() < cooldownEnd
 
-    if level < MIN_TRADE_LEVEL then
+    if inCooldown then
+        frame.SentOrNot.Visible = true
+        frame.SendTrade.Header.Text = "SENT"
+        frame.SendTrade.Interactable = false
+    elseif level < MIN_TRADE_LEVEL then
         frame.SentOrNot.Visible = true
         frame.SendTrade.Header.Text = "UNDER LV. 10"
         frame.SendTrade.Interactable = false
@@ -140,7 +148,6 @@ local function AddPlayer(plr : Player)
     if not hasRequiredTradeLevel() then
         return
     end
-
 
     local existing = playerEntries[plr.UserId]
     if existing then
@@ -179,7 +186,6 @@ local function AddPlayer(plr : Player)
         connections = connections,
     }
 
-    
     if plr == Players.LocalPlayer then
         template.Visible = false
     end
@@ -201,6 +207,7 @@ local function RemovePlayer(player: Player)
         end
         playerEntries[player.UserId] = nil
     end
+    activeCooldowns[player.UserId] = nil
 end
 
 local function RefreshPlayerList()
@@ -245,24 +252,14 @@ local function StartAutoRefresh()
     end)
 end
 
-
-
-
-
-
-
-
-
-
-
 Players.PlayerAdded:Connect(function(player)
-	AddPlayer(player)
-	updateNoPlayersMessage()
+    AddPlayer(player)
+    updateNoPlayersMessage()
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	RemovePlayer(player)
-	updateNoPlayersMessage()
+    RemovePlayer(player)
+    updateNoPlayersMessage()
 end)
 
 local localLeaderstats = plr:WaitForChild("leaderstats")
@@ -273,6 +270,29 @@ end)
 
 ApplyTradeLevelGate()
 StartAutoRefresh()
+
+TradeRemote.OnClientEvent:Connect(function(eventName, data)
+    if eventName == "ACTION_RESULT" and data.action == "SEND_REQUEST" then
+        if data.success and data.extra and data.extra.targetUserId then
+            local targetId = data.extra.targetUserId
+            activeCooldowns[targetId] = os.clock() + SEND_COOLDOWN_TIME
+            
+            local p = Players:GetPlayerByUserId(targetId)
+            local entry = playerEntries[targetId]
+            if p and entry and entry.frame then
+                updateEntryState(entry.frame, p)
+            end
+            
+            task.delay(SEND_COOLDOWN_TIME, function()
+                local p2 = Players:GetPlayerByUserId(targetId)
+                local entry2 = playerEntries[targetId]
+                if p2 and entry2 and entry2.frame then
+                    updateEntryState(entry2.frame, p2)
+                end
+            end)
+        end
+    end
+end)
 
 ExitButton.MouseButton1Click:Connect(function()
     local Lighting = game:GetService("Lighting")

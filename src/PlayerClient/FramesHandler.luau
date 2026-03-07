@@ -21,6 +21,7 @@ local FramesFolder = MainGUI:WaitForChild("Frames")
 -- // SOUNDS // --
 
 local SoundOnHover = game:GetService("ReplicatedStorage").Assets.Sounds:WaitForChild("Hover")
+local SpectateHandlerModule = require(script.Parent.Modules:WaitForChild("SpectateHandler"))
 
 
 -- // MAIN FUNCTIONS // --
@@ -81,6 +82,10 @@ for i , v in pairs(TopButtonsFrame:GetChildren()) do
 		end)
 		
 		v.MouseButton1Up:Connect(function()
+			if v.Name == "Spectate" then
+				SpectateHandlerModule.ToogleFrame()
+				return
+			end
 			Module.OpenFrame(v.Name)
 		end)
 		

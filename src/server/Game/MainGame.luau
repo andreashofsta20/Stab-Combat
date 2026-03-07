@@ -466,7 +466,7 @@ function MainGame.StartGame(map)
 				if not winnerUserId then
 					-- Everyone died simultaneously — no winner
 					RoundHandlerModule.ChangeStatus("Draw!")
-					task.wait(4)
+					task.wait(0.5)
 					break
 				end
 
@@ -493,7 +493,7 @@ function MainGame.StartGame(map)
 					end
 				end
 
-				task.wait(4)
+				task.wait(0.5)
 				break
 			end
 		end
@@ -506,16 +506,23 @@ function MainGame.StartGame(map)
 		RoundHandlerModule.ChangeStatus(TimeToMinutesModule.MakeTimeMinute(RoundTime))
 	end
 
+	-- INSTANTLY FIRE UI ANIMATION
+	RoundCountdownRemote:FireAllClients("roundover")
 
 	ZoneHandler._zoneActive = false
 	ZoneHandler.StopZone()
 
+	-- Compute final stats instantly
 	FinalizeRoundStats()
-	ApplyRoundRewards()
-
 	local gameResults, playerResults = BuildRoundResults()
+
+	-- Process rewards and datastores in background to prevent server freezing
+	task.spawn(function()
+		ApplyRoundRewards()
+	end)
+
+	-- Wait for the "ROUND OVER" animation to finish, then pop up results
 	if gameResults and playerResults then
-		RoundCountdownRemote:FireAllClients("roundover")
 		task.wait(1.9) 
 		GetRoundResultsRemote:FireAllClients(gameResults, playerResults)
 	end
@@ -539,8 +546,6 @@ function MainGame.StartGame(map)
 			end
 		end
 	end
-
-
 
 	-- Teleport surviving players back to lobby
 	for odUserId in pairs(MainGame.PlayersInGame) do
@@ -568,7 +573,7 @@ function MainGame.StartGame(map)
 	GameActiveBoolean.Value = false
 	MainGame.LobbyModeLock = false
 	table.clear(MainGame.PlayersInGame)
-	table.clear(pendingKills) -- FIX: Clear pending kills for next round
+	table.clear(pendingKills)
 	MainGame.RoundStats = nil
 end
 
