@@ -23,14 +23,6 @@ local Maps = {
 	},
 	
 	
-	["Farm"] = {
-
-		MapFolder = game.ServerStorage:WaitForChild("Farm"),
-		Name = "Farm",
-		VotingImage = "rbxassetid://127578255823149",
-		ResultsImage = "rbxassetid://134203038536550"
-
-	},
 	
 	["Grids"] = {
 

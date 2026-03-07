@@ -23,6 +23,8 @@ local SprintButton = OtherButtonsFrame:WaitForChild("Sprint")
 local ThrowKnifeButton = OtherButtonsFrame:WaitForChild("Throw")
 local ShiftLockButton = MobileFrame:WaitForChild("ShiftLock")
 
+local MobileCrossHairImage = MobileFrame:WaitForChild("MobileCrosshair")
+
 local ShiftLockUnlockedImage = "rbxassetid://13848680756"
 local ShiftLockLockedImage = "rbxassetid://13848672949"
 
@@ -41,6 +43,26 @@ local isMobile = false
 local sprintToggled = false
 local walkSpeedConnection: RBXScriptConnection? = nil
 local jumpDebounce = false
+
+
+local function updateMobileCrosshair(isVisible: boolean, pos: Vector2?)
+    if isVisible then
+
+        if ShiftLockToggled then
+            return
+        end
+
+        MobileCrossHairImage.Visible = true
+        if pos then
+            MobileCrossHairImage.Position = UDim2.fromOffset(pos.X, pos.Y + 60) 
+        else
+            MobileCrossHairImage.Position = UDim2.fromScale(0.5, 0.5)
+        end
+    else
+        MobileCrossHairImage.Visible = false
+    end
+end
+------------------------------
 
 local function getCharacter(): Model
     return player.Character or player.CharacterAdded:Wait()
@@ -116,6 +138,8 @@ local function setShiftLock(enabled: boolean)
     ShiftLockToggled = enabled
     updateShiftLockVisual()
     updateShiftLockLoop(ShiftLockToggled)
+    
+    updateMobileCrosshair(ShiftLockToggled)
 
     if UserInputService.MouseEnabled then
         UserInputService.MouseBehavior = ShiftLockToggled and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
@@ -242,7 +266,6 @@ end
 local function setUp()
     detectInputMode()
     
-    -- NEW: Tell CombatController whether this device is mobile or PC
     CombatController.SetInputMode(isMobile)
 
     if not isMobile then
@@ -251,6 +274,8 @@ local function setUp()
     end
 
     MobileFrame.Visible = true
+    updateMobileCrosshair(false) 
+    
     disableRobloxDefaultJumpButton()
     CombatController.Init()
     updateShiftLockVisual()
@@ -304,6 +329,7 @@ local function setUp()
             if pendingTouch == input and not touchHolding then
                 touchHolding = true
                 CombatController.BeginCharge()
+                updateMobileCrosshair(true, lastTouchAimPos)
             end
         end)
     end)
@@ -316,6 +342,7 @@ local function setUp()
         if touchHolding then
             lastTouchAimPos = currentPos
             CombatController.SetTouchAimPosition(currentPos)
+            updateMobileCrosshair(true, currentPos)
             return
         end
 
@@ -343,6 +370,8 @@ local function setUp()
         
         lastTouchAimPos = nil
         CombatController.SetTouchAimPosition(nil)
+        
+        updateMobileCrosshair(ShiftLockToggled)
     end)
 
     UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)

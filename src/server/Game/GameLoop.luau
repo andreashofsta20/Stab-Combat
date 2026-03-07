@@ -54,7 +54,7 @@ while true do
 	
 	-- Check again after voting completes
 	if not CanStart() then
-		RoundHandlerModule.ChangeStatus("Not enough players to start")
+		RoundHandlerModule.ChangeStatus("NOT ENOUGH PLAYERS TO START")
 		task.wait(3)
 		continue
 	end
