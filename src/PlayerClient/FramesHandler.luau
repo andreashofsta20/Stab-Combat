@@ -20,7 +20,7 @@ local FramesFolder = MainGUI:WaitForChild("Frames")
 
 -- // SOUNDS // --
 
-local SoundOnHover = game:GetService("ReplicatedStorage").Assets.Sounds:WaitForChild("Hover")
+local SoundHandlerModule = require(script.Parent.Modules:WaitForChild("SoundHandler"))
 local SpectateHandlerModule = require(script.Parent.Modules:WaitForChild("SpectateHandler"))
 
 
@@ -73,8 +73,8 @@ for i , v in pairs(TopButtonsFrame:GetChildren()) do
 	if v:IsA("ImageButton") then
 		
 		v.MouseEnter:Connect(function()
-			SoundOnHover:Play()
 			HoverButton(v)
+			SoundHandlerModule.PlaySound("HoverTopButtons")
 		end)
 		
 		v.MouseLeave:Connect(function()
@@ -84,9 +84,11 @@ for i , v in pairs(TopButtonsFrame:GetChildren()) do
 		v.MouseButton1Up:Connect(function()
 			if v.Name == "Spectate" then
 				SpectateHandlerModule.ToogleFrame()
+				SoundHandlerModule.PlaySound("ClickTopButtons")
 				return
 			end
 			Module.OpenFrame(v.Name)
+			SoundHandlerModule.PlaySound("ClickTopButtons")
 		end)
 		
 		

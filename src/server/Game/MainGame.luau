@@ -36,6 +36,8 @@ local QuestsHandler = require(script.Parent.Parent:WaitForChild("ServicesHandler
 local Players = game:GetService("Players")
 local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("ProfileManager"))
 
+
+local PlayerGotKilledRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("PlayerGotKilledRemote")
 MainGame.RoundStats = nil
 
 -- Tracks the order players were eliminated (first eliminated = last place)
@@ -84,6 +86,7 @@ function MainGame.AddRoundKill(killer: Player)
     local data = stats.players[killer.UserId]
     if not data then return end
     data.kills += 1
+    PlayerGotKilledRemote:FireClient(killer, "Kill")
 end
 
 function MainGame.RecordElimination(player: Player)

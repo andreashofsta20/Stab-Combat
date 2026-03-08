@@ -39,48 +39,35 @@ local CurrentlySpectatingText2 = BottomFrame:WaitForChild("CurrentlySpectating")
 
 local MatchStatText = MatchStats:WaitForChild("StatsText")
 
--- Your custom UI additions
 local ButtonVisibleWhenGameActive = MainGui:WaitForChild("Top"):WaitForChild("Buttons"):WaitForChild("Spectate")
 local RandomTextLabel = MainGui:WaitForChild("SystemTexts"):WaitForChild("Status")
 local RandomFrame = MainGui:WaitForChild("Bottom")
 
--- Remotes
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local SpectatingRemotesFolder = RemotesFolder:WaitForChild("Spectating")
 local ReceiveInfoRemote = SpectatingRemotesFolder:WaitForChild("Receive")
 
--- Timer Source
+
 local RoundStatusValue = ReplicatedStorage:WaitForChild("Timer")
 
---=============================
--- Game Active / Button Visibility Logic
---=============================
--- FIXED: Use GameActiveBoolean to control the button, not the Timer value!
+
 GameActiveBoolean.Changed:Connect(function(isActive)
     ButtonVisibleWhenGameActive.Visible = isActive
     
-    -- Force stop spectating if the game ends
     if not isActive and SpectateFrame.Visible then
         SpectateHandler.StopSpectating()
     end
 end)
 
--- Set initial state for the button
-ButtonVisibleWhenGameActive.Visible = GameActiveBoolean.Value
 
---=============================
--- Helper Functions
---=============================
+ButtonVisibleWhenGameActive.Visible = GameActiveBoolean.Value
 
 
 local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function AnimateButton(button, visualTarget)
-
     visualTarget = visualTarget or button
-
     local uiScale = visualTarget:FindFirstChildOfClass("UIScale")
-
 
     button.MouseEnter:Connect(function()
         TweenService:Create(uiScale, tweenInfo, {Scale = 1.08}):Play()
@@ -107,6 +94,16 @@ local function GetAlivePlayers()
         end
     end
     return alive
+end
+
+local function GetCurrentTargetIndex(alivePlayers)
+    if not currentSpectateTarget then return 1 end
+    for i, p in ipairs(alivePlayers) do
+        if p == currentSpectateTarget then 
+            return i 
+        end
+    end
+    return 1 
 end
 
 local function UpdateMatchStatsText(aliveCount, timeLeftStr)
@@ -139,26 +136,20 @@ local function SetSpectateTarget(index)
         if humanoid then
             camera.CameraSubject = humanoid
             CurrentlySpectatingText.Text = currentSpectateTarget.DisplayName
-            CurrentlySpectatingText2.Text = currentSpectateTarget.DisplayName
-            
+            CurrentlySpectatingText2.Text = currentSpectateTarget.DisplayName         
             ReceiveInfoRemote:FireServer("RequestInfo", currentSpectateTarget)
         end
     end
 end
 
---=============================
--- Core Functionality
---=============================
 
 function SpectateHandler.StartSpectating()
     if not GameActiveBoolean.Value then return end
     
-    -- Double check timer exists just in case
     if not RoundStatusValue then
         RoundStatusValue = ReplicatedStorage:FindFirstChild("Timer")
     end
     
-    -- Hide lobby UI elements
     RandomTextLabel.Visible = false
     RandomFrame.Visible = false
     
@@ -170,7 +161,6 @@ function SpectateHandler.StartSpectating()
         spectateConnection = RunService.Heartbeat:Connect(function()
             local alivePlayers = GetAlivePlayers()
             
-            -- Safely parse the timer to minutes
             local timeStr = "00:00"
             if RoundStatusValue and RoundStatusValue.Value then
                 timeStr = TimeToMinutes.MakeTimeMinute(RoundStatusValue.Value)
@@ -180,6 +170,11 @@ function SpectateHandler.StartSpectating()
             
             if not currentSpectateTarget or not currentSpectateTarget.Parent or currentSpectateTarget:GetAttribute("InRound") ~= true then
                 SetSpectateTarget(spectateIndex)
+            elseif currentSpectateTarget.Character then
+                local currentHumanoid = currentSpectateTarget.Character:FindFirstChildOfClass("Humanoid")
+                if currentHumanoid and camera.CameraSubject ~= currentHumanoid then
+                    camera.CameraSubject = currentHumanoid
+                end
             end
         end)
     end
@@ -188,7 +183,6 @@ end
 function SpectateHandler.StopSpectating()
     SpectateFrame.Visible = false
     
-    -- Restore lobby UI elements
     RandomTextLabel.Visible = true
     RandomFrame.Visible = true
     
@@ -224,13 +218,16 @@ end
 SpectateHandler.ToggleFrame = SpectateHandler.ToogleFrame
 
 
-
 ArrowLeftButton.MouseButton1Click:Connect(function()
-    SetSpectateTarget(spectateIndex - 1)
+    local alivePlayers = GetAlivePlayers()
+    local currentIndex = GetCurrentTargetIndex(alivePlayers)
+    SetSpectateTarget(currentIndex - 1)
 end)
 
 ArrowRightButton.MouseButton1Click:Connect(function()
-    SetSpectateTarget(spectateIndex + 1)
+    local alivePlayers = GetAlivePlayers()
+    local currentIndex = GetCurrentTargetIndex(alivePlayers)
+    SetSpectateTarget(currentIndex + 1)
 end)
 
 ExitSpectateButton.MouseButton1Click:Connect(function()
@@ -242,12 +239,31 @@ AnimateButton(ArrowRightButton)
 AnimateButton(ExitSpectateButton, ExitSpectateButton.Parent)
 
 
-ReceiveInfoRemote.OnClientEvent:Connect(function(kills, knifeImageId)
+ReceiveInfoRemote.OnClientEvent:Connect(function(targetPlayer, kills, knifeImageId)
     if not SpectateFrame.Visible then return end
+
+    if targetPlayer ~= currentSpectateTarget then return end 
     
     SpectatingUserKillsText.Text = tostring(kills or 0)
     if knifeImageId and knifeImageId ~= "" then
         SpectatingUserKnifeCurrentlyUsingImage.Image = knifeImageId
+    end
+end)
+
+
+player.CharacterAdded:Connect(function(newCharacter)
+    if SpectateFrame.Visible and currentSpectateTarget then
+        
+        local newHumanoid = newCharacter:WaitForChild("Humanoid", 3)
+        
+        task.wait(0.2) 
+        
+        if SpectateFrame.Visible and currentSpectateTarget and currentSpectateTarget.Character then
+            local targetHumanoid = currentSpectateTarget.Character:FindFirstChildOfClass("Humanoid")
+            if targetHumanoid then
+                camera.CameraSubject = targetHumanoid
+            end
+        end
     end
 end)
 

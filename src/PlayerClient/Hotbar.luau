@@ -6,6 +6,7 @@ local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local RS = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local SoundHandlerModule = require(script.Parent.Modules:WaitForChild("SoundHandler"))
 
 -- // PLAYER // --
 local Player = Players.LocalPlayer
@@ -115,6 +116,9 @@ local function SetKnifeEquippedUI(equipped)
 	local KnifeSlot = HotbarFrame:WaitForChild("1")
 	local slotSelected = KnifeSlot:WaitForChild("SlotSelected")
 	slotSelected.Visible = equipped
+	if equipped then
+		SoundHandlerModule.PlaySound("EquipKnife")
+	end
 
 	if equipped then
 		TweenSize(KnifeSlot, UDim2.new(0.081, 5, 1.054, 5))

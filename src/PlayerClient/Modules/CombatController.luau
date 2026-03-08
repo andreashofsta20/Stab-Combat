@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
+local SoundHandlerModule = require(script.Parent:WaitForChild("SoundHandler"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -273,6 +274,7 @@ local function playStabAnimation()
 		stabTrack.Looped = false
 		if stabTrack.IsPlaying then stabTrack:Stop() end
 		stabTrack:Play()
+		SoundHandlerModule.PlaySound("StabKnife")
 	end
 end
 
@@ -303,6 +305,7 @@ end
 local function playThrowAnimation()
 	stopAllAnimations()
 	if throwTrack then throwTrack:Play() end
+	SoundHandlerModule.PlaySound("ThrowKnife")
 end
 
 local function uiAnimation()

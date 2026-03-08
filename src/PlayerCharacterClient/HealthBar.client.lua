@@ -76,7 +76,7 @@ end
 
 Player.CharacterAdded:Connect(
 	function(character)
-		task.wait(1) 
+		task.wait(3) 
 		setupHealthBar(character)
 	end
 )
