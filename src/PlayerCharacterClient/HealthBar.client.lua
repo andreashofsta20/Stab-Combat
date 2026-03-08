@@ -74,6 +74,13 @@ if Player.Character then
 	setupHealthBar(Player.Character)
 end
 
-Player.CharacterAdded:Connect(setupHealthBar)
+Player.CharacterAdded:Connect(
+	function(character)
+		task.wait(1) 
+		setupHealthBar(character)
+	end
+)
+
+
 
 return {}

@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 -- Modules
 local TimeToMinutes = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TimeToMinutes"))
@@ -70,6 +71,33 @@ ButtonVisibleWhenGameActive.Visible = GameActiveBoolean.Value
 --=============================
 -- Helper Functions
 --=============================
+
+
+local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local function AnimateButton(button, visualTarget)
+
+    visualTarget = visualTarget or button
+
+    local uiScale = visualTarget:FindFirstChildOfClass("UIScale")
+
+
+    button.MouseEnter:Connect(function()
+        TweenService:Create(uiScale, tweenInfo, {Scale = 1.08}):Play()
+    end)
+
+    button.MouseLeave:Connect(function()
+        TweenService:Create(uiScale, tweenInfo, {Scale = 1}):Play()
+    end)
+
+    button.MouseButton1Down:Connect(function()
+        TweenService:Create(uiScale, tweenInfo, {Scale = 0.92}):Play()
+    end)
+
+    button.MouseButton1Up:Connect(function()
+        TweenService:Create(uiScale, tweenInfo, {Scale = 1.08}):Play()
+    end)
+end
 
 local function GetAlivePlayers()
     local alive = {}
@@ -209,7 +237,9 @@ ExitSpectateButton.MouseButton1Click:Connect(function()
     SpectateHandler.StopSpectating()
 end)
 
-
+AnimateButton(ArrowLeftButton)
+AnimateButton(ArrowRightButton)
+AnimateButton(ExitSpectateButton, ExitSpectateButton.Parent)
 
 
 ReceiveInfoRemote.OnClientEvent:Connect(function(kills, knifeImageId)
