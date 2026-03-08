@@ -574,15 +574,15 @@ ReceiveInfoRemote.OnServerEvent:Connect(function(requestingPlayer, action, targe
         end
 
         local knifeImageId = ""
-        if targetPlayer:FindFirstChild("leaderstats"):FindFirstChild("EquippedKnife") then
+        if targetPlayer:FindFirstChild("leaderstats") and targetPlayer.leaderstats:FindFirstChild("EquippedKnife") then
             local equippedKnifeValue = targetPlayer.leaderstats.EquippedKnife.Value
-            local knifeInfo = KnivesInfoModule[equippedKnifeValue].Image
-            if knifeInfo then
-                knifeImageId = knifeInfo
+            local knifeInfo = KnivesInfoModule[equippedKnifeValue]
+            if knifeInfo and knifeInfo.Image then
+                knifeImageId = knifeInfo.Image
             end
         end
 
-        ReceiveInfoRemote:FireClient(requestingPlayer, kills, knifeImageId)
+        ReceiveInfoRemote:FireClient(requestingPlayer, targetPlayer, kills, knifeImageId)
     end
 end)
 

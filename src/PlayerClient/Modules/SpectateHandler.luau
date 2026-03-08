@@ -19,6 +19,7 @@ local GameActiveBoolean = ReplicatedStorage:WaitForChild("GameActive")
 local spectateConnection = nil
 local spectateIndex = 1
 local currentSpectateTarget = nil
+local lastSpectateUpdate = 0
 
 -- UIS
 local PlayerGui = player:WaitForChild("PlayerGui")
@@ -174,6 +175,12 @@ function SpectateHandler.StartSpectating()
                 local currentHumanoid = currentSpectateTarget.Character:FindFirstChildOfClass("Humanoid")
                 if currentHumanoid and camera.CameraSubject ~= currentHumanoid then
                     camera.CameraSubject = currentHumanoid
+                end
+                
+                -- Live refresh data every 1 second
+                if os.clock() - lastSpectateUpdate >= 1 then
+                    lastSpectateUpdate = os.clock()
+                    ReceiveInfoRemote:FireServer("RequestInfo", currentSpectateTarget)
                 end
             end
         end)
