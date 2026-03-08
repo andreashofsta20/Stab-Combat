@@ -24,13 +24,11 @@ function ZoneHandler.StartZone()
 	-- PlayersInGame is a table, not a function - we'll use it directly below
 
 	if not MainGame.GameActive then 
-		print("Game isnt active") 
 		return 
 	end
 
 	local Zone = workspace:FindFirstChild("Zone")
 	if not Zone then 
-		print("Zone mesh not found") 
 		return 
 	end
 
@@ -74,12 +72,10 @@ function ZoneHandler.StartZone()
 				if not MainGame.PlayersInGame[player.UserId] then continue end
 
 				if isInsideZone(player) then
-					print(player.Name .. " is safely inside the zone!")
 					if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main") and player.PlayerGui.Main:FindFirstChild("OutsideZone") then
 						NotifyClient:FireClient(player, false)
 					end
 				else
-					print(player.Name .. " is OUTSIDE the zone!")
 					if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main") and player.PlayerGui.Main:FindFirstChild("OutsideZone") then
 						NotifyClient:FireClient(player, true)
 					end

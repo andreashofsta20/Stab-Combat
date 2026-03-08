@@ -42,9 +42,17 @@ local function ApplySetting(player: Player, settingname: string)
         return
     end
 
-    if settingname == "LobbyMode" and MainGameModule.IsLobbyModeLocked() then
-        NotificationHandler.SendNotification(player, "Lobby Mode is locked right now.", 2, "Alert")
-        return
+    -- FIXED: Lobby Mode block logic
+    if settingname == "LobbyMode" then
+        if MainGameModule.PlayersInGame[player.UserId] then
+            NotificationHandler.SendNotification(player, "You can't change Lobby Mode while in a game!", 2, "Alert")
+            return
+        end
+
+        if MainGameModule.IsLobbyModeLocked() and not MainGameModule.GameActive then
+            NotificationHandler.SendNotification(player, "A round is starting! Please wait a moment.", 2, "Alert")
+            return
+        end
     end
 
     setting.Value = not setting.Value
