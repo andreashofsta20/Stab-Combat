@@ -197,23 +197,27 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
     if not character then return end
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local hrp = character:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
 
     local equippedTool = character:FindFirstChildWhichIsA("Tool")
     if not equippedTool then return end
 
     ThrewKnifeClient:FireClient(player)
 
-    local direction = (targetPosition - camOrigin).Unit
+    -- FIX: Use the Head or HRP as the true physical origin to prevent camera-clipping exploits
+    local physicalOrigin = (head and head.Position) or (hrp and hrp.Position) or camOrigin
+
+    -- FIX: Recalculate direction from the character's body to the target, NOT from the camera
+    local trueDirection = (targetPosition - physicalOrigin).Unit
 
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
     rayParams.FilterDescendantsInstances = { character }
 
-    -- Changed from Spherecast to Raycast to perfectly match the client's linear prediction 
-    -- and avoid the engine's initial origin intersection blind spots at close range.
-    local hitResult = workspace:Raycast(camOrigin, direction * MAX_DISTANCE, rayParams)
-    local finalHitPos = hitResult and hitResult.Position or (camOrigin + direction * MAX_DISTANCE)
-    local actualDistance = (finalHitPos - camOrigin).Magnitude
+    -- FIX: Raycast from the physical character, meaning walls in front of the body will block it
+    local hitResult = workspace:Raycast(physicalOrigin, trueDirection * MAX_DISTANCE, rayParams)
+    local finalHitPos = hitResult and hitResult.Position or (physicalOrigin + trueDirection * MAX_DISTANCE)
+    local actualDistance = (finalHitPos - physicalOrigin).Magnitude
     local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * math.clamp(chargeRatio, 0, 1))
 
     local hitVictim = nil
@@ -254,9 +258,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
         end)
     end
 
-    local hand = character and character:FindFirstChild("RightHand")
-    local baseOrigin = hand and hand.Position or (hrp and hrp.Position) or camOrigin
-    local visualOrigin = baseOrigin + (direction * VISUAL_OFFSET)
+    local visualOrigin = physicalOrigin + (trueDirection * VISUAL_OFFSET)
 
     local leaderstats = player:FindFirstChild("leaderstats")
     if not leaderstats then return end
@@ -270,11 +272,10 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
     handle.CanCollide = false
     handle.CanQuery = false
     handle.Massless = true
-    handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + direction)
+    handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + trueDirection)
     handle.Parent = workspace
     handle:SetNetworkOwner(nil)
     
-    -- NEW: Tag the knife so the thrower's local script knows to hide it
     CollectionService:AddTag(handle, "ServerKnife_".. player.UserId)
 
     local att0, att1 = addTrail(handle)
@@ -284,7 +285,7 @@ function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPositi
 
     local visualTravelDirection = (finalHitPos - visualOrigin).Unit
     if actualDistance <= 0.001 then
-        visualTravelDirection = direction
+        visualTravelDirection = trueDirection
     end
 
     local conn

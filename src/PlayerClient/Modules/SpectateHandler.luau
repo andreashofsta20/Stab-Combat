@@ -48,20 +48,38 @@ local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local SpectatingRemotesFolder = RemotesFolder:WaitForChild("Spectating")
 local ReceiveInfoRemote = SpectatingRemotesFolder:WaitForChild("Receive")
 
-
 local RoundStatusValue = ReplicatedStorage:WaitForChild("Timer")
 
+-- Helper function to update the button's visibility based on both conditions
+local function UpdateSpectateButtonVisibility()
+    local isGameActive = GameActiveBoolean.Value
+    local isInRound = player:GetAttribute("InRound") == true
+    
+    -- Only show the button if the game is running AND the player is NOT in it
+    ButtonVisibleWhenGameActive.Visible = isGameActive and not isInRound
+end
 
+-- Listen for when the game starts/ends
 GameActiveBoolean.Changed:Connect(function(isActive)
-    ButtonVisibleWhenGameActive.Visible = isActive
+    UpdateSpectateButtonVisibility()
     
     if not isActive and SpectateFrame.Visible then
         SpectateHandler.StopSpectating()
     end
 end)
 
+-- Listen for when the local player dies or joins a round
+player:GetAttributeChangedSignal("InRound"):Connect(function()
+    UpdateSpectateButtonVisibility()
+    
+    -- Safety check: if they somehow get put in a round while spectating, close the UI
+    if player:GetAttribute("InRound") == true and SpectateFrame.Visible then
+        SpectateHandler.StopSpectating()
+    end
+end)
 
-ButtonVisibleWhenGameActive.Visible = GameActiveBoolean.Value
+-- Set initial state when the script first runs
+UpdateSpectateButtonVisibility()
 
 
 local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)

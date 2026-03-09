@@ -122,8 +122,10 @@ local function SetKnifeEquippedUI(equipped)
 
 	if equipped then
 		TweenSize(KnifeSlot, UDim2.new(0.081, 5, 1.054, 5))
+		KnifeSlot.BackgroundColor3 = Color3.fromHex("#121518")
 	else
 		TweenSize(KnifeSlot, UDim2.new(0.077, 5, 1, 5))
+		KnifeSlot.BackgroundColor3 = Color3.fromRGB(27, 31, 35)
 	end
 end
 

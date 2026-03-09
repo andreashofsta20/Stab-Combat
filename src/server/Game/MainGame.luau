@@ -345,7 +345,8 @@ function MainGame.OnDeath(player: Player)
                 :WaitForChild("Lobby")
                 :WaitForChild("Spawns")
                 :FindFirstChild(tostring(math.random(1, 4)))
-            if spawnPoint then
+			if spawnPoint then
+				task.wait(2)
                 hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
             end
         end
