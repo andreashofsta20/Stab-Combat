@@ -9,10 +9,6 @@ local RoundResultsFolder = RemotesFolder:WaitForChild("RoundResults")
 local GetRoundResultsRemote = RoundResultsFolder:WaitForChild("GetRoundResults")
 local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 
--- Spectating Remotes setup
-local SpectatingRemotesFolder = RemotesFolder:WaitForChild("Spectating")
-local ReceiveInfoRemote = SpectatingRemotesFolder:WaitForChild("Receive")
-
 local TimeToMinutesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TimeToMinutes"))
 
 local RecieveTools = StartGameClientFolder:WaitForChild("RecieveTools")
@@ -40,10 +36,7 @@ local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):Wa
 local PlayerGotKilledRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("PlayerGotKilledRemote")
 MainGame.RoundStats = nil
 
--- Tracks the order players were eliminated (first eliminated = last place)
 local eliminationOrder = {}
-
--- Tracks pending kills (victimUserId -> killerPlayer)
 local pendingKills = {}
 
 local function CountPlayersInGame()
@@ -71,21 +64,27 @@ local function InitRoundStats()
     }
 end
 
--- Register a pending kill - called by knife modules BEFORE damage
 function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
     if killer and victimUserId then
         pendingKills[victimUserId] = killer
     end
 end
 
--- Credit kill to the killer
+-- ==========================================
+-- UPDATED KILL LOGIC (FOR SPECTATING)
+-- ==========================================
 function MainGame.AddRoundKill(killer: Player)
     if not killer then return end
     local stats = MainGame.RoundStats
     if not stats then return end
     local data = stats.players[killer.UserId]
     if not data then return end
+    
     data.kills += 1
+    
+    -- NEW: Update attribute so spectating clients see it instantly
+    killer:SetAttribute("CurrentRoundKills", data.kills)
+    
     PlayerGotKilledRemote:FireClient(killer, "Kill")
 end
 
@@ -96,11 +95,8 @@ function MainGame.RecordElimination(player: Player)
     local data = stats.players[player.UserId]
     if not data or data.placement ~= nil then return end
 
-    -- Prevent duplicate entries in eliminationOrder
     for _, existingId in ipairs(eliminationOrder) do
-        if existingId == player.UserId then
-            return -- Already recorded
-        end
+        if existingId == player.UserId then return end
     end
 
     table.insert(eliminationOrder, player.UserId)
@@ -153,7 +149,6 @@ local function FinalizeRoundStats()
         eliminatedSet[userId] = true
     end
 
-    -- Survivors = players still in PlayersInGame table (not eliminated)
     local survivors = {}
     for userId, data in pairs(stats.players) do
         if not eliminatedSet[userId] then
@@ -161,17 +156,14 @@ local function FinalizeRoundStats()
         end
     end
 
-    -- Sort survivors by kills descending for tiebreaking
     table.sort(survivors, function(a, b)
         return a.kills > b.kills
     end)
 
-    -- Assign placements 1, 2, 3... to survivors
     for i, entry in ipairs(survivors) do
         stats.players[entry.userId].placement = i
     end
 
-    -- Assign remaining placements to eliminated players in reverse order
     local place = #survivors + 1
     for i = #eliminationOrder, 1, -1 do
         local userId = eliminationOrder[i]
@@ -182,15 +174,6 @@ local function FinalizeRoundStats()
         end
     end
 
-    -- Safety fallback
-    for userId, data in pairs(stats.players) do
-        if not data.placement then
-            warn("Placement fallback triggered for userId:", userId)
-            data.placement = totalPlayers
-        end
-    end
-
-    -- Set attributes for display
     for userId, data in pairs(stats.players) do
         local player = Players:GetPlayerByUserId(userId)
         if player then
@@ -242,12 +225,8 @@ local function ApplyRoundRewards()
             if leaderstats then
                 local killsStat = leaderstats:FindFirstChild("Kills")
                 local deathsStat = leaderstats:FindFirstChild("Deaths")
-                if killsStat then
-                    killsStat.Value += data.kills or 0
-                end
-                if deathsStat and data.placement ~= 1 then
-                    deathsStat.Value += 1
-                end
+                if killsStat then killsStat.Value += data.kills or 0 end
+                if deathsStat and data.placement ~= 1 then deathsStat.Value += 1 end
             end
 
             SaveLastRound(player, totalPlayers - 1, data.kills or 0, data.placement or 0)
@@ -275,25 +254,17 @@ local function BuildRoundResults()
     end
 
     table.sort(playerResults, function(a, b)
-        if a.Placement == b.Placement then
-            return a.Kills > b.Kills
-        end
+        if a.Placement == b.Placement then return a.Kills > b.Kills end
         return a.Placement < b.Placement
     end)
 
     local winners = {}
     for _, entry in ipairs(playerResults) do
-        if entry.IsWinner then
-            table.insert(winners, entry)
-        end
+        if entry.IsWinner then table.insert(winners, entry) end
     end
 
     local MapsModule = require(script.Parent:WaitForChild("Maps"))
-    local mapInfo = nil
-    if MainGame.CurrentMap and MapsModule[MainGame.CurrentMap] then
-        mapInfo = MapsModule[MainGame.CurrentMap]
-    end
-    local resultsImage = mapInfo and mapInfo.ResultsImage or nil
+    local resultsImage = MainGame.CurrentMap and MapsModule[MainGame.CurrentMap] and MapsModule[MainGame.CurrentMap].ResultsImage or nil
 
     local gameResults = {
         Map = MainGame.CurrentMap,
@@ -309,9 +280,7 @@ function MainGame.OnDeath(player: Player)
     if not player then return end
 
     local userId = player.UserId
-    if not MainGame.PlayersInGame[userId] then
-        return
-    end
+    if not MainGame.PlayersInGame[userId] then return end
 
     local killer = pendingKills[userId]
     if killer and killer ~= player then
@@ -336,16 +305,14 @@ function MainGame.OnDeath(player: Player)
     player:SetAttribute("InRound", false)
 
     ZoneHandler.NotifyPlayer(player, false) 
+    
     local character = player.Character
     if character then
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
-            local spawnPoint = workspace:WaitForChild("IntermissionMap")
-                :WaitForChild("Lobby")
-                :WaitForChild("Spawns")
-                :FindFirstChild(tostring(math.random(1, 4)))
-			if spawnPoint then
-				task.wait(2)
+            local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
+            if spawnPoint then
+                task.wait(2)
                 hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
             end
         end
@@ -357,9 +324,7 @@ local function HealAllPlayers()
         local character = player.Character
         if character then
             local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.Health = humanoid.MaxHealth
-            end
+            if humanoid then humanoid.Health = humanoid.MaxHealth end
         end
     end
 end
@@ -383,6 +348,9 @@ function MainGame.StartGame(map)
         player:SetAttribute("LastRoundGold", 0)
         player:SetAttribute("LastRoundXP", 0)
         player:SetAttribute("InRound", false)
+        
+        -- NEW: Ensure spectate UI resets to 0 at the start of every game
+        player:SetAttribute("CurrentRoundKills", 0)
     end
 
     local configuredRoundTime = MainGame.RoundTime
@@ -439,9 +407,8 @@ function MainGame.StartGame(map)
     while RoundTime > 0 do
         task.wait(1)
 
-        local currentRoundTime = MainGame.RoundTime
-        if currentRoundTime ~= configuredRoundTime then
-            configuredRoundTime = currentRoundTime
+        if MainGame.RoundTime ~= configuredRoundTime then
+            configuredRoundTime = MainGame.RoundTime
             RoundTime = configuredRoundTime
         end
 
@@ -482,15 +449,12 @@ function MainGame.StartGame(map)
                         QuestsHandler.AddProgress(winner, "WINS", 1)
                     end
                 end
-
                 task.wait(0.5)
                 break
             end
         end
 
-        if CountPlayersInGame() == 0 then
-            break
-        end
+        if CountPlayersInGame() == 0 then break end
 
         RoundTime -= 1
         RoundHandlerModule.ChangeStatus(TimeToMinutesModule.MakeTimeMinute(RoundTime))
@@ -503,9 +467,7 @@ function MainGame.StartGame(map)
     FinalizeRoundStats()
     local gameResults, playerResults = BuildRoundResults()
 
-    task.spawn(function()
-        ApplyRoundRewards()
-    end)
+    task.spawn(function() ApplyRoundRewards() end)
 
     if gameResults and playerResults then
         task.wait(1.9) 
@@ -514,33 +476,24 @@ function MainGame.StartGame(map)
 
     local winnerIds = {}
     if gameResults and gameResults.Winners then
-        for _, entry in ipairs(gameResults.Winners) do
-            winnerIds[entry.UserId] = true
-        end
+        for _, entry in ipairs(gameResults.Winners) do winnerIds[entry.UserId] = true end
     end
     for odUserId in pairs(MainGame.RoundStats and MainGame.RoundStats.players or {}) do
         if not winnerIds[odUserId] then
             local player = Players:GetPlayerByUserId(odUserId)
             if player then
-                local leaderstats = player:FindFirstChild("leaderstats")
-                local winStreak = leaderstats and leaderstats:FindFirstChild("WinStreak")
-                if winStreak then
-                    winStreak.Value = 0
-                end
+                local winStreak = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("WinStreak")
+                if winStreak then winStreak.Value = 0 end
             end
         end
     end
 
-    -- FIXED: Teleports all survivors back to lobby, even if they toggled LobbyMode on mid-match
     for odUserId in pairs(MainGame.PlayersInGame) do
         local player = Players:GetPlayerByUserId(odUserId)
         if player and player.Character then
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                local spawnPoint = workspace:WaitForChild("IntermissionMap")
-                    :WaitForChild("Lobby")
-                    :WaitForChild("Spawns")
-                    :WaitForChild(tostring(math.random(1, 4)))
+                local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):WaitForChild(tostring(math.random(1, 4)))
                 hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
             end
         end
@@ -559,31 +512,11 @@ function MainGame.StartGame(map)
 
     for _, p in pairs(Players:GetPlayers()) do
         p:SetAttribute("InRound", false)
+        p:SetAttribute("CurrentRoundKills", 0) -- Clear attribute for lobby
     end
 end
 
--- ==========================================
--- BACKEND LISTENER FOR SPECTATOR DATA
--- ==========================================
-ReceiveInfoRemote.OnServerEvent:Connect(function(requestingPlayer, action, targetPlayer)
-    if action == "RequestInfo" and targetPlayer then
-        local kills = 0
-        
-        if MainGame.RoundStats and MainGame.RoundStats.players[targetPlayer.UserId] then
-            kills = MainGame.RoundStats.players[targetPlayer.UserId].kills or 0
-        end
-
-        local knifeImageId = ""
-        if targetPlayer:FindFirstChild("leaderstats") and targetPlayer.leaderstats:FindFirstChild("EquippedKnife") then
-            local equippedKnifeValue = targetPlayer.leaderstats.EquippedKnife.Value
-            local knifeInfo = KnivesInfoModule[equippedKnifeValue]
-            if knifeInfo and knifeInfo.Image then
-                knifeImageId = knifeInfo.Image
-            end
-        end
-
-        ReceiveInfoRemote:FireClient(requestingPlayer, targetPlayer, kills, knifeImageId)
-    end
-end)
+-- NOTE: The "ReceiveInfoRemote" listener block was removed. 
+-- Clients now get data via Attributes and leaderstats.
 
 return MainGame
