@@ -20,7 +20,7 @@ end
 
 local function teleportPlayerToSpawn(player: Player, spawnPart: BasePart?)
 	if not spawnPart then
-		print(".")
+	
 		return false
 	end
 

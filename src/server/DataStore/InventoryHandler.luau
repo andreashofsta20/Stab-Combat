@@ -20,15 +20,13 @@ local DEFAULT_UNTRADEABLE_KNIVES = {
 local function CreateItem(player : Player, knifeName : string, tradeable: boolean?)
 	if not player then return end
 
-	print("sdadas" .. knifeName)
+	if not knifeName then return end
 
 	local rarity = nil
 	local image = nil
 
 	for i, v in pairs(KnivesInfoModule) do
-		print(i, v)
 		if i == knifeName then
-			print("found")
 			rarity = v.Rarity
 			image = v.Image
 			break 
@@ -36,7 +34,7 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 	end
 
 	if not rarity then
-		print("couldn't find knife: " .. knifeName)
+		warn("Rarity not found for knife: " .. knifeName)
 		return
 	end
 

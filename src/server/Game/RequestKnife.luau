@@ -32,7 +32,6 @@ RequestKnife.OnServerEvent:Connect(function(player)
 
 
 
-print("fafafasfscadad")
 
 
 
@@ -54,7 +53,6 @@ print("fafafasfscadad")
 				return
 			end
 
-			print("afafasfasfasf")
 			MainGameModule.PlayersInGame[player.UserId] = true
 		end
 	end)

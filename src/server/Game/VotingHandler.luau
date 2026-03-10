@@ -67,7 +67,7 @@ function Voting.SubmitVote(player : Player, option : string)
     end
     
     if not RoundHandlerModule.TimeToVote then
-        print("cant vote right now")
+   
         NotificationHandler.SendNotification(player, "Can't vote at the moment", 3, "Error")
         return
     end
@@ -76,7 +76,7 @@ function Voting.SubmitVote(player : Player, option : string)
     local settings = leaderstats and leaderstats:FindFirstChild("Settings")
     local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
     if lobbyMode and lobbyMode.Value then
-        print("Can't vote with lobby mode enabled")
+
         NotificationHandler.SendNotification(player, "Can't vote with lobby mode enabled", 3, "Error")
         return
     end
@@ -131,9 +131,7 @@ function Voting.CheckResults()
     if highest == 0 then
         RoundHandlerModule.ChangeStatus("NO VOTES. PICKING A RANDOM MAP")
         local Map = RoundHandlerModule.GetRandomMapFromVoting()
-        print(Map)
         winner = Map
-        print(winner)
         task.wait(1.5)
     elseif #tiedMaps > 1 then
         winner = tiedMaps[math.random(1, #tiedMaps)]

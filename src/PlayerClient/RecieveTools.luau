@@ -22,7 +22,7 @@ local WipeToolsServerRemote = StartGameClientFolder:WaitForChild("WipeToolServer
 -- // MAIN FUNCTIONS // --
 
 RecieveTools.OnClientEvent:Connect(function()
-	print("ddada 1")
+	--print("ddada 1")
 	task.wait(0.5)
 	
 	if not RequestKnife then
@@ -35,8 +35,8 @@ end)
 
 
 CharacterResetted.OnClientEvent:Connect(function()
-	print("ddada 2")
-	print("RESET")
+--	print("ddada 2")
+-- print("RESET")
 	
 	
 	

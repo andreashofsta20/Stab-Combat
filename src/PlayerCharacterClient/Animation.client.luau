@@ -276,10 +276,10 @@ end
 
 local function updateSprintFromInput()
 	local shouldSprint = mobileSprintToggled or keyboardSprintHeld
-    print("Updating sprint state. Mobile toggled:", mobileSprintToggled, "Keyboard held:", keyboardSprintHeld, "Should sprint:", shouldSprint)
+--    print("Updating sprint state. Mobile toggled:", mobileSprintToggled, "Keyboard held:", keyboardSprintHeld, "Should sprint:", shouldSprint)
 	SprintState.SetEnabled(shouldSprint)
 	MobileSprintButton:SetAttribute("SprintToggled", shouldSprint)
-    print("Sprint state updated. Current sprint enabled:", SprintState.GetEnabled())
+ --   print("Sprint state updated. Current sprint enabled:", SprintState.GetEnabled())
 end
 
 local function sprintAction(actionName, inputState, inputObj)
@@ -295,9 +295,9 @@ end
 
 MobileSprintButton:SetAttribute("SprintToggled", false)
 MobileSprintButton.MouseButton1Up:Connect(function()
-    print("Mobile sprint button clicked")
+ --   print("Mobile sprint button clicked")
 	mobileSprintToggled = not mobileSprintToggled
-    print("Mobile sprint toggled:", mobileSprintToggled)
+ --   print("Mobile sprint toggled:", mobileSprintToggled)
 	updateSprintFromInput()
 end)
 

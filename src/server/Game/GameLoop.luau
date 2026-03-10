@@ -60,7 +60,6 @@ while true do
 	end
 
 
-	print(map)
 	task.wait(0.5)
 	RoundHandlerModule.ChangeStatus(map.. " Won")
 	task.wait(2)

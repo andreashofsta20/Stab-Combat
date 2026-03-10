@@ -310,7 +310,6 @@ function MainGame.OnDeath(player: Player)
 
     local userId = player.UserId
     if not MainGame.PlayersInGame[userId] then
-        print("OnDeath: player not in PlayersInGame, ignoring:", player.Name)
         return
     end
 

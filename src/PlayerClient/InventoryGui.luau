@@ -254,7 +254,7 @@ for i , v in pairs(MenuFrame:GetDescendants()) do
 	if v:IsA("ImageButton") then
 		v.MouseButton1Up:Connect(function()
 			OpenFrame(v.Name)
-			print(v.Name)
+	--		print(v.Name)
 		end)
 	end
 end

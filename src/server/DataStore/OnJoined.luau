@@ -22,7 +22,6 @@ Players.PlayerAdded:Connect(function(player)
 		if MainGameModule.GameActive then
 			PlayerResettedRemote:FireClient(player)
 		else
-			print("Game isn't active")
 		end
 		local character = player.Character
 		local humanoid = character:WaitForChild("Humanoid")
@@ -134,7 +133,6 @@ Players.PlayerAdded:Connect(function(player)
 
 	if profile then
 		local data = profile.Data
-		print("Loading data for", player.Name, "Settings:", data.Settings)
 
 
 

@@ -83,10 +83,10 @@ local function initializeKeybinds()
 	Slot2Keybind = parseInput(slot2.Value) or Enum.KeyCode.Two
 	Slot3Keybind = parseInput(slot3.Value) or Enum.KeyCode.Three
 
-	print("Initialized keybinds:")
-	print("Slot1:", Slot1Keybind)
-	print("Slot2:", Slot2Keybind)
-	print("Slot3:", Slot3Keybind)
+	--print("Initialized keybinds:")
+	--print("Slot1:", Slot1Keybind)
+	--print("Slot2:", Slot2Keybind)
+	--print("Slot3:", Slot3Keybind)
 end
 
 initializeKeybinds()
@@ -148,7 +148,7 @@ local function EquipTool(SlotEquipped)
 		return
 	end
 	
-	print(SlotEquipped)
+--	print(SlotEquipped)
 
 
 end

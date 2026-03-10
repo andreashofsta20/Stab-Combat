@@ -51,8 +51,8 @@ local function initializeKnifeKeybinds()
 
 	CombatController.Init()
 
-	print("Initialized knife keybinds:")
-	print("Throw:", CurrentKeyBind)
+--	print("Initialized knife keybinds:")
+--	print("Throw:", CurrentKeyBind)
 end
 
 initializeKnifeKeybinds()
@@ -77,7 +77,7 @@ KeyBindFolder:WaitForChild("ThrowKnife").Changed:Connect(function()
 	local newInput = parseInput(newValue)
 	if newInput then
 		CurrentKeyBind = newInput
-		print("Updated ThrowKnife bind to", tostring(newInput))
+	--	print("Updated ThrowKnife bind to", tostring(newInput))
 	else
 		warn("Invalid ThrowKnife bind:", newValue)
 	end

@@ -76,8 +76,7 @@ local function ChangeKeybind(player : Player, Action : string, NewKeybind)
 	local leaderstats = player:WaitForChild("leaderstats")
 	local keybindsFolder = leaderstats:WaitForChild("KeyBinds")
 	
-	print(Action)
-	print(tostring(NewKeybind))
+
 	local ignore = false
 	
 	if Action == "Stab" and tostring(NewKeybind) == "MouseButton1" then
@@ -95,7 +94,6 @@ local function ChangeKeybind(player : Player, Action : string, NewKeybind)
 	
 	if Action == "Emote" and (tostring(NewKeybind) == "MouseButton1" or tostring(NewKeybind) == "MouseButton2" or tostring(NewKeybind) == "MouseButton3") then
 		Notify(player, "Please try another keybind", 1, "Error")
-		print("cant")
 		return
 	end
 
@@ -152,7 +150,6 @@ local function ChangeKeybind(player : Player, Action : string, NewKeybind)
 		Notify(player, "Something went wrong", 1, "Error")
 		print("couldn't find action")
 	end
-	print("worked")
 	Notify(player, "Applied new keybind", 1, "Success")
 	RemoveDebounce(player)
 end
@@ -161,7 +158,6 @@ end
 
 
 ChangeKeybindRemote.OnServerEvent:Connect(function(player : Player, Action : string, NewKeybind)
-	print("atleast it fired")
 	ChangeKeybind(player,Action, NewKeybind)
 	
 end)

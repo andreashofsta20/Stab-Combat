@@ -221,7 +221,7 @@ local function CasePopUp(CaseName : string)
 
 
 		if CaseInfoModule[CaseName] then
-			print("found")
+		--	print("found")
 			for i , v in pairs(CaseInfoModule[CaseName].Skins) do
 				local ItemOddFrame = OddsItemTemplateEmote:Clone()
 				ItemOddFrame.Name = tostring(i)
@@ -240,7 +240,7 @@ local function CasePopUp(CaseName : string)
 				AnimationRig.AnimationId = EmotesModule[tostring(i)].EmoteId
 				
 				
-				print(AnimationRig.AnimationId)
+			--	print(AnimationRig.AnimationId)
 
 				local AnimationTrack = RigHumanoid:LoadAnimation(AnimationRig)
 				AnimationTrack.Looped = true
@@ -252,7 +252,7 @@ local function CasePopUp(CaseName : string)
 			BuyContainer.Buy.Cost.Text = tostring(AbbreviateModule.WithCommas(CaseInfo.Price)) .. " Gold"
 			TopCaseName.Text = tostring(CaseName)
 		else
-			print("didnt find")
+		--	print("didnt find")
 		end
 
 
@@ -283,7 +283,7 @@ local function CasePopUp(CaseName : string)
 	
 	
 	if CaseInfoModule[CaseName] then
-		print("found")
+		--print("found")
 		for i , v in pairs(CaseInfoModule[CaseName].Skins) do
 			local ItemOddFrame = OddsItemTemplate:Clone()
 			ItemOddFrame.Name = tostring(i)
@@ -300,7 +300,7 @@ local function CasePopUp(CaseName : string)
 		BuyContainer.Buy.Cost.Text = tostring(AbbreviateModule.WithCommas(CaseInfo.Price)) .. " Gold"
 		TopCaseName.Text = tostring(CaseName)
 	else
-		print("didnt find")
+	--	print("didnt find")
 	end
 	
 	
@@ -398,7 +398,7 @@ OpenFrame = function(FrameName : string)
 			SetRobuxTab(ActiveRobuxTabName or getDefaultRobuxTabName())
 		end
 	else
-		print("couldnt find")
+		--print("couldnt find")
 	end
 	
 end
@@ -408,14 +408,14 @@ for i , v in pairs(MenuFrame:GetDescendants()) do
 	if v:IsA("ImageButton") then
 		v.MouseButton1Up:Connect(function()
 			OpenFrame(v.Name)
-			print(v.Name)
+		--	print(v.Name)
 		end)
 	end
 end
 
 
 PurchaseGold = function(productid : number)
-	print(productid)
+	--print(productid)
 	PurchaseGoldRemote:FireServer(productid)
 end
 
@@ -445,7 +445,7 @@ OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails : SharedTable, dur
 	
 	
 	
-	print(KnifeDetails)
+	--print(KnifeDetails)
 	HeaderText.Text = "Opening " .. KnifeDetails.Case
 	LastCase = KnifeDetails.Case
 

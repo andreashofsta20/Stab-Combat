@@ -117,7 +117,6 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		return
 	end
 	
-	print(chosenRarity)
 	
 	
 	local SkinsPlayerCanRecieve = {}
@@ -138,9 +137,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 	
 	local chosenSkin = SkinsPlayerCanRecieve[math.random(1, #SkinsPlayerCanRecieve)]
-	
-	print(chosenSkin)
-	
+
 	
 
 	

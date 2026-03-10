@@ -158,7 +158,7 @@ mouse.Button1Up:Connect(function()
 	end
 	
 	if not HoveredPlayer then
-		print("none hovered player")
+--		print("none hovered player")
 		return
 	end
 
