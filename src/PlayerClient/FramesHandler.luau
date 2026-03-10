@@ -83,7 +83,7 @@ for i , v in pairs(TopButtonsFrame:GetChildren()) do
 		
 		v.MouseButton1Up:Connect(function()
 			if v.Name == "Spectate" then
-				SpectateHandlerModule.ToogleFrame()
+				SpectateHandlerModule.ToggleFrame()
 				SoundHandlerModule.PlaySound("ClickTopButtons")
 				return
 			end

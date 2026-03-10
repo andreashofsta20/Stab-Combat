@@ -287,6 +287,9 @@ player.CharacterAdded:Connect(function(newCharacter)
     end
 end)
 
+
+
+
 -- Initialize
 UpdateSpectateButtonVisibility()
 AnimateButton(ArrowLeftButton)
