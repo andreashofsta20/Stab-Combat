@@ -13,7 +13,7 @@ function Module.XpReward(player: Player, action: string, totalPlayers: number?, 
 			xp += 10
 		end
 	elseif action == "win" then
-		local baseWin = 100
+		local baseWin = 175
 		if totalPlayers then
 			if totalPlayers > 10 then
 				xp = baseWin + 300

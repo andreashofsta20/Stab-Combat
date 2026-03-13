@@ -13,8 +13,11 @@ local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitFo
 
 local ProfileManager = {}
 
-local STORE_NAME = "PlayerData_v1.0"
-local OLD_STORE_NAME = "PlayerStats_v2BETA111TEST111__TESTING111"
+local STORE_NAME = "PlayerData_v1.0.0_MainData"
+local OLD_STORE_NAME = "PlayerData_v1.0.0_OldData"
+
+local TutorialRemotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Tutorial")
+local StartTutorialRemote = TutorialRemotes:WaitForChild("StartTutorial")
 
 local PROFILE_TEMPLATE = {
 	Name = "",
@@ -23,8 +26,8 @@ local PROFILE_TEMPLATE = {
 	Deaths = 0,
 	Wins = 0,
 	WinStreak = 0,
-	XP = 500000,
-	Cash = 999999,
+	XP = 150,
+	Cash = 250,
 	EquippedKnife = "Shadow Dagger",
 	Settings = {
 		MusicSetting = true,
@@ -43,6 +46,7 @@ local PROFILE_TEMPLATE = {
 		HasVIP = false,
 		ExpiresAt = 0,
 	},
+	FirstTimePlaying = false,
 }
 
 local PlayerStore = ProfileStore.New(STORE_NAME, PROFILE_TEMPLATE)
@@ -278,6 +282,8 @@ function ProfileManager.LoadProfile(player: Player): any?
 	end
 
 	Profiles[player] = profile
+
+	
 	return profile
 end
 
@@ -322,5 +328,16 @@ end
 function ProfileManager.GetStore()
 	return PlayerStore
 end
+
+
+StartTutorialRemote.OnServerEvent:Connect(function(player)
+    local profile = Profiles[player]
+	print(profile)
+	print(profile.Data.FirstTimePlaying)
+    if profile and profile.Data.FirstTimePlaying == false then
+        profile.Data.FirstTimePlaying = true
+        StartTutorialRemote:FireClient(player)
+    end
+end)
 
 return ProfileManager
