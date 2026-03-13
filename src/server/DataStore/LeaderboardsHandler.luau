@@ -9,9 +9,9 @@ local Leaderboards = {}
 
 local CalculateLevelModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
 
-local LevelsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Levels_v3_TESTING1")
-local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_TESTING1")
-local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_TESTING1")
+local LevelsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Levels_Datastore1.0")
+local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_Datastore1.0")
+local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_Datastore1.0")
 
 local NAME_CACHE = {}
 local LAST_UPDATE = {}

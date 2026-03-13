@@ -7,7 +7,7 @@ local UpdateQuestsRemote = QuestsRemotesFolder:WaitForChild("RequestQuests")
 local ClaimQuestRemote = QuestsRemotesFolder:WaitForChild("ClaimQuestReward")
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 
-local QUESTS_DATASTORE = DataStoreService:GetDataStore("DailyQuestsProgress_v1_TESTING")
+local QUESTS_DATASTORE = DataStoreService:GetDataStore("DailyQuestsProgress_v1.0")
 
 local DAILY_QUEST_POOL = {
     {
