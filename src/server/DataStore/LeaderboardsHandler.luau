@@ -8,170 +8,139 @@ local RequestLeaderboardsRemote = LeaderboardsRemotesFolder:WaitForChild("Reques
 local Leaderboards = {}
 
 local CalculateLevelModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
+-- Require ProfileManager to get the 100% accurate save data directly from the source
+local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
 
 local LevelsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Levels_Datastore1.0")
 local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_Datastore1.0")
 local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_Datastore1.0")
 
 local NAME_CACHE = {}
-local LAST_UPDATE = {}
 local UPDATE_COOLDOWN_SECONDS = 60
 local DEFAULT_TOP_COUNT = 50
 
+-- Store the latest fetched leaderboards to prevent throttling and instant-load for clients
+local CachedLeaderboards = {
+    Levels = {},
+    Kills = {},
+    Gold = {}
+}
+
 local function getPlayerName(userId: number)
-	local cached = NAME_CACHE[userId]
-	if cached then
-		return cached
-	end
+    if NAME_CACHE[userId] then return NAME_CACHE[userId] end
+    
+    local success, name = pcall(function() 
+        return Players:GetNameFromUserIdAsync(userId) 
+    end)
+    
+    if success and name then
+        NAME_CACHE[userId] = name
+        return name
+    end
 
-	local success, name = pcall(Players.GetNameFromUserIdAsync, Players, userId)
-	if success and name then
-		NAME_CACHE[userId] = name
-		return name
-	end
-
-	return "Unknown"
+    return "Unknown"
 end
 
-local function updateOrderedStores(player: Player, force: boolean?)
-	local userId = player.UserId
-	local now = os.clock()
-	if not force and LAST_UPDATE[userId] and (now - LAST_UPDATE[userId]) < UPDATE_COOLDOWN_SECONDS then
-		return
-	end
-	LAST_UPDATE[userId] = now
+local function updateOrderedStores(player: Player)
+    local userId = player.UserId
 
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then
-		return
-	end
+    -- Fetch exact data directly from the save profile, ignoring UI delays
+    local profileData = ProfileManager.GetProfileData(player)
+    local kills, cash, xp = 0, 0, 0
+    
+    if profileData then
+        kills = profileData.Kills or 0
+        cash = profileData.Cash or 0
+        xp = profileData.XP or 0
+    else
+        -- Fallback to leaderstats if profile isn't fully loaded yet
+        local leaderstats = player:FindFirstChild("leaderstats")
+        if leaderstats then
+            kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0
+            cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0
+            xp = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0
+        else
+            return -- No data available at all yet
+        end
+    end
 
-	local killsValue = leaderstats:FindFirstChild("Kills")
-	local cashValue = leaderstats:FindFirstChild("Cash")
-	local xpValue = leaderstats:FindFirstChild("XP")
+    local level = CalculateLevelModule.GetLevel(xp)
 
-	local level = 0
-	if xpValue then
-		level = CalculateLevelModule.GetLevel(xpValue.Value)
-	end
-
-	pcall(function()
-		KillsStore:SetAsync(userId, killsValue and killsValue.Value or 0)
-	end)
-
-	pcall(function()
-		GoldStore:SetAsync(userId, cashValue and cashValue.Value or 0)
-	end)
-
-	pcall(function()
-		LevelsStore:SetAsync(userId, level)
-	end)
+    -- Push to OrderedDataStores safely
+    pcall(function() KillsStore:SetAsync(userId, kills) end)
+    pcall(function() GoldStore:SetAsync(userId, cash) end)
+    pcall(function() LevelsStore:SetAsync(userId, level) end)
 end
 
 local function getLeaderboardData(orderedStore: OrderedDataStore, count: number)
-	local success, pages = pcall(function()
-		return orderedStore:GetSortedAsync(false, count)
-	end)
-	if not success or not pages then
-		return {}
-	end
+    local success, pages = pcall(function()
+        return orderedStore:GetSortedAsync(false, count)
+    end)
+    if not success or not pages then return {} end
 
-	local currentPage = pages:GetCurrentPage()
-	local results = {}
-	for rank, entry in ipairs(currentPage) do
-		table.insert(results, {
-			Rank = rank,
-			UserId = entry.key,
-			Name = getPlayerName(entry.key),
-			Value = entry.value,
-		})
-	end
-
-	return results
+    local currentPage = pages:GetCurrentPage()
+    local results = {}
+    
+    for rank, entry in ipairs(currentPage) do
+        table.insert(results, {
+            Rank = rank,
+            UserId = entry.key,
+            Name = getPlayerName(entry.key),
+            Value = entry.value,
+        })
+    end
+    
+    return results
 end
 
-function Leaderboards.Broadcast(count: number?)
-	local topCount = count or DEFAULT_TOP_COUNT
-	local payload = {
-		Levels = getLeaderboardData(LevelsStore, topCount),
-		Kills = getLeaderboardData(KillsStore, topCount),
-		Gold = getLeaderboardData(GoldStore, topCount),
-	}
-
-	RequestLeaderboardsRemote:FireAllClients(payload)
+function Leaderboards.Broadcast()
+    RequestLeaderboardsRemote:FireAllClients(CachedLeaderboards)
 end
 
--- Allow other modules (e.g., data loading) to force a fresh write after stats are populated
+-- Allow other modules to force a fresh write
 function Leaderboards.UpdatePlayer(player: Player)
-	updateOrderedStores(player, true)
+    task.spawn(function()
+        updateOrderedStores(player)
+    end)
 end
 
-local function bindLeaderstats(player: Player)
-	local leaderstats = player:WaitForChild("leaderstats", 10)
-	if not leaderstats then
-		return
-	end
-
-	local killsValue = leaderstats:WaitForChild("Kills", 10)
-	local cashValue = leaderstats:WaitForChild("Cash", 10)
-	local xpValue = leaderstats:WaitForChild("XP", 10)
-
-	local function onStatChanged()
-		updateOrderedStores(player)
-	end
-
-	if killsValue then
-		killsValue.Changed:Connect(onStatChanged)
-	end
-	if cashValue then
-		cashValue.Changed:Connect(onStatChanged)
-	end
-	if xpValue then
-		xpValue.Changed:Connect(onStatChanged)
-	end
-
-	updateOrderedStores(player, true)
-end
-
-Players.PlayerAdded:Connect(function(player)
-	bindLeaderstats(player)
-end)
-
-local lastLeaderboardRequestAt: {[number]: number} = {}
-local LEADERBOARD_REQUEST_COOLDOWN = 30
-
+-- Save right as they leave to capture final stats
 Players.PlayerRemoving:Connect(function(player)
-	updateOrderedStores(player, true)
-	LAST_UPDATE[player.UserId] = nil
-	lastLeaderboardRequestAt[player.UserId] = nil
+    updateOrderedStores(player)
 end)
 
+-- When a client loads in or hits refresh, instantly give them the cache
 RequestLeaderboardsRemote.OnServerEvent:Connect(function(player)
-   local now = os.clock()
-   if lastLeaderboardRequestAt[player.UserId] and (now - lastLeaderboardRequestAt[player.UserId]) < LEADERBOARD_REQUEST_COOLDOWN then
-       return
-   end
-   lastLeaderboardRequestAt[player.UserId] = now
-
-   -- Update player's stats in DataStore before sending leaderboard
-   updateOrderedStores(player)
-   local topCount = DEFAULT_TOP_COUNT
-   local payload = {
-	   Levels = getLeaderboardData(LevelsStore, topCount),
-	   Kills = getLeaderboardData(KillsStore, topCount),
-	   Gold = getLeaderboardData(GoldStore, topCount),
-   }
-   RequestLeaderboardsRemote:FireClient(player, payload)
+    RequestLeaderboardsRemote:FireClient(player, CachedLeaderboards)
 end)
-
 
 task.spawn(function()
-	while true do
-		task.wait(UPDATE_COOLDOWN_SECONDS)
-		Leaderboards.Broadcast()
-	end
+    CachedLeaderboards = {
+        Levels = getLeaderboardData(LevelsStore, DEFAULT_TOP_COUNT),
+        Kills = getLeaderboardData(KillsStore, DEFAULT_TOP_COUNT),
+        Gold = getLeaderboardData(GoldStore, DEFAULT_TOP_COUNT),
+    }
+
+    while true do
+        for _, player in ipairs(Players:GetPlayers()) do
+            task.spawn(function()
+                updateOrderedStores(player)
+            end)
+            task.wait(0.2) 
+        end
+
+        task.wait(5)
+
+        CachedLeaderboards = {
+            Levels = getLeaderboardData(LevelsStore, DEFAULT_TOP_COUNT),
+            Kills = getLeaderboardData(KillsStore, DEFAULT_TOP_COUNT),
+            Gold = getLeaderboardData(GoldStore, DEFAULT_TOP_COUNT),
+        }
+
+        Leaderboards.Broadcast()
+
+        task.wait(UPDATE_COOLDOWN_SECONDS - 5)
+    end
 end)
 
 return Leaderboards
-
-

@@ -4,9 +4,10 @@ local Players = game:GetService("Players")
 local TradeSession = require(script.Parent.TradeSession)
 local TradeValidator = require(script.Parent.TradeValidator)
 
--- Active trades
+-- Active trades & Requests
 local ActiveTrades = {} -- [player.UserId] = TradeSession
 local PendingRequests = {} -- [targetUserId] = {sender = Player, timestamp = number}
+local OutgoingRequests = {} -- [senderUserId] = targetUserId (PREVENTS SPAMMING MULTIPLE REQUESTS)
 
 -- Rate limiting
 local RequestCooldowns = {} -- [userId] = lastRequestTime
@@ -18,7 +19,7 @@ function TradeManager.RegisterCancelCallback(callback: (any, string?) -> ())
 end
 
 function TradeManager.Init()
-    -- Handle player leaving mid-trade
+    -- Handle player leaving mid-trade or mid-request
     Players.PlayerRemoving:Connect(function(player)
         TradeManager.CancelTradeForPlayer(player)
     end)
@@ -59,6 +60,11 @@ function TradeManager.SendRequest(sender: Player, target: Player)
     if not canSend then
         return false, err
     end
+
+    -- NEW: Check if sender already has an outgoing request
+    if OutgoingRequests[sender.UserId] then
+        return false, "You already have a pending trade request sent."
+    end
     
     -- Auto-clear stale trades (other player left, or session extremely old)
     local staleSender = ActiveTrades[sender.UserId]
@@ -93,6 +99,7 @@ function TradeManager.SendRequest(sender: Player, target: Player)
         sender = sender,
         timestamp = os.clock()
     }
+    OutgoingRequests[sender.UserId] = target.UserId
     
     return true
 end
@@ -102,7 +109,14 @@ function TradeManager.GetPendingRequest(targetUserId: number)
 end
 
 function TradeManager.ClearPendingRequest(targetUserId: number)
-    PendingRequests[targetUserId] = nil
+    local request = PendingRequests[targetUserId]
+    if request then
+        local sender = request.sender
+        if sender then
+            OutgoingRequests[sender.UserId] = nil
+        end
+        PendingRequests[targetUserId] = nil
+    end
 end
 
 function TradeManager.AcceptRequest(target: Player)
@@ -115,17 +129,18 @@ function TradeManager.AcceptRequest(target: Player)
     
     -- Check sender still in game
     if not sender or not sender.Parent then
-        PendingRequests[target.UserId] = nil
+        TradeManager.ClearPendingRequest(target.UserId)
         return false, "Request expired"
     end
     
-    -- Check neither is in a trade
     if ActiveTrades[sender.UserId] or ActiveTrades[target.UserId] then
-        PendingRequests[target.UserId] = nil
+        TradeManager.ClearPendingRequest(target.UserId)
         return false, "One of you is already in a trade"
     end
     
-    -- Create trade session
+    OutgoingRequests[sender.UserId] = nil
+    PendingRequests[target.UserId] = nil
+    
     local session = TradeSession.new(sender, target)
     session.State = "ACTIVE"
     print("Trade session created between", sender.Name, "and", target.Name)
@@ -133,15 +148,19 @@ function TradeManager.AcceptRequest(target: Player)
     ActiveTrades[sender.UserId] = session
     ActiveTrades[target.UserId] = session
     
-    PendingRequests[target.UserId] = nil
-    
     return true, session
 end
 
 function TradeManager.DeclineRequest(target: Player)
-    if PendingRequests[target.UserId] then
-        print(target.Name, "declined trade request from", PendingRequests[target.UserId].sender.Name)
+    local request = PendingRequests[target.UserId]
+    if request then
+        print(target.Name, "declined trade request from", request.sender.Name)
+        
+        if request.sender then
+            OutgoingRequests[request.sender.UserId] = nil
+        end
         PendingRequests[target.UserId] = nil
+        
         return true
     end
 
@@ -213,14 +232,12 @@ function TradeManager.SetAcceptStatus(player: Player, accepted: boolean)
 end
 
 function TradeManager.ExecuteTrade(session: any)
-    -- Final validation
     local valid, err = TradeValidator.ValidateTrade(session)
     if not valid then
         TradeManager.CancelTrade(session, "VALIDATION_FAILED")
         return false, "Trade validation failed: " .. err
     end
     
-    -- Execute atomically
     local ok, executeResult = pcall(function()
         return TradeValidator.ExecuteTrade(session)
     end)
@@ -239,7 +256,6 @@ function TradeManager.ExecuteTrade(session: any)
     
     session:Complete()
     
-    -- Clean up
     ActiveTrades[session.Player1.UserId] = nil
     ActiveTrades[session.Player2.UserId] = nil
     
@@ -265,9 +281,19 @@ function TradeManager.CancelTradeForPlayer(player: Player)
         TradeManager.CancelTrade(session, "PLAYER_LEFT")
     end
     
-    -- Clear pending requests
-    if PendingRequests[player.UserId] then
-        PendingRequests[player.UserId] = nil
+    local incomingRequest = PendingRequests[player.UserId]
+    if incomingRequest and incomingRequest.sender then
+        OutgoingRequests[incomingRequest.sender.UserId] = nil
+    end
+    PendingRequests[player.UserId] = nil
+
+    local outgoingTargetId = OutgoingRequests[player.UserId]
+    if outgoingTargetId then
+        local targetIncoming = PendingRequests[outgoingTargetId]
+        if targetIncoming and targetIncoming.sender == player then
+            PendingRequests[outgoingTargetId] = nil
+        end
+        OutgoingRequests[player.UserId] = nil
     end
 end
 
