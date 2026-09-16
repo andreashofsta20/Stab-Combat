@@ -1,318 +1,158 @@
-local KnifeModule = {}
-
--- // SERVICES
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 
--- // MODULES
-local MainGameModule = require(script.Parent.Parent.Game.MainGame)
-local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
+local MainGame = require(script.Parent.Parent.Game.MainGame)
 local PlayerHitbox = require(script.Parent.PlayerHitbox)
-local ThrewKnifeClient = ReplicatedStorage.Remotes.Knife:WaitForChild("ThrewClient")
-local DamageDealtClient = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("DamageDealtClient")
+local Projectile = require(ReplicatedStorage.Modules.ProjectileMath)
 
--- // ANIMATIONS
-local KnivesFolder = ReplicatedStorage:WaitForChild("Knives")
-local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
-local ThrowAnimation = CombatAnimations:WaitForChild("Throw")
+local KnifeRemotes = ReplicatedStorage.Remotes.Knife
+local ResultRemote = KnifeRemotes.ThrewClient
+local DamageRemote = KnifeRemotes.DamageDealtClient
+local Knives = ReplicatedStorage:WaitForChild("Knives")
 
--- // CONFIG
-local KNIFE_SPEED = 10000  -- Studs per second for visual movement
-local MAX_DISTANCE = 350
-local LIFETIME = 5
-local DAMAGE = 50
-local COOLDOWN = 0.5
-local VISUAL_OFFSET = 0.8
-local MIN_SPEED_MULT = 0.7
-local MAX_SPEED_MULT = 1.7
+local activeShots: {[number]: {[string]: boolean}} = {}
+local lastShot: {[number]: number} = {}
 
-local Cooldown = {}
-
-local function playThrowAnim(humanoid)
-    if not humanoid then return end
-    local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
-    local track = animator:LoadAnimation(ThrowAnimation)
-    track.Priority = Enum.AnimationPriority.Action4
-    track.Looped = false
-    --track:Play()
-    Debris:AddItem(track, 2)
+local function reject(player: Player, shotId: string)
+	ResultRemote:FireClient(player, {shotId = shotId, accepted = false})
 end
 
-local function addTrail(part)
-    local frontAttachment = Instance.new("Attachment", part)
-    local backAttachment = Instance.new("Attachment", part)
-
-    frontAttachment.Position = Vector3.new(0, 0, 0.5)
-    backAttachment.Position = Vector3.new(0, 0, -0.5)
-
-    local mainTrail = Instance.new("Trail")
-    mainTrail.Attachment0 = frontAttachment
-    mainTrail.Attachment1 = backAttachment
-    mainTrail.Lifetime = 0.3
-    mainTrail.MinLength = 0
-    mainTrail.FaceCamera = true
-    mainTrail.LightEmission = 1
-    mainTrail.LightInfluence = 0
-
-    local colorSequence = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.3, Color3.fromRGB(0, 162, 255)),
-        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 64, 64)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
-    }
-    mainTrail.Color = colorSequence
-
-    local transparencySequence = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.5, 0.3),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-    mainTrail.Transparency = transparencySequence
-
-    local widthSequence = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.8),
-        NumberSequenceKeypoint.new(0.5, 0.4),
-        NumberSequenceKeypoint.new(1, 0.1)
-    }
-    mainTrail.WidthScale = widthSequence
-
-    mainTrail.Parent = part
-
-    -- Secondary trail
-    local secondaryTrail = Instance.new("Trail")
-    secondaryTrail.Attachment0 = frontAttachment
-    secondaryTrail.Attachment1 = backAttachment
-    secondaryTrail.Lifetime = 0.15
-    secondaryTrail.MinLength = 0
-    secondaryTrail.FaceCamera = true
-    secondaryTrail.LightEmission = 0.8
-    secondaryTrail.LightInfluence = 0.2
-
-    local innerColorSequence = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 128, 0))
-    }
-    secondaryTrail.Color = innerColorSequence
-
-    local innerTransparencySequence = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.2),
-        NumberSequenceKeypoint.new(0.8, 0.7),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-    secondaryTrail.Transparency = innerTransparencySequence
-
-    local innerWidthSequence = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.4),
-        NumberSequenceKeypoint.new(0.5, 0.2),
-        NumberSequenceKeypoint.new(1, 0.05)
-    }
-    secondaryTrail.WidthScale = innerWidthSequence
-
-    secondaryTrail.Parent = part
-
-    -- Particle effects
-    local particles = Instance.new("Attachment", part)
-    particles.Position = Vector3.new(0, 0, -0.3)
-
-    local sparks = Instance.new("ParticleEmitter")
-    sparks.Parent = particles
-    sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    sparks.Lifetime = NumberRange.new(0.1, 0.3)
-    sparks.Rate = 100
-    sparks.SpreadAngle = Vector2.new(45, 45)
-    sparks.Speed = NumberRange.new(2, 8)
-    sparks.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 200, 0)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0))
-    }
-    sparks.Transparency = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.8, 0.5),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-    sparks.Size = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.1),
-        NumberSequenceKeypoint.new(0.5, 0.05),
-        NumberSequenceKeypoint.new(1, 0.01)
-    }
-    sparks.LightEmission = 1
-    sparks.LightInfluence = 0
-
-    task.spawn(function()
-        task.wait(0.5)
-        sparks.Enabled = false
-        Debris:AddItem(sparks, 2)
-    end)
-
-    return frontAttachment, backAttachment
+local function finiteId(id: any): boolean
+	return typeof(id) == "string" and #id >= 1 and #id <= 64 and id:match("^[%w_%-]+$") ~= nil
 end
 
-local function stickKnife(knife, hitPart, pos, normal)
-    knife.Anchored = true
-    knife.CFrame = CFrame.new(pos, pos + normal) * CFrame.Angles(math.rad(90), 0, 0)
-
-    if hitPart and hitPart:IsA("BasePart") then
-        local model = hitPart:FindFirstAncestorOfClass("Model")
-        if model and model:FindFirstChildOfClass("Humanoid") then
-            return
-        else
-            knife.Anchored = true
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = knife
-            weld.Part1 = hitPart
-            weld.Parent = knife
-        end
-    end
+local function addTrail(part: BasePart)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, 0, 0.5)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, 0, -0.5)
+	a1.Parent = part
+	local trail = Instance.new("Trail")
+	trail.Attachment0, trail.Attachment1 = a0, a1
+	trail.Lifetime, trail.FaceCamera, trail.LightEmission = 0.25, true, 1
+	trail.Color = ColorSequence.new(Color3.fromRGB(255, 210, 40))
+	trail.Parent = part
 end
 
-local function getPlayerFromHit(part)
-    -- Use the hitbox system for hit resolution
-    return PlayerHitbox.GetPlayerFromHitbox(part)
+local function stickKnife(knife: BasePart, hitPart: BasePart?, position: Vector3, normal: Vector3)
+	knife.Anchored = true
+	knife.CFrame = CFrame.new(position, position + normal) * CFrame.Angles(math.rad(90), 0, 0)
+	local model = hitPart and hitPart:FindFirstAncestorOfClass("Model")
+	if hitPart and hitPart:IsA("BasePart") and not (model and model:FindFirstChildOfClass("Humanoid")) then
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1, weld.Parent = knife, hitPart, knife
+	end
 end
 
-function KnifeModule.ThrowKnife(player: Player, camOrigin: Vector3, targetPosition: Vector3, chargeRatio: number)
-    if not player or player.ClassName ~= "Player" then return end
-    if typeof(camOrigin) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" then return end
-    if typeof(chargeRatio) ~= "number" then
-        chargeRatio = 0
-    end
+local function spawnVisual(player: Player, origin: Vector3, direction: Vector3, charge: number, shotId: string, hit)
+	local stats = player:FindFirstChild("leaderstats")
+	local value = stats and stats:FindFirstChild("EquippedKnife")
+	local template = value and Knives:FindFirstChild(value.Value)
+	local source = template and template:FindFirstChild("Handle")
+	if not source or not source:IsA("BasePart") then return end
+	local knife = source:Clone()
+	knife.CanCollide, knife.CanQuery, knife.Massless = false, false, true
+	knife:SetAttribute("ShotId", shotId)
+	knife:SetAttribute("ShooterUserId", player.UserId)
+	knife.Parent = workspace
+	knife:SetNetworkOwner(nil)
+	CollectionService:AddTag(knife, "ServerKnife_" .. player.UserId)
+	addTrail(knife)
 
-    if not MainGameModule.GameActive then return end
-    if not MainGameModule.PlayersInGame[player.UserId] then return end
+	local destination = hit and hit.position or Projectile.GetPosition(origin, direction, Projectile.MAX_FLIGHT_TIME, charge)
+	local distance = (destination - origin).Magnitude
+	local start = os.clock()
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		local elapsed = os.clock() - start
+		local alpha = distance > 0 and math.clamp(Projectile.GetSpeed(charge) * elapsed / distance, 0, 1) or 1
+		local position = origin:Lerp(destination, alpha)
+		knife.CFrame = CFrame.lookAt(position, position + direction)
+		if alpha >= 1 then
+			connection:Disconnect()
+			if hit then stickKnife(knife, hit.part, hit.position, hit.normal) else Debris:AddItem(knife, 2) end
+		end
+	end)
+	Debris:AddItem(knife, Projectile.MAX_FLIGHT_TIME + 3)
+end
 
-    -- Check cooldown
-    if Cooldown[player.UserId] and os.clock() - Cooldown[player.UserId] < COOLDOWN then
-        return
-    end
-    Cooldown[player.UserId] = os.clock()
+function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direction: Vector3, charge: number)
+	if not finiteId(shotId) or not Projectile.IsFiniteVector(origin) or not Projectile.IsFiniteVector(direction)
+		or not Projectile.IsFiniteNumber(charge) then
+		if finiteId(shotId) then reject(player, shotId) end
+		return
+	end
+	if activeShots[player.UserId] and activeShots[player.UserId][shotId] then
+		reject(player, shotId)
+		return
+	end
+	activeShots[player.UserId] = activeShots[player.UserId] or {}
+	activeShots[player.UserId][shotId] = true
+	local now = os.clock()
+	if lastShot[player.UserId] and now - lastShot[player.UserId] < Projectile.COOLDOWN then
+		reject(player, shotId)
+		return
+	end
+	lastShot[player.UserId] = now
+	charge = Projectile.ClampCharge(charge)
+	direction = Projectile.NormalizeDirection(direction)
+	if not direction then reject(player, shotId) return end
+	if not MainGame.GameActive or not MainGame.PlayersInGame[player.UserId] then
+		reject(player, shotId)
+		return
+	end
 
-    -- Get character info first
-    local character = player.Character
-    if not character then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    local head = character:FindFirstChild("Head")
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local head = character and character:FindFirstChild("Head")
+	local tool = character and character:FindFirstChildWhichIsA("Tool")
+	local physicalOrigin = (head and head.Position) or (root and root.Position)
+	if not humanoid or not physicalOrigin or not tool or humanoid.Health <= 0 then
+		reject(player, shotId)
+		return
+	end
+	if (origin - physicalOrigin).Magnitude > Projectile.MAX_ORIGIN_DISTANCE then
+		reject(player, shotId)
+		return
+	end
 
-    local equippedTool = character:FindFirstChildWhichIsA("Tool")
-    if not equippedTool then return end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {character}
+	local position, elapsed = origin, 0
+	local hit
+	while elapsed < Projectile.MAX_FLIGHT_TIME do
+		local step = math.min(Projectile.FIXED_STEP, Projectile.MAX_FLIGHT_TIME - elapsed)
+		local nextPosition = Projectile.GetPosition(origin, direction, elapsed + step, charge)
+		local result = workspace:Raycast(position, nextPosition - position, params)
+		if result then
+			local victim, victimHumanoid = PlayerHitbox.GetPlayerFromHitbox(result.Instance)
+			if victimHumanoid and victimHumanoid ~= humanoid and victimHumanoid.Health > 0
+				and (not victim or MainGame.PlayersInGame[victim.UserId]) then
+				if victim and victimHumanoid.Health <= Projectile.DAMAGE then MainGame.RegisterPendingKill(player, victim.UserId) end
+				victimHumanoid:TakeDamage(Projectile.DAMAGE)
+				DamageRemote:FireClient(player, victimHumanoid.Parent, Projectile.DAMAGE)
+			end
+			hit = {part = result.Instance, position = result.Position, normal = result.Normal}
+			break
+		end
+		position, elapsed = nextPosition, elapsed + step
+		if (position - origin).Magnitude >= Projectile.MAX_DISTANCE then break end
+	end
 
-    ThrewKnifeClient:FireClient(player)
-
-    -- FIX: Use the Head or HRP as the true physical origin to prevent camera-clipping exploits
-    local physicalOrigin = (head and head.Position) or (hrp and hrp.Position) or camOrigin
-
-    -- FIX: Recalculate direction from the character's body to the target, NOT from the camera
-    local trueDirection = (targetPosition - physicalOrigin).Unit
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = { character }
-
-    -- FIX: Raycast from the physical character, meaning walls in front of the body will block it
-    local hitResult = workspace:Raycast(physicalOrigin, trueDirection * MAX_DISTANCE, rayParams)
-    local finalHitPos = hitResult and hitResult.Position or (physicalOrigin + trueDirection * MAX_DISTANCE)
-    local actualDistance = (finalHitPos - physicalOrigin).Magnitude
-    local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * math.clamp(chargeRatio, 0, 1))
-
-    local hitVictim = nil
-    local hitHumanoid = nil
-
-    if hitResult then
-        hitVictim, hitHumanoid = getPlayerFromHit(hitResult.Instance)
-        local victimId = hitVictim and hitVictim.UserId or nil
-
-        if hitHumanoid and hitHumanoid ~= humanoid and hitHumanoid.Health > 0 then
-            local canDamage = true
-            if hitVictim then
-                canDamage = MainGameModule.PlayersInGame[victimId] == true
-            end
-
-            if canDamage then
-                if hitVictim and victimId then
-                    MainGameModule.RegisterPendingKill(player, victimId)
-                end
-                hitHumanoid:TakeDamage(DAMAGE)
-
-                if hitHumanoid.Parent then
-                    DamageDealtClient:FireClient(player, hitHumanoid.Parent, DAMAGE)
-                end
-            end
-        end
-    end
-
-    playThrowAnim(humanoid)
-
-    local toolHandle = equippedTool:FindFirstChild("Handle")
-    if toolHandle then
-        task.delay(0.15, function()
-            if toolHandle then toolHandle.Transparency = 1 end
-        end)
-        task.delay(0.65, function()
-            if toolHandle then toolHandle.Transparency = 0 end
-        end)
-    end
-
-    local visualOrigin = physicalOrigin + (trueDirection * VISUAL_OFFSET)
-
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then return end
-    local equippedKnifeValue = leaderstats:FindFirstChild("EquippedKnife")
-    if not equippedKnifeValue then return end
-    local EquippedKnife = equippedKnifeValue.Value
-    local Template = KnivesFolder:FindFirstChild(EquippedKnife)
-    if not Template or not Template:FindFirstChild("Handle") then return end
-
-    local handle = Template.Handle:Clone()
-    handle.CanCollide = false
-    handle.CanQuery = false
-    handle.Massless = true
-    handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + trueDirection)
-    handle.Parent = workspace
-    handle:SetNetworkOwner(nil)
-    
-    CollectionService:AddTag(handle, "ServerKnife_".. player.UserId)
-
-    local att0, att1 = addTrail(handle)
-
-    local travelTime = actualDistance / (KNIFE_SPEED * speedMult)
-    local startTime = os.clock()
-
-    local visualTravelDirection = (finalHitPos - visualOrigin).Unit
-    if actualDistance <= 0.001 then
-        visualTravelDirection = trueDirection
-    end
-
-    local conn
-    conn = RunService.Heartbeat:Connect(function()
-        local elapsed = os.clock() - startTime
-        local progress = elapsed / travelTime
-
-        if progress >= 1 then
-            handle.CFrame = CFrame.lookAt(finalHitPos, finalHitPos + visualTravelDirection)
-            if hitResult then
-                stickKnife(handle, hitResult.Instance, finalHitPos, hitResult.Normal)
-            else
-                Debris:AddItem(handle, 3)
-            end
-            conn:Disconnect()
-            return
-        end
-
-        local currentPos = visualOrigin:Lerp(finalHitPos, progress)
-        handle.CFrame = CFrame.lookAt(currentPos, currentPos + visualTravelDirection)
-    end)
-
-    Debris:AddItem(handle, LIFETIME)
+	local result = {shotId = shotId, accepted = true, hit = hit and true or false,
+		position = hit and hit.position or position, normal = hit and hit.normal or nil}
+	ResultRemote:FireClient(player, result)
+	spawnVisual(player, origin, direction, charge, shotId, hit)
 end
 
 Players.PlayerRemoving:Connect(function(player)
-    Cooldown[player.UserId] = nil
+	activeShots[player.UserId], lastShot[player.UserId] = nil, nil
 end)
 
-return KnifeModule
+return Projectile

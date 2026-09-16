@@ -38,6 +38,26 @@ local function teleportPlayerToSpawn(player: Player, spawnPart: BasePart?)
 	return true
 end
 
+function SpawnMap.RespawnPlayer(player: Player, MapName: string)
+	local mapInfo = Maps[MapName]
+	if not mapInfo then
+		return false
+	end
+
+	local map = workspace:FindFirstChild(mapInfo.MapFolder.Name)
+	local spawnFolder = map and map:FindFirstChild("Spawns")
+	if not spawnFolder then
+		return false
+	end
+
+	local spawnParts = collectSpawnParts(spawnFolder)
+	if #spawnParts == 0 then
+		return false
+	end
+
+	return teleportPlayerToSpawn(player, spawnParts[math.random(1, #spawnParts)])
+end
+
 function SpawnMap.Spawn(MapName: string)
 	if not MapName then
 		return

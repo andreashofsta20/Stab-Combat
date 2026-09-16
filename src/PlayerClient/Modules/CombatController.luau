@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local SoundHandlerModule = require(script.Parent:WaitForChild("SoundHandler"))
+local ProjectileMath = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProjectileMath"))
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -19,11 +20,11 @@ local STAB_COOLDOWN = 0.3
 local MAX_CHARGE_TIME = 1
 local MIN_CHARGE_RATIO = 0
 local MAX_CHARGE_RATIO = 1
-local MAX_RAYCAST_DISTANCE = 1000
+local MAX_RAYCAST_DISTANCE = ProjectileMath.MAX_DISTANCE
 local THROW_THRESHOLD = 0.2
 
 -- VISUAL SETTINGS (Matching Server for prediction)
-local KNIFE_SPEED = 10000
+local KNIFE_SPEED = ProjectileMath.MAX_SPEED
 local VISUAL_OFFSET = 0.8
 local MIN_SPEED_MULT = 0.7
 local MAX_SPEED_MULT = 1.7
@@ -59,6 +60,8 @@ local chargeTween
 local charging = false
 local chargeStart = 0
 local chargeSessionId = 0
+local nextShotId = 0
+local predictedShots: {[string]: {handle: BasePart, connection: RBXScriptConnection}} = {}
 
 local chargeTrack = nil
 local chargeHoldTrack = nil
@@ -402,7 +405,8 @@ local function throw(chargeRatio)
     local head = character and character:FindFirstChild("Head")
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
-    -- FIX: Use the Head or HRP as physical origin so client matches the server's hit logic
+    -- The server validates this physical origin. The camera is used only to
+    -- determine the crosshair point, never as the projectile origin.
     local physicalOrigin = (head and head.Position) or (hrp and hrp.Position) or ray.Origin
 
     local rayParams = RaycastParams.new()
@@ -415,12 +419,10 @@ local function throw(chargeRatio)
     local camResult = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
     local targetPos = camResult and camResult.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
 
-    -- 2. Calculate true trajectory from body to the camera's target
-    local trueDirection = (targetPos - physicalOrigin).Unit
-
-    -- 3. Raycast from body to prevent knife from visually flying through walls on client
-    local physicalResult = workspace:Raycast(physicalOrigin, trueDirection * MAX_RAYCAST_DISTANCE, rayParams)
-    local trueTargetPos = physicalResult and physicalResult.Position or (physicalOrigin + trueDirection * MAX_RAYCAST_DISTANCE)
+    local trueDirection = ProjectileMath.NormalizeDirection(targetPos - physicalOrigin)
+    if not trueDirection then return false end
+    nextShotId += 1
+    local shotId = string.format("%d_%d", player.UserId, nextShotId)
 
     playThrowAnimation()
     
@@ -455,13 +457,11 @@ local function throw(chargeRatio)
 
                 addTrail(handle)
 
-                local actualDistance = (trueTargetPos - visualOrigin).Magnitude
-                local speedMult = MIN_SPEED_MULT + ((MAX_SPEED_MULT - MIN_SPEED_MULT) * clampedCharge)
-                local travelTime = actualDistance / (KNIFE_SPEED * speedMult)
+                local actualDistance = ProjectileMath.MAX_DISTANCE
+                local travelTime = actualDistance / ProjectileMath.GetSpeed(clampedCharge)
                 local startTime = os.clock()
 
-                local visualTravelDirection = (trueTargetPos - visualOrigin).Unit
-                if actualDistance <= 0.001 then visualTravelDirection = trueDirection end
+                local visualTravelDirection = trueDirection
 
                 local conn
                 conn = RunService.Heartbeat:Connect(function()
@@ -469,29 +469,26 @@ local function throw(chargeRatio)
                     local progress = elapsed / travelTime
 
                     if progress >= 1 then
-                        handle.CFrame = CFrame.lookAt(trueTargetPos, trueTargetPos + visualTravelDirection)
-                        if physicalResult then
-                            stickKnife(handle, physicalResult.Instance, trueTargetPos, physicalResult.Normal)
-                        else
-                            Debris:AddItem(handle, 3)
-                        end
+                        handle.CFrame = CFrame.lookAt(physicalOrigin + trueDirection * actualDistance, physicalOrigin + trueDirection * (actualDistance + 1))
+                        Debris:AddItem(handle, 3)
                         conn:Disconnect()
+                        predictedShots[shotId] = nil
                         return
                     end
 
-                    local currentPos = visualOrigin:Lerp(trueTargetPos, progress)
+                    local currentPos = visualOrigin + trueDirection * (ProjectileMath.GetSpeed(clampedCharge) * elapsed)
                     handle.CFrame = CFrame.lookAt(currentPos, currentPos + visualTravelDirection)
                 end)
 
                 Debris:AddItem(handle, LIFETIME)
+                predictedShots[shotId] = {handle = handle, connection = conn}
             end
         end
     else
         warn("CLIENT PREDICTION FAILED: Please move your 'Knives' folder to ReplicatedStorage!")
     end
 
-    -- Tell server camera's origin and where it looked, so server can replicate the exact same math
-    ThrowKnifeRemote:FireServer(ray.Origin, targetPos, clampedCharge)
+    ThrowKnifeRemote:FireServer(shotId, physicalOrigin, trueDirection, clampedCharge, os.clock())
     return true
 end
 
@@ -533,8 +530,26 @@ function CombatController.Init()
         onCharacterAdded(player.Character)
     end
 
-    ThrewKnifeClient.OnClientEvent:Connect(function()
+    ThrewKnifeClient.OnClientEvent:Connect(function(result)
         uiAnimation()
+        if typeof(result) ~= "table" or not result.shotId then return end
+        local prediction = predictedShots[result.shotId]
+        if not prediction then return end
+        if prediction.connection then prediction.connection:Disconnect() end
+        predictedShots[result.shotId] = nil
+        if not result.accepted then
+            prediction.handle:Destroy()
+            return
+        end
+        local position = result.position
+        if typeof(position) == "Vector3" then
+            prediction.handle.CFrame = CFrame.lookAt(position, position + (result.normal or Vector3.zAxis))
+            if result.hit and typeof(result.normal) == "Vector3" then
+                stickKnife(prediction.handle, nil, position, result.normal)
+            else
+                Debris:AddItem(prediction.handle, 2)
+            end
+        end
     end)
 end
 

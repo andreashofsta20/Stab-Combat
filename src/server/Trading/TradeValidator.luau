@@ -1,6 +1,18 @@
 local TradeValidator = {}
 
-local Players = game:GetService("Players")
+local VALID_ITEM_TYPES = {
+	Inventory = true,
+	Emotes = true,
+}
+
+local function isPositiveInteger(value: any): boolean
+	return typeof(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+		and value > 0
+		and value % 1 == 0
+end
 
 local function countKnifeSlots(items: {any})
 	local count = 0
@@ -13,12 +25,33 @@ local function countKnifeSlots(items: {any})
 end
 
 function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
+	if type(items) ~= "table" then
+		return false, "Invalid trade items"
+	end
+
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then
 		return false, "Player leaderstats not found"
 	end
 	
+	local totals: {[string]: number} = {}
 	for _, item in ipairs(items) do
+		if type(item) ~= "table"
+			or type(item.Type) ~= "string"
+			or type(item.Name) ~= "string"
+			or #item.Name < 1
+			or #item.Name > 64
+			or not VALID_ITEM_TYPES[item.Type]
+			or not isPositiveInteger(item.Quantity) then
+			return false, "Invalid item payload"
+		end
+
+		local itemKey = item.Type .. "\0" .. item.Name
+		totals[itemKey] = (totals[itemKey] or 0) + item.Quantity
+		if totals[itemKey] > 2147483647 then
+			return false, "Item quantity is too large"
+		end
+
 		local folder = leaderstats:FindFirstChild(item.Type)
 		if not folder then
 			return false, "Invalid item type: " .. item.Type
@@ -37,7 +70,7 @@ function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 		local quantityValue = itemInstance:FindFirstChild("Quantity")
 		local ownedQuantity = quantityValue and quantityValue.Value or 1
 		
-		if item.Quantity > ownedQuantity then
+		if totals[itemKey] > ownedQuantity then
 			return false, "Not enough of item: " .. item.Name
 		end
 	end
@@ -78,6 +111,18 @@ end
 local function RemoveItems(player: Player, items: {any})
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return false end
+
+	for _, item in ipairs(items) do
+		local folder = leaderstats:FindFirstChild(item.Type)
+		local itemInstance = folder and folder:FindFirstChild(item.Name)
+		if not itemInstance then
+			return false
+		end
+		local quantityValue = itemInstance:FindFirstChild("Quantity")
+		if quantityValue and quantityValue.Value < item.Quantity then
+			return false
+		end
+	end
 	
 	for _, item in ipairs(items) do
 		local folder = leaderstats:FindFirstChild(item.Type)
@@ -107,19 +152,34 @@ end
 local function GiveItems(player: Player, items: {any})
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return false end
+
+	for _, item in ipairs(items) do
+		local folder = leaderstats:FindFirstChild(item.Type)
+		if not folder then
+			return false
+		end
+		local existingItem = folder:FindFirstChild(item.Name)
+		if existingItem and not existingItem:FindFirstChild("Quantity") then
+			return false
+		end
+	end
 	
 	for _, item in ipairs(items) do
 		local folder = leaderstats:FindFirstChild(item.Type)
-		if folder then
-			local existingItem = folder:FindFirstChild(item.Name)
-			
-			if existingItem then
+		if not folder then
+			return false
+		end
+
+		local existingItem = folder:FindFirstChild(item.Name)
+		if existingItem then
 				-- Item exists, add to quantity
 				local quantityValue = existingItem:FindFirstChild("Quantity")
 				if quantityValue then
 					quantityValue.Value += item.Quantity
+				else
+					return false
 				end
-			else
+		else
 				-- Create new item
 				local newItem = Instance.new("StringValue")
 				newItem.Name = item.Name
@@ -147,7 +207,6 @@ local function GiveItems(player: Player, items: {any})
 					tradeable.Value = item.Tradeable ~= false
 					tradeable.Parent = newItem
 				end
-			end
 		end
 	end
 	
@@ -156,13 +215,20 @@ end
 
 -- Execute the trade atomically with rollback safety
 function TradeValidator.ExecuteTrade(session: any)
+	if not session or session.ExecutionStarted or session.State ~= "LOCKED" then
+		return false, "Trade is not ready for execution"
+	end
+	session.ExecutionStarted = true
+
 	-- Re-validate ownership right before execution (TOCTOU protection)
 	local valid1, err1 = TradeValidator.ValidatePlayerItems(session.Player1, session.Player1Items)
 	if not valid1 then
+		session.ExecutionStarted = false
 		return false, "Trade failed: " .. err1
 	end
 	local valid2, err2 = TradeValidator.ValidatePlayerItems(session.Player2, session.Player2Items)
 	if not valid2 then
+		session.ExecutionStarted = false
 		return false, "Trade failed: " .. err2
 	end
 

@@ -91,7 +91,9 @@ function KnifeModule.Stab(player: Player)
 
         if victimId then
             damagedPlayers[victimId] = true
-            MainGameModule.RegisterPendingKill(player, victimId)
+            if victimHum.Health <= DAMAGE then
+                MainGameModule.RegisterPendingKill(player, victimId)
+            end
         end
 
         victimHum:TakeDamage(DAMAGE)

@@ -49,7 +49,14 @@ while true do
 	RoundHandlerModule.StartVoting()
 
 
-	local map = VotingHandlerModule.StopVoting()
+	local optionId = VotingHandlerModule.StopVoting()
+	local option
+	for _, candidate in ipairs(RoundHandlerModule.VoteOptions) do
+		if candidate.Id == optionId then
+			option = candidate
+			break
+		end
+	end
 	task.wait(0.5)
 	
 	-- Check again after voting completes
@@ -61,15 +68,20 @@ while true do
 
 
 	task.wait(0.5)
-	RoundHandlerModule.ChangeStatus(map.. " Won")
+	if not option then
+		RoundHandlerModule.ChangeStatus("ERROR: Invalid voting result")
+		task.wait(2)
+		continue
+	end
+	RoundHandlerModule.ChangeStatus(string.format("%s - %s Won", option.Map, option.ModeName))
 	task.wait(2)
 
 
 
-	SpawnMapModule.RemoveOtherMapsThen(map)
+	SpawnMapModule.RemoveOtherMapsThen(option.Map)
 	RoundHandlerModule.ChangeStatus("")
 	
-	MainGameModule.StartGame(map)
+	MainGameModule.StartGame(option.Map, option.Mode)
 	
 
 

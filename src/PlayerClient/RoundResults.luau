@@ -36,6 +36,10 @@ local function applyResults(gameResults, playerResults)
     end
 
     local container = RoundResultsFrame:FindFirstChild("Container")
+    local modeLabel = container and (container:FindFirstChild("Mode", true) or container:FindFirstChild("GameMode", true))
+    if modeLabel and modeLabel:IsA("TextLabel") then
+        modeLabel.Text = gameResults and gameResults.Mode or ""
+    end
 
     local function WinnerFrame()
         local winnerFrame = container and container:FindFirstChild("WinnerFrame")

@@ -54,10 +54,10 @@ StartVotingRemote.OnClientEvent:Connect(function(data : SharedTable, VotingTime 
     for mapIndex, mapData in pairs(data) do
         local VoteWorkspace = Workspace:WaitForChild("IntermissionMap"):WaitForChild("Voting"):FindFirstChild(tostring(mapIndex))
         local Container = VoteWorkspace:WaitForChild("Container"):WaitForChild("VotePanel"..mapIndex):WaitForChild("Container")
-        Container.MapImage.MapName.MapName.Text = mapData["Name"]
+        Container.MapImage.MapName.MapName.Text = string.format("%s - %s", mapData["Name"], mapData["ModeName"] or "FFA")
         Container.MapImage.Image = mapData["VotingImage"]
         Container.MapImage.Votes.VoteAmount.Text = "0 votes"
-        voteContainers[mapData["Name"]] = Container
+        voteContainers[mapData["Id"]] = Container
 
         local selectionPart = Workspace:WaitForChild("IntermissionMap"):WaitForChild("Voting"):FindFirstChild(tostring(mapIndex) .. "_Selection")
         if selectionPart and selectionPart:FindFirstChild("Touch") then
@@ -84,7 +84,7 @@ StartVotingRemote.OnClientEvent:Connect(function(data : SharedTable, VotingTime 
                         end
                     end
                     
-                    ReceiveVoteRemote:FireServer(mapData["Name"])
+                    ReceiveVoteRemote:FireServer(mapData["Id"])
                     
                     task.delay(0.3, function()
                         debounce = false
