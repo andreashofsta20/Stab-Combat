@@ -3,8 +3,8 @@ local Maps = require(script.Parent:WaitForChild("Maps"))
 
 local function collectSpawnParts(spawnFolder: Instance)
 	local parts = {}
-	for _, part in ipairs(spawnFolder:GetChildren()) do
-		if part:IsA("BasePart") then
+	for _, part in ipairs(spawnFolder:GetDescendants()) do
+		if part:IsA("BasePart") and part.CanQuery then
 			table.insert(parts, part)
 		end
 	end
@@ -45,7 +45,7 @@ function SpawnMap.RespawnPlayer(player: Player, MapName: string)
 	end
 
 	local map = workspace:FindFirstChild(mapInfo.MapFolder.Name)
-	local spawnFolder = map and map:FindFirstChild("Spawns")
+	local spawnFolder = map and map:FindFirstChild("Spawns", true)
 	if not spawnFolder then
 		return false
 	end
@@ -86,7 +86,7 @@ function SpawnMap.Spawn(MapName: string)
 
 	task.wait(4)
 
-	local spawnFolder = clone:FindFirstChild("Spawns")
+	local spawnFolder = clone:FindFirstChild("Spawns", true)
 	if not spawnFolder then
 		warn("MODULE SPAWNMAP. No Spawns folder for map : ", folderName)
 		return
@@ -100,25 +100,48 @@ function SpawnMap.Spawn(MapName: string)
 
 	shuffleParts(spawnParts)
 
-	local players = game.Players:GetPlayers()
-	local spawnCount = #spawnParts
-	local reuseSpawns = spawnCount < #players
-	if reuseSpawns then
-		warn("MODULE SPAWNMAP. More players than spawns; some spawns will be reused.")
+end
+
+function SpawnMap.PlacePlayers(MapName: string, players: {Player}): number
+	local mapInfo = Maps[MapName]
+	if not mapInfo then
+		warn("SpawnMap: invalid map for placement:", MapName)
+		return 0
 	end
 
-	local usedIndex = 0
-	for _, player in ipairs(players) do
-		local lobbyMode = player:WaitForChild("leaderstats"):WaitForChild("Settings"):WaitForChild("LobbyMode").Value
-		if not lobbyMode then
-			usedIndex += 1
-			local spawnPart = reuseSpawns and spawnParts[((usedIndex - 1) % spawnCount) + 1] or spawnParts[usedIndex]
-			local ok = teleportPlayerToSpawn(player, spawnPart)
-			if not ok then
-				warn("MODULE SPAWNMAP. Failed to teleport player", player.Name)
+	local map = workspace:FindFirstChild(mapInfo.MapFolder.Name)
+	local spawnFolder = map and map:FindFirstChild("Spawns", true)
+	if not spawnFolder then
+		warn("SpawnMap: no Spawns folder for placement:", MapName)
+		return 0
+	end
+
+	local spawnParts = collectSpawnParts(spawnFolder)
+	if #spawnParts == 0 then
+		warn("SpawnMap: no spawn parts for placement:", MapName)
+		return 0
+	end
+	shuffleParts(spawnParts)
+
+	local placed = 0
+	for index, player in ipairs(players) do
+		if player.Parent == game.Players then
+			local spawnPart = spawnParts[((index - 1) % #spawnParts) + 1]
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if not root and character then
+				root = character:WaitForChild("HumanoidRootPart", 5)
+			end
+			if character and root then
+				character:PivotTo(spawnPart.CFrame * CFrame.new(0, 4, 0))
+				placed += 1
+			else
+				warn("SpawnMap: player has no character to place:", player.Name)
 			end
 		end
 	end
+
+	return placed
 end
 
 function SpawnMap.RemoveAllMaps()
