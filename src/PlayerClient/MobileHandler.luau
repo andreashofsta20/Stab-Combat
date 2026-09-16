@@ -40,24 +40,26 @@ local shiftLockConnection: RBXScriptConnection? = nil
 local decided = false
 local isMobile = false
 local sprintToggled = false
+local knifeEquipped = false
 local walkSpeedConnection: RBXScriptConnection? = nil
 
 
+local function isKnifeEquipped(): boolean
+    local character = player.Character
+    return character ~= nil and character:FindFirstChildWhichIsA("Tool") ~= nil
+end
+
 local function updateMobileCrosshair(isVisible: boolean, pos: Vector2?)
-    if isVisible then
-
-        if ShiftLockToggled then
-            return
-        end
-
-        MobileCrossHairImage.Visible = true
-        if pos then
-            MobileCrossHairImage.Position = UDim2.fromOffset(pos.X, pos.Y + 60) 
-        else
-            MobileCrossHairImage.Position = UDim2.fromScale(0.5, 0.5)
-        end
-    else
+    if not isVisible or not knifeEquipped or ShiftLockToggled then
         MobileCrossHairImage.Visible = false
+        return
+    end
+
+    MobileCrossHairImage.Visible = true
+    if pos then
+        MobileCrossHairImage.Position = UDim2.fromOffset(pos.X, pos.Y + 60)
+    else
+        MobileCrossHairImage.Position = UDim2.fromScale(0.5, 0.5)
     end
 end
 ------------------------------
@@ -167,6 +169,8 @@ end
 local function onCharacterAdded(character: Model)
     local humanoid = character:WaitForChild("Humanoid") :: Humanoid
     currentHumanoid = humanoid
+    knifeEquipped = false
+    updateMobileCrosshair(false)
 
     if walkSpeedConnection then
         walkSpeedConnection:Disconnect()
@@ -179,6 +183,20 @@ local function onCharacterAdded(character: Model)
 
     syncSprintStateFromHumanoid()
     updateShiftLockLoop(ShiftLockToggled)
+
+    character.ChildAdded:Connect(function(child)
+        if not child:IsA("Tool") then return end
+        knifeEquipped = true
+        updateMobileCrosshair(touchHolding, lastTouchAimPos)
+    end)
+
+    character.ChildRemoved:Connect(function(child)
+        if not child:IsA("Tool") then return end
+        knifeEquipped = isKnifeEquipped()
+        updateMobileCrosshair(touchHolding, lastTouchAimPos)
+    end)
+
+    knifeEquipped = isKnifeEquipped()
 end
 
 local TOUCH_DRAG_THRESHOLD = 50
@@ -234,6 +252,7 @@ local function setUp()
     end
 
     MobileFrame.Visible = true
+    knifeEquipped = isKnifeEquipped()
     updateMobileCrosshair(false) 
     
     -- Keep Roblox's native TouchGui jump button. It follows platform layout,
