@@ -473,14 +473,9 @@ function MainGame.StartGame(map, modeId: string?)
     end
 
     InitRoundStats()
-    for userId in pairs(MainGame.PlayersInGame) do
-        local player = Players:GetPlayerByUserId(userId)
-        if player then
-            -- Respawns are controlled by the round so FFA cannot also receive
-            -- Roblox's automatic respawn before the delayed round respawn.
-            player.CharacterAutoLoads = false
-        end
-    end
+    -- Respawns are controlled by the round so FFA cannot also receive
+    -- Roblox's automatic respawn before the delayed round respawn.
+    Players.CharacterAutoLoads = false
     local PlayerTotal = MainGame.RoundStats.startCount
 
     MainGame.GameActive = true
@@ -585,8 +580,8 @@ function MainGame.StartGame(map, modeId: string?)
     table.clear(deathLocks)
     MainGame.RoundStats = nil
 
+    Players.CharacterAutoLoads = true
     for _, p in pairs(Players:GetPlayers()) do
-        p.CharacterAutoLoads = true
         local humanoid = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then
             p:LoadCharacter()
