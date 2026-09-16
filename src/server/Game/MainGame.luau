@@ -473,6 +473,17 @@ function MainGame.StartGame(map, modeId: string?)
     end
 
     InitRoundStats()
+    local roundPlayers = {}
+    for userId in pairs(MainGame.PlayersInGame) do
+        local player = Players:GetPlayerByUserId(userId)
+        if player then
+            table.insert(roundPlayers, player)
+        end
+    end
+    local placedPlayers = SpawnMapModule.PlacePlayers(map, roundPlayers)
+    if placedPlayers ~= #roundPlayers then
+        warn(("MainGame: placed %d/%d round players"):format(placedPlayers, #roundPlayers))
+    end
     -- Respawns are controlled by the round so FFA cannot also receive
     -- Roblox's automatic respawn before the delayed round respawn.
     Players.CharacterAutoLoads = false
