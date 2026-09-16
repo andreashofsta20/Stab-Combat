@@ -492,11 +492,13 @@ function MainGame.StartGame(map, modeId: string?)
     MainGame.GameActive = true
     GameActiveBoolean.Value = true
     
-    task.spawn(function()
-        ZoneHandler.SpawnZone()
-        task.wait(1)
-        ZoneHandler.StartZone()
-    end)
+    if MainGame.CurrentMode.ZoneRequired then
+        task.spawn(function()
+            ZoneHandler.SpawnZone()
+            task.wait(1)
+            ZoneHandler.StartZone()
+        end)
+    end
 
 
     while not MainGame.CurrentMode.HasTimer or RoundTime > 0 do
@@ -541,8 +543,10 @@ function MainGame.StartGame(map, modeId: string?)
     end
 
     RoundCountdownRemote:FireAllClients("roundover")
-    ZoneHandler._zoneActive = false
-    ZoneHandler.StopZone()
+    if MainGame.CurrentMode.ZoneRequired then
+        ZoneHandler._zoneActive = false
+        ZoneHandler.StopZone()
+    end
 
     FinalizeRoundStats()
     local gameResults, playerResults = BuildRoundResults()
