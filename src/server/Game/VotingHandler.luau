@@ -12,7 +12,6 @@ local ClearUIRemote = VotingRemotesFolder:WaitForChild("ClearUIVotes")
 local VoteUpdateRemote = VotingRemotesFolder:FindFirstChild("VoteUpdate")
 
 
-local Maps = RoundHandlerModule.GetMaps()
 
 local NotificationHandler = require(script.Parent:WaitForChild("SendNotification"))
 local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
@@ -22,13 +21,12 @@ Voting.Votes = {}
 Voting.Options = {}
 Voting.Debounce = {}  -- Server-side debounce per player
 
-for mapName, mapData in pairs(Maps) do
-    Voting.Options[mapName] = {
-        Map = mapData,
-        Votecount = 0
-    }
+local function EnsureOptions()
+    if next(Voting.Options) then return end
+    for _, option in ipairs(RoundHandlerModule.VoteOptions) do
+        Voting.Options[option.Id] = { Option = option, Votecount = 0 }
+    end
 end
-
 
 function Voting.CountVotes()
     local count = 0
@@ -58,6 +56,7 @@ end)
 
 
 function Voting.SubmitVote(player : Player, option : string)
+    EnsureOptions()
     local voteWeight = VIPService.HasVIPByUserId(player.UserId) and 2 or 1
     
     if not table.find(RoundHandlerModule.MapsAbleToVoteOn, option) then
@@ -114,6 +113,7 @@ end
 
 
 function Voting.CheckResults()
+    EnsureOptions()
     local highest = 0
     local tiedMaps = {}
 
@@ -130,8 +130,7 @@ function Voting.CheckResults()
 
     if highest == 0 then
         RoundHandlerModule.ChangeStatus("NO VOTES. PICKING A RANDOM MAP")
-        local Map = RoundHandlerModule.GetRandomMapFromVoting()
-        winner = Map
+        winner = RoundHandlerModule.GetRandomMapFromVoting()
         task.wait(1.5)
     elseif #tiedMaps > 1 then
         winner = tiedMaps[math.random(1, #tiedMaps)]
@@ -152,6 +151,7 @@ function Voting.WipeAll()
     end
     
     RoundHandlerModule.MapsAbleToVoteOn = {}
+    Voting.Options = {}
     Voting.Votes = {}
     Voting.Debounce = {}  -- Clear debounce on wipe
 end
@@ -171,6 +171,13 @@ function Voting.StopVoting()
     Voting.WipeAll()
     
     return result
+end
+
+function Voting.Begin(options)
+    Voting.Options = {}
+    for _, option in ipairs(options) do
+        Voting.Options[option.Id] = { Option = option, Votecount = 0 }
+    end
 end
 
 

@@ -33,6 +33,7 @@ function TradeSession.new(player1: Player, player2: Player)
     self.Player1Accepted = false
     self.Player2Accepted = false
     self.AcceptReadyAt = 0
+    self.ExecutionStarted = false
     
     -- Inventory locks (prevent adding same item twice)
     self.LockedInventory = {
@@ -212,10 +213,20 @@ function TradeSession:RemoveItem(player: Player, itemName: string, quantity: num
      return false, "Invalid player"
     end
     
+    local matchingIndex
     for i, item in ipairs(items) do
         if item.Name == itemName then
+            if matchingIndex then
+                return false, "Item name is ambiguous"
+            end
+            matchingIndex = i
+        end
+    end
+
+    if matchingIndex then
+        local item = items[matchingIndex]
             if removeQuantity >= item.Quantity then
-                table.remove(items, i)
+                table.remove(items, matchingIndex)
                 self:UnlockItem(player.UserId, itemName)
             else
                 item.Quantity -= removeQuantity
@@ -227,7 +238,6 @@ function TradeSession:RemoveItem(player: Player, itemName: string, quantity: num
             self.AcceptReadyAt = 0
             self.State = TradeState.ACTIVE
             return true
-        end
     end
     
     return false

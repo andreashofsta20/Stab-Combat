@@ -24,36 +24,22 @@ local function canProcessAction(player: Player): boolean
 end
 
 -- // THROWING KNIFE // --
-ThrowKnifeRemote.OnServerEvent:Connect(function(player: Player, camOrigin: Vector3, targetPosition: Vector3, chargeRatio: number)
-    if typeof(camOrigin) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" or typeof(chargeRatio) ~= "number" then
+local ProjectileMath = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProjectileMath"))
+
+ThrowKnifeRemote.OnServerEvent:Connect(function(player: Player, shotId: string, origin: Vector3, direction: Vector3, chargeRatio: number, clientTimestamp: number?)
+    if not (typeof(shotId) == "string" and #shotId <= 64)
+        or not ProjectileMath.IsFiniteVector(origin)
+        or not ProjectileMath.IsFiniteVector(direction)
+        or not ProjectileMath.IsFiniteNumber(chargeRatio) then
         return
     end
-    -- NaN / infinity guard
-    if chargeRatio ~= chargeRatio or chargeRatio == math.huge or chargeRatio == -math.huge then
-        return
-    end
-    if camOrigin ~= camOrigin or targetPosition ~= targetPosition then
-        return
-    end
-    
-    -- Validate camOrigin is near the player's actual position
-    local character = player.Character
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Increased from 20 to 40 to account for max camera zoom + latency drift while sprinting
-    if (camOrigin - hrp.Position).Magnitude > 40 then
-        return
-    end
-    
-    -- Zero-length direction guard
-    if (targetPosition - camOrigin).Magnitude < 0.001 then
-        return
-    end
+    -- The timestamp is advisory only; never use it to rewind or grant distance.
+    if clientTimestamp ~= nil and not ProjectileMath.IsFiniteNumber(clientTimestamp) then return end
+    if ProjectileMath.NormalizeDirection(direction) == nil then return end
     if not canProcessAction(player) then
         return
     end
-    ThrowKnifeModule.ThrowKnife(player, camOrigin, targetPosition, chargeRatio)
+    ThrowKnifeModule.Throw(player, shotId, origin, direction, chargeRatio)
 end)
 
 -- // STABBING KNIFE // --

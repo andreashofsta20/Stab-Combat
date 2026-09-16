@@ -107,7 +107,8 @@ local function RefreshTargetUI()
     end
     
     MatchStatText.Text = string.format(
-        '<font color="#ffffff">Players Alive: </font><font color="#6ed378">%d</font><font color="#ffffff"> / Time Left: </font><font color="#ffe941">%s</font>',
+        '<font color="#ffffff">%s</font>  |  <font color="#ffffff">Players Alive: </font><font color="#6ed378">%d</font><font color="#ffffff"> / Time Left: </font><font color="#ffe941">%s</font>',
+        player:GetAttribute("CurrentRoundMode") or "Free For All",
         #alivePlayers,
         timeStr
     )

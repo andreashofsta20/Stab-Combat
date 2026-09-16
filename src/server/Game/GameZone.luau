@@ -32,10 +32,17 @@ function ZoneHandler.StartZone()
 		return 
 	end
 
+	local isBattleRoyale = MainGame.CurrentMode.Id == "BattleRoyale"
 	local margin = 1.5
 	local shrinkStep = Vector3.new(3, 0, 3)
 	local shrinkInterval = 0.5
-	local minSize = Vector3.new(100, 1000, 100)
+	-- Battle Royale reaches a tiny final core instead of stopping at a safe
+	-- 100x100 area where players could avoid each other indefinitely.
+	local minSize = isBattleRoyale and Vector3.new(4, 1000, 4) or Vector3.new(100, 1000, 100)
+	local finalZoneDamage = 25
+	local finalZoneDamageRamp = 1.2
+	local finalZoneDamageCap = 1000
+	ZoneHandler._zoneActive = true
 
 	local function isInsideZone(player)
 		local char = player.Character
@@ -52,7 +59,7 @@ function ZoneHandler.StartZone()
 	end
 
 	task.spawn(function()
-		while Zone.Size.X > minSize.X or Zone.Size.Z > minSize.Z do
+		while ZoneHandler._zoneActive and (Zone.Size.X > minSize.X or Zone.Size.Z > minSize.Z) do
 			local targetX = math.max(Zone.Size.X - shrinkStep.X, minSize.X)
 			local targetZ = math.max(Zone.Size.Z - shrinkStep.Z, minSize.Z)
 			local targetSize = Vector3.new(targetX, Zone.Size.Y, targetZ)
@@ -64,14 +71,14 @@ function ZoneHandler.StartZone()
 		end
 	end)
 
-	ZoneHandler._zoneActive = true
-
 	task.spawn(function()
+		local finalPhase = false
 		while ZoneHandler._zoneActive do
 			for _, player in ipairs(Players:GetPlayers()) do
 				if not MainGame.PlayersInGame[player.UserId] then continue end
 
-				if isInsideZone(player) then
+				local insideZone = isInsideZone(player)
+				if insideZone and not finalPhase then
 					if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main") and player.PlayerGui.Main:FindFirstChild("OutsideZone") then
 						NotifyClient:FireClient(player, false)
 					end
@@ -81,9 +88,19 @@ function ZoneHandler.StartZone()
 					end
 
 					if player.Character and player.Character:FindFirstChild("Humanoid") then
-						player.Character.Humanoid.Health -= 10
+						local damage = finalPhase and finalZoneDamage or 10
+						player.Character.Humanoid:TakeDamage(damage)
 					end
 				end
+			end
+
+			if isBattleRoyale and not finalPhase
+				and Zone.Size.X <= minSize.X and Zone.Size.Z <= minSize.Z then
+				-- Once the zone is fully collapsed, damage everyone in the
+				-- final core and ramp it until the round has one survivor.
+				finalPhase = true
+			elseif finalPhase then
+				finalZoneDamage = math.min(finalZoneDamage * finalZoneDamageRamp, finalZoneDamageCap)
 			end
 			task.wait(0.5)
 		end

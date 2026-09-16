@@ -2,6 +2,7 @@ local RoundHandler = {}
 local Players = game:GetService("Players")
 local PlayerCount = Players:GetPlayers()
 local MapsModule = require(game:GetService("ServerScriptService").Game.Maps)
+local GameModes = require(game:GetService("ReplicatedStorage").Modules.GameModes)
 local PlayerStatusSender = require(game:GetService("ServerScriptService").Game:WaitForChild("PlayerStatusSender"))
 local RunService = game:GetService("RunService")
 
@@ -32,6 +33,8 @@ RoundHandler.VotingDuration = VotingDuratation
 RoundHandler.VotingDurationSTUDIO = VotingDuratationSTUDIO
 
 RoundHandler.CurrentMap = nil
+RoundHandler.CurrentMode = nil
+RoundHandler.VoteOptions = {}
 
 RoundHandler.TimeToVote = false
 
@@ -60,7 +63,7 @@ RoundHandler.StatusMessages = {
 		return "WAITING FOR " .. missing .. " " .. suffix .. " TO START THE MATCH"
 	end,
 	
-	Voting = "TIME TO VOTE FOR A MAP",
+	Voting = "TIME TO VOTE FOR A MAP AND MODE",
 	Starting = "Game is starting shortly.",
 	Ended = "GAME ENDED",
 	ERROR1 = "Minimum players not found",
@@ -99,14 +102,15 @@ end
 
 function RoundHandler.StartVoting()
 	RoundHandler.MapsAbleToVoteOn = {}
-	local MapsToVoteOn = {}
+	RoundHandler.VoteOptions = {}
+	local mapsToVoteOn = {}
 
-	while #MapsToVoteOn < 3 do
+	while #mapsToVoteOn < 3 do
 		local RandomMap = RoundHandler.GetRandomMap()
 		if not RandomMap then break end
 
 		local alreadyChosen = false
-		for _, chosen in ipairs(MapsToVoteOn) do
+		for _, chosen in ipairs(mapsToVoteOn) do
 			if chosen["Name"] == RandomMap["Name"] then
 				alreadyChosen = true
 				break
@@ -114,15 +118,29 @@ function RoundHandler.StartVoting()
 		end
 
 		if not alreadyChosen then
-			table.insert(MapsToVoteOn, RandomMap)
-			table.insert(RoundHandler.MapsAbleToVoteOn, RandomMap["Name"])
+			table.insert(mapsToVoteOn, RandomMap)
 		end
+	end
+
+	local modes = GameModes.GetAll()
+	for index, mapData in ipairs(mapsToVoteOn) do
+		local mode = modes[((index - 1) % #modes) + 1]
+		local option = {
+			Id = string.format("%s:%s", mapData.Name, mode.Id),
+			Name = mapData.Name,
+			Map = mapData.Name,
+			Mode = mode.Id,
+			ModeName = mode.DisplayName,
+			VotingImage = mapData.VotingImage,
+		}
+		table.insert(RoundHandler.VoteOptions, option)
+		table.insert(RoundHandler.MapsAbleToVoteOn, option.Id)
 	end
 
 	RoundHandler.ChangeStatus("Voting")
 
 	local duration = RunService:IsStudio() and RoundHandler.VotingDurationSTUDIO or RoundHandler.VotingDuration
-	StartVotingRemote:FireAllClients(MapsToVoteOn, duration)
+	StartVotingRemote:FireAllClients(RoundHandler.VoteOptions, duration)
 
 	local countdown = duration
 	while countdown > 0 do
@@ -197,12 +215,9 @@ function RoundHandler.Intermission()
 end
 
 function RoundHandler.GetRandomMapFromVoting()
-	local RandomNumber = math.random(1, #RoundHandler.MapsAbleToVoteOn)
-	local SelectedMap = RoundHandler.MapsAbleToVoteOn[RandomNumber]
-	return SelectedMap
+	return RoundHandler.MapsAbleToVoteOn[math.random(1, #RoundHandler.MapsAbleToVoteOn)]
 end
 
 
 
 return RoundHandler
-

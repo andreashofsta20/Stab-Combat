@@ -16,7 +16,6 @@ local WipeTools = StartGameClientFolder:WaitForChild("WipeTools")
 local CharacterResetted = StartGameClientFolder:WaitForChild("PlayerResetted")
 
 local RequestKnife = StartGameClientFolder:WaitForChild("RequestKnife")
-local WipeToolsServerRemote = StartGameClientFolder:WaitForChild("WipeToolServer")
 
 
 -- // MAIN FUNCTIONS // --
@@ -50,9 +49,20 @@ end)
 
 
 WipeTools.OnClientEvent:Connect(function()
-	
-	WipeToolsServerRemote:FireServer()
+	local character = Player.Character
+	if character then
+		for _, child in ipairs(character:GetChildren()) do
+			if child:IsA("Tool") then
+				child:Destroy()
+			end
+		end
+	end
 
+	for _, child in ipairs(PlayerBackpack:GetChildren()) do
+		if child:IsA("Tool") then
+			child:Destroy()
+		end
+	end
 end)
 
 return {}

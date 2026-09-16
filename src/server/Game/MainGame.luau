@@ -10,6 +10,7 @@ local GetRoundResultsRemote = RoundResultsFolder:WaitForChild("GetRoundResults")
 local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 
 local TimeToMinutesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TimeToMinutes"))
+local GameModes = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameModes"))
 
 local RecieveTools = StartGameClientFolder:WaitForChild("RecieveTools")
 local WipeTools = StartGameClientFolder:WaitForChild("WipeTools")
@@ -19,6 +20,7 @@ local RoundCountdownRemote = RemotesFolder:FindFirstChild("RoundCountdown")
 MainGame.GameActive = false
 MainGame.PlayersInGame = {}
 MainGame.RoundTime = 3 * 60
+MainGame.CurrentMode = GameModes.FFA
 MainGame.CurrentMap = nil
 MainGame.TestMode = false
 MainGame.LobbyModeLock = false
@@ -38,6 +40,7 @@ MainGame.RoundStats = nil
 
 local eliminationOrder = {}
 local pendingKills = {}
+local deathLocks = {}
 
 local function CountPlayersInGame()
     local n = 0
@@ -61,12 +64,32 @@ local function InitRoundStats()
     MainGame.RoundStats = {
         startCount = CountPlayersInGame(),
         players = playersStats,
+        mode = MainGame.CurrentMode,
+        rewardsApplied = false,
     }
 end
 
 function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
-    if killer and victimUserId then
+    local stats = MainGame.RoundStats
+    if not stats or not killer or not victimUserId then
+        return
+    end
+
+    if not stats.players[killer.UserId]
+        or not stats.players[victimUserId]
+        or not MainGame.PlayersInGame[killer.UserId]
+        or not MainGame.PlayersInGame[victimUserId] then
+        return
+    end
+
+    if killer.UserId ~= victimUserId and not pendingKills[victimUserId] then
         pendingKills[victimUserId] = killer
+    end
+end
+
+function MainGame.ClearPendingKill(victimUserId: number)
+    if type(victimUserId) == "number" then
+        pendingKills[victimUserId] = nil
     end
 end
 
@@ -157,6 +180,9 @@ local function FinalizeRoundStats()
     end
 
     table.sort(survivors, function(a, b)
+        if a.kills == b.kills then
+            return a.userId < b.userId
+        end
         return a.kills > b.kills
     end)
 
@@ -188,7 +214,8 @@ end
 
 local function ApplyRoundRewards()
     local stats = MainGame.RoundStats
-    if not stats then return end
+    if not stats or stats.rewardsApplied then return end
+    stats.rewardsApplied = true
 
     local totalPlayers = stats.startCount
     local serverPlayerCount = #Players:GetPlayers()
@@ -219,14 +246,20 @@ local function ApplyRoundRewards()
             if (data.placement or 999) <= 3 then
                 QuestsHandler.AddProgress(player, "TOP3_FINISHES", 1)
             end
+            if isWinner and policy.CanReceiveWinCredit then
+                local leaderstats = player:FindFirstChild("leaderstats")
+                local wins = leaderstats and leaderstats:FindFirstChild("Wins")
+                local winStreak = leaderstats and leaderstats:FindFirstChild("WinStreak")
+                if wins then wins.Value += 1 end
+                if winStreak then winStreak.Value += 1 end
+                QuestsHandler.AddProgress(player, "WINS", 1)
+            end
             QuestsHandler.AddProgress(player, "MATCH_GOLD_EARNED", data.rewardGold or 0)
 
             local leaderstats = player:FindFirstChild("leaderstats")
             if leaderstats then
                 local killsStat = leaderstats:FindFirstChild("Kills")
-                local deathsStat = leaderstats:FindFirstChild("Deaths")
                 if killsStat then killsStat.Value += data.kills or 0 end
-                if deathsStat and data.placement ~= 1 then deathsStat.Value += 1 end
             end
 
             SaveLastRound(player, totalPlayers - 1, data.kills or 0, data.placement or 0)
@@ -268,6 +301,7 @@ local function BuildRoundResults()
 
     local gameResults = {
         Map = MainGame.CurrentMap,
+        Mode = MainGame.CurrentMode.DisplayName,
         TotalPlayers = stats.startCount,
         Winners = winners,
         MapImage = resultsImage,
@@ -281,10 +315,16 @@ function MainGame.OnDeath(player: Player)
 
     local userId = player.UserId
     if not MainGame.PlayersInGame[userId] then return end
+    if deathLocks[userId] then return end
+    deathLocks[userId] = true
 
     local killer = pendingKills[userId]
-    if killer and killer ~= player then
-        local roundParticipants = (MainGame.RoundStats and MainGame.RoundStats.startCount) or 0
+    local stats = MainGame.RoundStats
+    if killer and killer ~= player and stats
+        and stats.players[killer.UserId]
+        and stats.players[userId]
+        and MainGame.PlayersInGame[killer.UserId] then
+        local roundParticipants = stats.startCount
         local serverPlayerCount = #Players:GetPlayers()
         local killerPolicy = AntiFarmModule.GetRewardPolicy(killer, roundParticipants, serverPlayerCount)
         local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
@@ -297,14 +337,32 @@ function MainGame.OnDeath(player: Player)
         if killerPolicy.RewardMultiplier > 0 then
             QuestsHandler.AddProgress(killer, "KILLS", 1)
         end
-        pendingKills[userId] = nil
+    end
+
+    pendingKills[userId] = nil
+    local leaderstats = player:FindFirstChild("leaderstats")
+    local deathsStat = leaderstats and leaderstats:FindFirstChild("Deaths")
+    if deathsStat then
+        deathsStat.Value += 1
+    end
+
+    local mode = MainGame.CurrentMode
+    if mode.Respawns then
+        player:SetAttribute("InRound", true)
+        task.delay(1.5, function()
+            deathLocks[userId] = nil
+            if MainGame.GameActive and MainGame.PlayersInGame[userId] and player.Parent then
+                player:LoadCharacter()
+                SpawnMapModule.RespawnPlayer(player, MainGame.CurrentMap)
+            end
+        end)
+        return
     end
 
     MainGame.RecordElimination(player)
     MainGame.PlayersInGame[userId] = nil
     player:SetAttribute("InRound", false)
-
-    ZoneHandler.NotifyPlayer(player, false) 
+    ZoneHandler.NotifyPlayer(player, false)
     
     local character = player.Character
     if character then
@@ -330,6 +388,26 @@ local function HealAllPlayers()
 end
 
 function MainGame.WipeTools()
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            for _, child in ipairs(character:GetChildren()) do
+                if child:IsA("Tool") then
+                    child:Destroy()
+                end
+            end
+        end
+
+        local backpack = player:FindFirstChildOfClass("Backpack")
+        if backpack then
+            for _, child in ipairs(backpack:GetChildren()) do
+                if child:IsA("Tool") then
+                    child:Destroy()
+                end
+            end
+        end
+    end
+
     WipeTools:FireAllClients()
 end
 
@@ -337,9 +415,10 @@ function MainGame.IsLobbyModeLocked()
     return MainGame.LobbyModeLock == true
 end
 
-function MainGame.StartGame(map)
+function MainGame.StartGame(map, modeId: string?)
     MainGame.LobbyModeLock = true
     MainGame.CurrentMap = map
+    MainGame.CurrentMode = GameModes.Get(modeId or GameModes.FFA.Id) or GameModes.FFA
 
     for _, player in pairs(Players:GetPlayers()) do
         player:SetAttribute("LastRoundKills", 0)
@@ -351,9 +430,11 @@ function MainGame.StartGame(map)
         
         -- NEW: Ensure spectate UI resets to 0 at the start of every game
         player:SetAttribute("CurrentRoundKills", 0)
+        player:SetAttribute("CurrentRoundMode", MainGame.CurrentMode.DisplayName)
     end
 
-    local configuredRoundTime = MainGame.RoundTime
+    local configuredRoundTime = MainGame.CurrentMode.RoundDuration
+    MainGame.RoundTime = configuredRoundTime
     local RoundTime = configuredRoundTime
 
     task.wait(0.5)
@@ -392,6 +473,14 @@ function MainGame.StartGame(map)
     end
 
     InitRoundStats()
+    for userId in pairs(MainGame.PlayersInGame) do
+        local player = Players:GetPlayerByUserId(userId)
+        if player then
+            -- Respawns are controlled by the round so FFA cannot also receive
+            -- Roblox's automatic respawn before the delayed round respawn.
+            player.CharacterAutoLoads = false
+        end
+    end
     local PlayerTotal = MainGame.RoundStats.startCount
 
     MainGame.GameActive = true
@@ -404,18 +493,18 @@ function MainGame.StartGame(map)
     end)
 
 
-    while RoundTime > 0 do
+    while not MainGame.CurrentMode.HasTimer or RoundTime > 0 do
         task.wait(1)
 
-        if MainGame.RoundTime ~= configuredRoundTime then
+        if MainGame.CurrentMode.HasTimer and MainGame.RoundTime ~= configuredRoundTime then
             configuredRoundTime = MainGame.RoundTime
             RoundTime = configuredRoundTime
         end
 
-        ReplicatedStorage:WaitForChild("Timer").Value = RoundTime
+        ReplicatedStorage:WaitForChild("Timer").Value = MainGame.CurrentMode.HasTimer and RoundTime or 0
 
         if not MainGame.TestMode then
-            if CountPlayersInGame() <= 1 then
+            if MainGame.CurrentMode.EliminationEndsRound and CountPlayersInGame() <= 1 then
                 local winnerUserId
                 for odUserId in pairs(MainGame.PlayersInGame) do
                     winnerUserId = odUserId
@@ -429,26 +518,7 @@ function MainGame.StartGame(map)
                 end
 
                 local winner = Players:GetPlayerByUserId(winnerUserId)
-                if winner then
-                    local serverPlayerCount = #Players:GetPlayers()
-                    local winnerPolicy = AntiFarmModule.GetRewardPolicy(winner, PlayerTotal, serverPlayerCount)
-
-                    if MainGame.RoundStats and MainGame.RoundStats.players[winnerUserId] then
-                        local xpAwarded = GameRewardModule.XpReward(winner, "win", serverPlayerCount, winnerPolicy.RewardMultiplier) or 0
-                        local cashAwarded = GameRewardModule.CashReward(winner, "win", serverPlayerCount, winnerPolicy.RewardMultiplier) or 0
-                        MainGame.RoundStats.players[winnerUserId].rewardXp = xpAwarded
-                        MainGame.RoundStats.players[winnerUserId].rewardGold = cashAwarded
-                    end
-
-                    local leaderstats = winner:WaitForChild("leaderstats")
-                    local wins = leaderstats:FindFirstChild("Wins")
-                    local winStreak = leaderstats:FindFirstChild("WinStreak")
-                    if winnerPolicy.CanReceiveWinCredit then
-                        if wins then wins.Value += 1 end
-                        if winStreak then winStreak.Value += 1 end
-                        QuestsHandler.AddProgress(winner, "WINS", 1)
-                    end
-                end
+                -- Rewards and win credit are applied once after placements are finalized.
                 task.wait(0.5)
                 break
             end
@@ -456,8 +526,12 @@ function MainGame.StartGame(map)
 
         if CountPlayersInGame() == 0 then break end
 
-        RoundTime -= 1
-        RoundHandlerModule.ChangeStatus(TimeToMinutesModule.MakeTimeMinute(RoundTime))
+        if MainGame.CurrentMode.HasTimer then
+            RoundTime -= 1
+            RoundHandlerModule.ChangeStatus(TimeToMinutesModule.MakeTimeMinute(RoundTime))
+        else
+            RoundHandlerModule.ChangeStatus("BATTLE ROYALE - LAST SURVIVOR")
+        end
     end
 
     RoundCountdownRemote:FireAllClients("roundover")
@@ -467,7 +541,7 @@ function MainGame.StartGame(map)
     FinalizeRoundStats()
     local gameResults, playerResults = BuildRoundResults()
 
-    task.spawn(function() ApplyRoundRewards() end)
+    ApplyRoundRewards()
 
     if gameResults and playerResults then
         task.wait(1.9) 
@@ -508,11 +582,18 @@ function MainGame.StartGame(map)
     MainGame.LobbyModeLock = false
     table.clear(MainGame.PlayersInGame)
     table.clear(pendingKills)
+    table.clear(deathLocks)
     MainGame.RoundStats = nil
 
     for _, p in pairs(Players:GetPlayers()) do
+        p.CharacterAutoLoads = true
+        local humanoid = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            p:LoadCharacter()
+        end
         p:SetAttribute("InRound", false)
         p:SetAttribute("CurrentRoundKills", 0) -- Clear attribute for lobby
+        p:SetAttribute("CurrentRoundMode", nil)
     end
 end
 
