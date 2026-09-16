@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -18,7 +17,7 @@ local ShiftLockImage = MobileFrame:WaitForChild("ShiftLockToogled")
 local OtherButtonsFrame = MobileFrame:WaitForChild("BasicControls")
 local EmoteButton = OtherButtonsFrame:WaitForChild("Emote")
 
-local JumpButton = OtherButtonsFrame:WaitForChild("Jump")
+local CustomJumpButton = OtherButtonsFrame:FindFirstChild("Jump")
 local SprintButton = OtherButtonsFrame:WaitForChild("Sprint")
 local ThrowKnifeButton = OtherButtonsFrame:WaitForChild("Throw")
 local ShiftLockButton = MobileFrame:WaitForChild("ShiftLock")
@@ -42,7 +41,6 @@ local decided = false
 local isMobile = false
 local sprintToggled = false
 local walkSpeedConnection: RBXScriptConnection? = nil
-local jumpDebounce = false
 
 
 local function updateMobileCrosshair(isVisible: boolean, pos: Vector2?)
@@ -225,44 +223,6 @@ local function detectInputMode()
     while not decided do task.wait() end
 end
 
-local function hideJumpButtonInTouchGui(container: Instance)
-    local jumpButton = container:FindFirstChild("JumpButton", true)
-    if jumpButton and jumpButton:IsA("GuiObject") then
-        jumpButton.Visible = false
-        jumpButton:GetPropertyChangedSignal("Visible"):Connect(function()
-            if jumpButton.Visible then jumpButton.Visible = false end
-        end)
-    end
-end
-
-local function disableRobloxDefaultJumpButton()
-    local playerGui = player:WaitForChild("PlayerGui")
-    local touchGui = playerGui:FindFirstChild("TouchGui")
-
-    if touchGui then
-        hideJumpButtonInTouchGui(touchGui)
-        touchGui.DescendantAdded:Connect(function(descendant)
-            if descendant.Name == "JumpButton" and descendant:IsA("GuiObject") then
-                descendant.Visible = false
-                descendant:GetPropertyChangedSignal("Visible"):Connect(function()
-                    if descendant.Visible then descendant.Visible = false end
-                end)
-            end
-        end)
-    end
-
-    playerGui.ChildAdded:Connect(function(child)
-        if child.Name == "TouchGui" then
-            task.defer(function() hideJumpButtonInTouchGui(child) end)
-            child.DescendantAdded:Connect(function(descendant)
-                if descendant.Name == "JumpButton" and descendant:IsA("GuiObject") then
-                    descendant.Visible = false
-                end
-            end)
-        end
-    end)
-end
-
 local function setUp()
     detectInputMode()
     
@@ -276,35 +236,16 @@ local function setUp()
     MobileFrame.Visible = true
     updateMobileCrosshair(false) 
     
-    disableRobloxDefaultJumpButton()
+    -- Keep Roblox's native TouchGui jump button. It follows platform layout,
+    -- safe areas, accessibility settings, and the standard jump behavior.
+    if CustomJumpButton then
+        CustomJumpButton.Visible = false
+    end
     CombatController.Init()
     updateShiftLockVisual()
     setButtonToggled(ThrowKnifeButton, false)
 
     EmoteButton.MouseButton1Up:Connect(toggleEmoteFrame)
-
-    local function tryJump()
-        if jumpDebounce then return end
-        local humanoid = currentHumanoid or getHumanoid()
-        if not humanoid then return end
-
-        local state = humanoid:GetState()
-        local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
-        local canJump = grounded
-            or state == Enum.HumanoidStateType.Running
-            or state == Enum.HumanoidStateType.RunningNoPhysics
-            or state == Enum.HumanoidStateType.Landed
-
-        if not canJump then return end
-
-        jumpDebounce = true
-        humanoid.Jump = true
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        task.delay(0.6, function() jumpDebounce = false end)
-    end
-
-    JumpButton.MouseButton1Up:Connect(tryJump)
-    JumpButton.Activated:Connect(tryJump)
 
     ShiftLockButton.MouseButton1Up:Connect(function()
         setShiftLock(not ShiftLockToggled)
