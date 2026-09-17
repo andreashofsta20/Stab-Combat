@@ -35,6 +35,7 @@ local EquippedClient = HotBarRemots:WaitForChild("EquippedClient")
 
 -- // MODULES // --
 local KnivesModule = require(RS:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
+local KeybindValidation = require(RS:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 
 
@@ -55,15 +56,7 @@ local function parseInput(inputString)
 		return nil
 	end
 
-	if inputString:find("Enum.KeyCode.") then
-		local keyName = inputString:match("Enum%.KeyCode%.(.+)")
-		if keyName and Enum.KeyCode[keyName] then
-			return Enum.KeyCode[keyName]
-		end
-	elseif inputString == "MouseButton1" then
-		return "MouseButton1"
-	end
-	return nil
+	return KeybindValidation.ToEnum(inputString)
 end
 
 

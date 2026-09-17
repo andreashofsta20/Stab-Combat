@@ -1,5 +1,7 @@
 -- // SERVICES // --
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local KeybindValidation = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 -- // LOCALPLAYER // --
 local Player = Players.LocalPlayer
@@ -97,12 +99,7 @@ local function KeyCodeToString(keycode)
 end
 
 local function FormatKeybindDisplay(rawValue)
-	local enumValue = StringToEnum(rawValue)
-	if enumValue then
-		return KeyCodeToString(enumValue)
-	else
-		return NormalizeKeyValue(rawValue)
-	end
+	return KeybindValidation.ToDisplay(rawValue)
 end
 
 local function ChangeText(name, newKeybind)

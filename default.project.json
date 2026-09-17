@@ -6,6 +6,9 @@
     "ReplicatedStorage": {
       "Modules": {
         "$path": "src/Modules"
+      },
+      "KeyBinds": {
+        "$path": "src/KeyBinds"
       }
     },
 

@@ -23,6 +23,7 @@ local Lighting = game:GetService("Lighting")
 
 local EmotesModule = require(game.ReplicatedStorage.Modules:WaitForChild("Emotes"))
 local RarityColorModule = require(game.ReplicatedStorage.Modules:WaitForChild("RarityColor"))
+local KeybindValidation = require(game.ReplicatedStorage.Modules:WaitForChild("KeybindValidation"))
 
 local open = false
 local LastAnimationTrack: AnimationTrack?
@@ -118,15 +119,7 @@ local function parseInput(inputString)
 		return nil
 	end
 
-	if inputString:find("Enum.KeyCode.") then
-		local keyName = inputString:match("Enum%.KeyCode%.(.+)")
-		if keyName and Enum.KeyCode[keyName] then
-			return Enum.KeyCode[keyName]
-		end
-	elseif inputString == "MouseButton1" then
-		return "MouseButton1"
-	end
-	return nil
+	return KeybindValidation.ToEnum(inputString)
 end
 
 

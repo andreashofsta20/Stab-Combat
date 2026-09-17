@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local KeybindValidation = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 local SprintState = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("SprintState"))
 
@@ -306,11 +307,7 @@ local function parseKeyCode(keycodeString)
 		return nil
 	end
 
-	local keyName = keycodeString:match("Enum%.KeyCode%.(.+)")
-	if keyName and Enum.KeyCode[keyName] then
-		return Enum.KeyCode[keyName]
-	end
-	return nil
+	return KeybindValidation.ToEnum(keycodeString)
 end
 
 local function initializeCrouchKeybind()

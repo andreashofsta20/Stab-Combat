@@ -1,6 +1,7 @@
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local KeybindValidation = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 local player = Players.LocalPlayer
 local CombatController = require(script.Parent:WaitForChild("Modules"):WaitForChild("CombatController"))
@@ -26,11 +27,9 @@ end
 local function parseInput(inputString)
 	if not inputString or inputString == "" then return nil end
 
-	if inputString:find("Enum.KeyCode.") then
-		local keyName = inputString:match("Enum%.KeyCode%.(.+)")
-		if keyName and Enum.KeyCode[keyName] then
-			return Enum.KeyCode[keyName]
-		end
+	local key = KeybindValidation.ToEnum(inputString)
+	if key then
+		return key
 	elseif inputString == "MouseButton1" then
 		return "MouseButton1"
 	elseif inputString == "MouseButton2" then

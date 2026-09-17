@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
 
 -- // LOCALPLAYER // --
 local Player = Players.LocalPlayer
@@ -94,6 +95,9 @@ local function Apply(settingName : string)
 	end
 
 	if settingName == "KeybindEdit" then
+		if UserInputService.TouchEnabled then
+			return
+		end
 		OpenFrameModule.OpenFrame(tostring(settingName))
 		return
 	end
@@ -104,6 +108,10 @@ end
 local function SetUpContainer()
 	for _, v in pairs(SettingsContainer:GetChildren()) do
 		if v:IsA("Frame") then
+			if v.Name == "KeybindEdit" and UserInputService.TouchEnabled then
+				v.Visible = false
+				continue
+			end
 			local button = v:FindFirstChild("SettingsButton")
 			if button then
 				button.MouseButton1Up:Connect(function()

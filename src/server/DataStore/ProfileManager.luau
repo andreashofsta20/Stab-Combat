@@ -12,6 +12,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
 
 local ProfileManager = {}
+local KeybindValidation = require(game:GetService("ReplicatedStorage"):WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 
 local STORE_NAME = "PlayerData_v1.0.0_MainData"
 local OLD_STORE_NAME = "PlayerData_v1.0.0_OldData"
@@ -129,13 +130,16 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 
 	-- KeyBinds
 	local keybindsFolder = leaderstats:FindFirstChild("KeyBinds")
-	local keybindsData = {}
+	local keybindsData = KeybindValidation.GetDefaults()
 	if keybindsFolder then
-		for _, bind in ipairs(keybindsFolder:GetChildren()) do
-			if bind:IsA("StringValue") then
-				keybindsData[bind.Name] = bind.Value
+		local rawKeybinds = {}
+		for _, action in ipairs(KeybindValidation.GetActions()) do
+			local bind = keybindsFolder:FindFirstChild(action)
+			if bind and bind:IsA("StringValue") then
+				rawKeybinds[action] = bind.Value
 			end
 		end
+		keybindsData = KeybindValidation.ValidateAndRepair(rawKeybinds)
 	end
 	data.KeyBinds = keybindsData
 

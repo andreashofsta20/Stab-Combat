@@ -15,6 +15,7 @@ local EditKeybindFrame = KeyBindFrame:WaitForChild("EditKeybindFrame")
 local RemotesFolder = RS:WaitForChild("Remotes")
 local KeyBindRemotes = RemotesFolder:WaitForChild("Keybinds")
 local EditKeybindRemote = KeyBindRemotes:WaitForChild("ChangeKeybind")
+local KeybindValidation = require(RS:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 local CloseButton = KeyBindFrame:WaitForChild("Exit")
 local BackButton = KeyBindFrame:WaitForChild("Back")
@@ -23,6 +24,9 @@ local LastAction
 local InputConnection
 local debounce = false
 
+if UserInputService.TouchEnabled then
+	return {}
+end
 
 
 local function StringToEnum(str)
@@ -143,7 +147,7 @@ local function RefreshKeyBinds()
 		if v:IsA("StringValue") then
 			if Container:FindFirstChild(v.Name) then
 				local keybindText = Container[v.Name]:WaitForChild("KeybindFrame"):WaitForChild("TextLabel")
-				keybindText.Text = NormalizeKeyValue(v.Value)
+				keybindText.Text = KeybindValidation.ToDisplay(v.Value)
 			end
 		end
 	end
@@ -153,7 +157,7 @@ local function EditKeyBind(action, keycodeOrString)
 	if debounce then return end
 	debounce = true
 	EditKeybindRemote:FireServer(action, keycodeOrString)
-	wait(0.2)
+	task.wait(0.2)
 	debounce = false
 end
 
@@ -182,6 +186,10 @@ local function OpenEditKeyBind(action)
 
 		local inputType = input.UserInputType
 		if inputType == Enum.UserInputType.Keyboard then
+			if input.KeyCode == Enum.KeyCode.Escape then
+				CloseEditKeyBind()
+				return
+			end
 			EditKeyBind(LastAction, input.KeyCode)
 			CloseEditKeyBind()
 		elseif inputType == Enum.UserInputType.MouseButton1 then
@@ -231,12 +239,6 @@ end
 
 BackButton.MouseButton1Up:Connect(Back)
 CloseButton.MouseButton1Up:Connect(CloseFrame)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if input.KeyCode == Enum.KeyCode.Escape and EditKeybindFrame.Visible then
-		CloseEditKeyBind()
-	end
-end)
 
 SetUpContainer()
 

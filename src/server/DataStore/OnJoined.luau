@@ -10,6 +10,7 @@ local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
 local Leaderboards = require(script.Parent:WaitForChild("LeaderboardsHandler"))
 
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
+local KeybindValidation = require(RS:WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 
 -- Backward-compatible wrapper so other modules can still call OnJoined.SavePlayerData(player)
 local function savePlayerData(player)
@@ -122,7 +123,7 @@ Players.PlayerAdded:Connect(function(player)
 	for action, keyCode in pairs(DefaultKeybinds) do
 		local bind = Instance.new("StringValue")
 		bind.Name = action
-		bind.Value = keyCode.Name
+		bind.Value = keyCode
 		bind.Parent = KeyBinds
 	end
 	
@@ -188,19 +189,14 @@ Players.PlayerAdded:Connect(function(player)
 		end
 		
 		
-		if data.KeyBinds and type(data.KeyBinds) == "table" then
-			for action, keyName in pairs(data.KeyBinds) do
-				local bind = KeyBinds:FindFirstChild(action)
-				if bind then
-					bind.Value = keyName
-				else
-					local newBind = Instance.new("StringValue")
-					newBind.Name = action
-					newBind.Value = keyName
-					newBind.Parent = KeyBinds
-				end
+		local repairedKeybinds = KeybindValidation.ValidateAndRepair(data.KeyBinds)
+		for action, keyName in pairs(repairedKeybinds) do
+			local bind = KeyBinds:FindFirstChild(action)
+			if bind then
+				bind.Value = keyName
 			end
 		end
+		data.KeyBinds = repairedKeybinds
 		
 
 		-- Load inventory
