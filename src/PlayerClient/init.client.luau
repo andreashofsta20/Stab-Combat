@@ -1,1 +1,1 @@
-require(script.Parent:WaitForChild("Modules"):WaitForChild("HandleGameUI"))
+require(script:WaitForChild("Modules"):WaitForChild("HandleGameUI"))

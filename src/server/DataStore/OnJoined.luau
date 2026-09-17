@@ -3,6 +3,8 @@ local RS = game:GetService("ReplicatedStorage")
 
 local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameClient"):WaitForChild("PlayerResetted")
 
+
+
 local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
 local test = require(script.Parent:WaitForChild("InventoryHandler"))
 local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
@@ -19,6 +21,13 @@ end
 
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function()
+		task.delay(1, function()
+			local character = player.Character
+			local forceField = character and character:FindFirstChildOfClass("ForceField")
+			if forceField then
+				forceField:Destroy()
+			end
+		end)
 
 		if MainGameModule.GameActive then
 			PlayerResettedRemote:FireClient(player)

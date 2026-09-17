@@ -18,6 +18,9 @@ local battleRoyaleTemplate = templates:WaitForChild("BR"):WaitForChild("PlayerTe
 local gameActive = ReplicatedStorage:WaitForChild("GameActive")
 local spectateFrame = playerGui:WaitForChild("Main"):WaitForChild("SpectateFrame")
 
+
+local TopOtherButtons = playerGui:WaitForChild("Main"):WaitForChild("Top"):WaitForChild("Buttons")
+
 local GOLD = Color3.fromRGB(253, 194, 46)
 
 local function getMode()
@@ -68,12 +71,10 @@ local function styleRow(row, player, mode)
 
 	local isLocalPlayer = player == localPlayer
 	row.PlayerKills.TextColor3 = isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255)
-	local strokeColor = dead and Color3.fromRGB(255, 70, 70) or (isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255))
-	for _, stroke in ipairs(row:GetDescendants()) do
-		if stroke:IsA("UIStroke") then
-			stroke.Color = strokeColor
-			stroke.Transparency = dead and 0.5 or 0
-		end
+	local stroke = row:FindFirstChild("UiStroke", true)
+	if stroke then
+		stroke.Color = dead and Color3.fromRGB(255, 70, 70) or (isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255))
+		stroke.Transparency = dead and 0.5 or 0
 	end
 
 	setOptionalVisible(row, "DeadImg", dead)
@@ -118,9 +119,11 @@ end
 
 local function update()
 	local mode = getMode()
+	local isInRound = localPlayer:GetAttribute("InRound") == true
+	TopOtherButtons.Visible = not (gameActive.Value and (isInRound or spectateFrame.Visible))
 	local shouldShow = gameActive.Value
 		and mode ~= nil
-		and (localPlayer:GetAttribute("InRound") == true or spectateFrame.Visible)
+		and (isInRound or spectateFrame.Visible)
 
 	if not shouldShow then
 		hide()
@@ -141,6 +144,7 @@ end
 gameActive.Changed:Connect(update)
 ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RoundCountdown").OnClientEvent:Connect(function(phase)
 	if phase == "roundover" then
+		TopOtherButtons.Visible = true
 		hide()
 	end
 end)
