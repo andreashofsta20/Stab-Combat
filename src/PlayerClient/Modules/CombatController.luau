@@ -185,6 +185,45 @@ local function addTrail(part)
     return frontAttachment, backAttachment
 end
 
+local function createKnifeVisual(origin: Vector3, direction: Vector3, charge: number, shotId: string, knifeName: string?, destination: Vector3?)
+    local knivesFolder = ReplicatedStorage:FindFirstChild("Knives")
+    local leaderstats = player:FindFirstChild("leaderstats")
+    local equippedKnifeValue = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
+    local equippedKnife = knifeName or (equippedKnifeValue and equippedKnifeValue.Value)
+    local template = equippedKnife and knivesFolder and knivesFolder:FindFirstChild(equippedKnife)
+    local source = template and template:FindFirstChild("Handle")
+    if not source or not source:IsA("BasePart") then return end
+
+    local visualOrigin = origin + direction * VISUAL_OFFSET
+    local handle = source:Clone()
+    handle.CanCollide = false
+    handle.CanQuery = false
+    handle.Massless = true
+    handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + direction)
+    handle.Parent = workspace
+    addTrail(handle)
+
+    local target = destination or (visualOrigin + direction * ProjectileMath.MAX_DISTANCE)
+    local distance = (target - visualOrigin).Magnitude
+    local speed = destination and math.max(distance / 0.08, ProjectileMath.GetSpeed(charge)) or ProjectileMath.GetSpeed(charge)
+    local startTime = os.clock()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local elapsed = os.clock() - startTime
+        local progress = math.clamp(speed * elapsed / distance, 0, 1)
+        local currentPosition = visualOrigin + direction * math.min(distance, speed * elapsed)
+        handle.CFrame = CFrame.lookAt(currentPosition, currentPosition + direction)
+        if progress >= 1 then
+            connection:Disconnect()
+            predictedShots[shotId] = nil
+            Debris:AddItem(handle, 2)
+        end
+    end)
+
+    Debris:AddItem(handle, LIFETIME)
+    predictedShots[shotId] = {handle = handle, connection = connection}
+end
+
 local function stickKnife(knife, hitPart, pos, normal)
     knife.Anchored = true
     knife.CFrame = CFrame.new(pos, pos + normal) * CFrame.Angles(math.rad(90), 0, 0)
@@ -524,6 +563,16 @@ function CombatController.Init()
             end
         end)
     end)
+    CollectionService:GetInstanceAddedSignal("ServerKnifeVisual"):Connect(function(handle)
+        handle.Transparency = 1
+        for _, desc in ipairs(handle:GetDescendants()) do
+            if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
+                desc.Enabled = false
+            elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
+                desc.Transparency = 1
+            end
+        end
+    end)
 
     player.CharacterAdded:Connect(onCharacterAdded)
     if player.Character then
@@ -533,6 +582,15 @@ function CombatController.Init()
     ThrewKnifeClient.OnClientEvent:Connect(function(result)
         uiAnimation()
         if typeof(result) ~= "table" or not result.shotId then return end
+        if result.visualOnly then
+            if result.shooterUserId ~= player.UserId
+                and typeof(result.origin) == "Vector3"
+                and typeof(result.direction) == "Vector3"
+                and typeof(result.charge) == "number" then
+                createKnifeVisual(result.origin, result.direction.Unit, result.charge, result.shotId, result.knifeName, result.destination)
+            end
+            return
+        end
         local prediction = predictedShots[result.shotId]
         if not prediction then return end
         if prediction.connection then prediction.connection:Disconnect() end

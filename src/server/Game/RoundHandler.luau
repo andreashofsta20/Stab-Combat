@@ -123,8 +123,8 @@ function RoundHandler.StartVoting()
 	end
 
 	local modes = GameModes.GetAll()
-	for index, mapData in ipairs(mapsToVoteOn) do
-		local mode = modes[((index - 1) % #modes) + 1]
+	for _, mapData in ipairs(mapsToVoteOn) do
+		local mode = modes[math.random(1, #modes)]
 		local option = {
 			Id = string.format("%s:%s", mapData.Name, mode.Id),
 			Name = mapData.Name,

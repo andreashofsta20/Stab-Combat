@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
 local HITBOX_TAG = "PlayerHitbox"
-local HITBOX_SIZE = Vector3.new(5, 7, 4) -- Width, Height, Depth
+local HITBOX_SIZE = Vector3.new(6, 7.5, 6) -- Width, Height, Depth
 local HEAL_INTERVAL = 3 -- seconds between self-heal checks
 
 local activeHitboxes: {[number]: BasePart} = {}

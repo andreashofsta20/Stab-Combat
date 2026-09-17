@@ -88,6 +88,10 @@ Players.PlayerAdded:Connect(function(player)
 	MusicSetting.Name = "Music"
 	MusicSetting.Parent = Settings
 
+	local DaySetting = Instance.new("BoolValue")
+	DaySetting.Name = "Day"
+	DaySetting.Parent = Settings
+
 	local LobbySetting = Instance.new("BoolValue")
 	LobbySetting.Name = "LobbyMode"
 	LobbySetting.Parent = Settings
@@ -173,6 +177,12 @@ Players.PlayerAdded:Connect(function(player)
 				MusicSetting.Value = true
 			end
 
+			if data.Settings.DaySetting ~= nil then
+				DaySetting.Value = data.Settings.DaySetting
+			else
+				DaySetting.Value = true
+			end
+
 			if data.Settings.LobbySetting ~= nil then
 				LobbySetting.Value = data.Settings.LobbySetting
 			else
@@ -192,6 +202,7 @@ Players.PlayerAdded:Connect(function(player)
 			end
 		else
 			MusicSetting.Value = true
+			DaySetting.Value = true
 			LobbySetting.Value = false
 			Notifications.Value = true
 			Trades.Value = true

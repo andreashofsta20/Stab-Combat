@@ -13,6 +13,8 @@ local ResultRemote = KnifeRemotes.ThrewClient
 local DamageRemote = KnifeRemotes.DamageDealtClient
 local Knives = ReplicatedStorage:WaitForChild("Knives")
 
+local VISUAL_OFFSET = 0.8
+
 local activeShots: {[number]: {[string]: boolean}} = {}
 local lastShot: {[number]: number} = {}
 
@@ -25,17 +27,93 @@ local function finiteId(id: any): boolean
 end
 
 local function addTrail(part: BasePart)
-	local a0 = Instance.new("Attachment")
-	a0.Position = Vector3.new(0, 0, 0.5)
-	a0.Parent = part
-	local a1 = Instance.new("Attachment")
-	a1.Position = Vector3.new(0, 0, -0.5)
-	a1.Parent = part
-	local trail = Instance.new("Trail")
-	trail.Attachment0, trail.Attachment1 = a0, a1
-	trail.Lifetime, trail.FaceCamera, trail.LightEmission = 0.25, true, 1
-	trail.Color = ColorSequence.new(Color3.fromRGB(255, 210, 40))
-	trail.Parent = part
+	local frontAttachment = Instance.new("Attachment", part)
+	local backAttachment = Instance.new("Attachment", part)
+	frontAttachment.Position = Vector3.new(0, 0, 0.5)
+	backAttachment.Position = Vector3.new(0, 0, -0.5)
+
+	local mainTrail = Instance.new("Trail")
+	mainTrail.Attachment0 = frontAttachment
+	mainTrail.Attachment1 = backAttachment
+	mainTrail.Lifetime = 0.3
+	mainTrail.MinLength = 0
+	mainTrail.FaceCamera = true
+	mainTrail.LightEmission = 1
+	mainTrail.LightInfluence = 0
+	mainTrail.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.3, Color3.fromRGB(0, 162, 255)),
+		ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 64, 64)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+	}
+	mainTrail.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.5, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	}
+	mainTrail.WidthScale = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.5, 0.4),
+		NumberSequenceKeypoint.new(1, 0.1),
+	}
+	mainTrail.Parent = part
+
+	local secondaryTrail = Instance.new("Trail")
+	secondaryTrail.Attachment0 = frontAttachment
+	secondaryTrail.Attachment1 = backAttachment
+	secondaryTrail.Lifetime = 0.15
+	secondaryTrail.MinLength = 0
+	secondaryTrail.FaceCamera = true
+	secondaryTrail.LightEmission = 0.8
+	secondaryTrail.LightInfluence = 0.2
+	secondaryTrail.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 128, 0)),
+	}
+	secondaryTrail.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	}
+	secondaryTrail.WidthScale = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.5, 0.2),
+		NumberSequenceKeypoint.new(1, 0.05),
+	}
+	secondaryTrail.Parent = part
+
+	local particles = Instance.new("Attachment", part)
+	particles.Position = Vector3.new(0, 0, -0.3)
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Parent = particles
+	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparks.Lifetime = NumberRange.new(0.1, 0.3)
+	sparks.Rate = 100
+	sparks.SpreadAngle = Vector2.new(45, 45)
+	sparks.Speed = NumberRange.new(2, 8)
+	sparks.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 200, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0)),
+	}
+	sparks.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.8, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	}
+	sparks.Size = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.5, 0.05),
+		NumberSequenceKeypoint.new(1, 0.01),
+	}
+	sparks.LightEmission = 1
+	sparks.LightInfluence = 0
+
+	task.delay(0.5, function()
+		sparks.Enabled = false
+		Debris:AddItem(sparks, 2)
+	end)
 end
 
 local function stickKnife(knife: BasePart, hitPart: BasePart?, position: Vector3, normal: Vector3)
@@ -61,23 +139,37 @@ local function spawnVisual(player: Player, origin: Vector3, direction: Vector3, 
 	knife.Parent = workspace
 	knife:SetNetworkOwner(nil)
 	CollectionService:AddTag(knife, "ServerKnife_" .. player.UserId)
+	CollectionService:AddTag(knife, "ServerKnifeVisual")
 	addTrail(knife)
 
-	local destination = hit and hit.position or Projectile.GetPosition(origin, direction, Projectile.MAX_FLIGHT_TIME, charge)
-	local distance = (destination - origin).Magnitude
+	local visualOrigin = origin + direction * VISUAL_OFFSET
+	local destination = Projectile.GetPosition(origin, direction, Projectile.MAX_FLIGHT_TIME, charge)
+	local hitResult = nil
 	local start = os.clock()
 	local connection
 	connection = RunService.Heartbeat:Connect(function()
 		local elapsed = os.clock() - start
+		local distance = (destination - visualOrigin).Magnitude
 		local alpha = distance > 0 and math.clamp(Projectile.GetSpeed(charge) * elapsed / distance, 0, 1) or 1
-		local position = origin:Lerp(destination, alpha)
+		local position = visualOrigin:Lerp(destination, alpha)
 		knife.CFrame = CFrame.lookAt(position, position + direction)
 		if alpha >= 1 then
 			connection:Disconnect()
-			if hit then stickKnife(knife, hit.part, hit.position, hit.normal) else Debris:AddItem(knife, 2) end
+			if hitResult then
+				stickKnife(knife, hitResult.part, hitResult.position, hitResult.normal)
+			else
+				Debris:AddItem(knife, 2)
+			end
 		end
 	end)
 	Debris:AddItem(knife, Projectile.MAX_FLIGHT_TIME + 3)
+
+	return function(finalHit)
+		hitResult = finalHit
+		if finalHit then
+			destination = finalHit.position
+		end
+	end
 end
 
 function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direction: Vector3, charge: number)
@@ -124,6 +216,9 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {character}
+	local finishVisual = spawnVisual(player, origin, direction, charge, shotId, nil)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local equippedKnife = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
 	local position, elapsed = origin, 0
 	local hit
 	while elapsed < Projectile.MAX_FLIGHT_TIME do
@@ -148,7 +243,20 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 	local result = {shotId = shotId, accepted = true, hit = hit and true or false,
 		position = hit and hit.position or position, normal = hit and hit.normal or nil}
 	ResultRemote:FireClient(player, result)
-	spawnVisual(player, origin, direction, charge, shotId, hit)
+	ResultRemote:FireAllClients({
+		visualOnly = true,
+		shotId = shotId,
+		shooterUserId = player.UserId,
+		knifeName = equippedKnife and equippedKnife.Value,
+		origin = origin,
+		direction = direction,
+		charge = charge,
+		destination = result.position,
+		normal = result.normal,
+	})
+	if finishVisual then
+		finishVisual(hit)
+	end
 end
 
 Players.PlayerRemoving:Connect(function(player)

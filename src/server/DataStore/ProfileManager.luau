@@ -32,6 +32,7 @@ local PROFILE_TEMPLATE = {
 	EquippedKnife = "Shadow Dagger",
 	Settings = {
 		MusicSetting = true,
+		DaySetting = true,
 		LobbySetting = false,
 		Notifications = true,
 		Trades = true,
@@ -78,12 +79,14 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 	if settingsFolder then
 		data.Settings = {
 			MusicSetting = settingsFolder:FindFirstChild("Music") and settingsFolder.Music.Value,
+			DaySetting = settingsFolder:FindFirstChild("Day") and settingsFolder.Day.Value,
 			LobbySetting = settingsFolder:FindFirstChild("LobbyMode") and settingsFolder.LobbyMode.Value,
 			Notifications = settingsFolder:FindFirstChild("Notifications") and settingsFolder.Notifications.Value,
 			Trades = settingsFolder:FindFirstChild("Trades") and settingsFolder.Trades.Value,
 		}
 		-- Nil guard for settings (defaults)
 		if data.Settings.MusicSetting == nil then data.Settings.MusicSetting = true end
+		if data.Settings.DaySetting == nil then data.Settings.DaySetting = true end
 		if data.Settings.LobbySetting == nil then data.Settings.LobbySetting = false end
 		if data.Settings.Notifications == nil then data.Settings.Notifications = true end
 		if data.Settings.Trades == nil then data.Settings.Trades = true end

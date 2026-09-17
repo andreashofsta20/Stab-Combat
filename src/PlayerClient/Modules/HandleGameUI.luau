@@ -71,7 +71,7 @@ local function styleRow(row, player, mode)
 
 	local isLocalPlayer = player == localPlayer
 	row.PlayerKills.TextColor3 = isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255)
-	local stroke = row:FindFirstChild("UiStroke", true)
+	local stroke = row:FindFirstChildWhichIsA("UIStroke", true)
 	if stroke then
 		stroke.Color = dead and Color3.fromRGB(255, 70, 70) or (isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255))
 		stroke.Transparency = dead and 0.5 or 0
