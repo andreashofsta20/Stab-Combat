@@ -92,8 +92,10 @@ local function AddPlayerToList(player : Player)
 
 	XP:GetPropertyChangedSignal("Value"):Connect(function()
 		local newLevel = GetLevel.GetLevel(XP.Value)
-		if PlayerListFrame:FindFirstChild(player.Name) then
-			PlayerListFrame[player.Name].Level.Text = tostring(newLevel)
+		local playerRow = PlayerList:FindFirstChild(player.Name)
+		if playerRow then
+			playerRow.Level.Text = tostring(newLevel)
+			playerRow.LayoutOrder = -newLevel
 		end
 	end)
 

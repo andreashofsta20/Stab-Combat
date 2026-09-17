@@ -44,7 +44,15 @@ local function ApplySetting(player: Player, settingname: string)
 
     -- FIXED: Lobby Mode block logic
     if settingname == "LobbyMode" then
-        if MainGameModule.PlayersInGame[player.UserId] then
+        local isInRound = MainGameModule.PlayersInGame[player.UserId] == true
+        local isActiveFFA = MainGameModule.GameActive
+            and MainGameModule.CurrentMode
+            and MainGameModule.CurrentMode.Id == "FFA"
+        local isActiveBattleRoyale = MainGameModule.GameActive
+            and MainGameModule.CurrentMode
+            and MainGameModule.CurrentMode.Id == "BattleRoyale"
+
+        if isInRound and not (isActiveFFA or isActiveBattleRoyale) then
             NotificationHandler.SendNotification(player, "You can't change Lobby Mode while in a game!", 2, "Alert")
             return
         end
@@ -57,6 +65,14 @@ local function ApplySetting(player: Player, settingname: string)
 
     setting.Value = not setting.Value
     SettingApplied(player, settingname, setting.Value)
+
+    if settingname == "LobbyMode"
+        and setting.Value == true
+        and MainGameModule.GameActive
+        and MainGameModule.CurrentMode
+        and MainGameModule.CurrentMode.Id == "FFA" then
+        MainGameModule.LeaveRound(player)
+    end
 end
 
 -- // REMOTE CONNECTION // --

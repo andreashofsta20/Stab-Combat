@@ -5,11 +5,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
-local inGameGui = playerGui:WaitForChild("Main"):WaitForChild("InGame")
-local battleRoyaleUI = inGameGui:WaitForChild("BR")
-local ffaUI = inGameGui:WaitForChild("FFA")
-local battleRoyaleList = battleRoyaleUI:WaitForChild("Top"):WaitForChild("PlayerList")
-local ffaList = ffaUI:WaitForChild("Top"):WaitForChild("PlayerList")
+local inGameGui = playerGui:WaitForChild("Main"):WaitForChild("Ingame")
+local battleRoyaleUI = inGameGui:WaitForChild("BR"):WaitForChild("Top")
+local ffaUI = inGameGui:WaitForChild("FFA"):WaitForChild("Top")
+local battleRoyaleList = battleRoyaleUI:WaitForChild("PlayerList")
+local ffaList = ffaUI:WaitForChild("PlayerList")
 
 local templates = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("InGameUITemplates")
 local ffaTemplate = templates:WaitForChild("FFA"):WaitForChild("PlayerTemplate")
@@ -68,10 +68,12 @@ local function styleRow(row, player, mode)
 
 	local isLocalPlayer = player == localPlayer
 	row.PlayerKills.TextColor3 = isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255)
-	local stroke = row:FindFirstChild("UiStroke")
-	if stroke then
-		stroke.Color = isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255)
-		stroke.Transparency = dead and 0.5 or 0
+	local strokeColor = dead and Color3.fromRGB(255, 70, 70) or (isLocalPlayer and GOLD or Color3.fromRGB(255, 255, 255))
+	for _, stroke in ipairs(row:GetDescendants()) do
+		if stroke:IsA("UIStroke") then
+			stroke.Color = strokeColor
+			stroke.Transparency = dead and 0.5 or 0
+		end
 	end
 
 	setOptionalVisible(row, "DeadImg", dead)

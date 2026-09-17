@@ -17,7 +17,7 @@ Modes.FFA = {
 	Respawns = true,
 	EliminationEndsRound = false,
 	HasTimer = true,
-	ZoneRequired = true,
+	ZoneRequired = false,
 } :: ModeDefinition
 
 Modes.BattleRoyale = {

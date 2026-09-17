@@ -50,6 +50,18 @@ local function CountPlayersInGame()
     return n
 end
 
+local function RespawnAtLobby(player: Player)
+    if not player or not player.Parent then return end
+
+    player:LoadCharacter()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
+    if hrp and spawnPoint then
+        hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
+    end
+end
+
 local function InitRoundStats()
     local playersStats = {}
     for userId in pairs(MainGame.PlayersInGame) do
@@ -156,6 +168,10 @@ local function SaveLastRound(player: Player, opponents: number, kills: number, p
     while #data.RoundHistory > RoundHistoryMax do
         table.remove(data.RoundHistory)
     end
+        task.spawn(function()
+            task.wait(1.5)
+            RespawnAtLobby(player)
+        end)
 
     player:SetAttribute("LastRoundOpponents", opponents)
     player:SetAttribute("LastRoundKills", kills)
@@ -363,16 +379,31 @@ function MainGame.OnDeath(player: Player)
     MainGame.PlayersInGame[userId] = nil
     player:SetAttribute("InRound", false)
     ZoneHandler.NotifyPlayer(player, false)
-    
+
+    task.spawn(function()
+        task.wait(1.5)
+        RespawnAtLobby(player)
+    end)
+end
+
+function MainGame.LeaveRound(player: Player)
+    if not player or not MainGame.GameActive or not MainGame.PlayersInGame[player.UserId] then
+        return
+    end
+
+    MainGame.PlayersInGame[player.UserId] = nil
+    pendingKills[player.UserId] = nil
+    deathLocks[player.UserId] = nil
+    player:SetAttribute("InRound", false)
+    player:SetAttribute("CurrentRoundParticipant", false)
+    ZoneHandler.NotifyPlayer(player, false)
+
     local character = player.Character
-    if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
-            if spawnPoint then
-                task.wait(2)
-                hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
-            end
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
+        if spawnPoint then
+            hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
         end
     end
 end
@@ -427,6 +458,7 @@ function MainGame.StartGame(map, modeId: string?)
         player:SetAttribute("LastRoundGold", 0)
         player:SetAttribute("LastRoundXP", 0)
         player:SetAttribute("InRound", false)
+        player:SetAttribute("CurrentRoundParticipant", false)
         
         -- NEW: Ensure spectate UI resets to 0 at the start of every game
         player:SetAttribute("CurrentRoundKills", 0)
@@ -460,6 +492,7 @@ function MainGame.StartGame(map, modeId: string?)
             local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
             if lobbyMode and lobbyMode.Value == false then
                 MainGame.PlayersInGame[player.UserId] = true
+                player:SetAttribute("CurrentRoundParticipant", true)
                 player:SetAttribute("InRound", true)
             end
         end
@@ -572,17 +605,6 @@ function MainGame.StartGame(map, modeId: string?)
         end
     end
 
-    for odUserId in pairs(MainGame.PlayersInGame) do
-        local player = Players:GetPlayerByUserId(odUserId)
-        if player and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):WaitForChild(tostring(math.random(1, 4)))
-                hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
-            end
-        end
-    end
-
     task.wait(0.5)
     HealAllPlayers()
     MainGame.WipeTools()
@@ -597,10 +619,7 @@ function MainGame.StartGame(map, modeId: string?)
 
     Players.CharacterAutoLoads = true
     for _, p in pairs(Players:GetPlayers()) do
-        local humanoid = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-        if not humanoid or humanoid.Health <= 0 then
-            p:LoadCharacter()
-        end
+        task.spawn(RespawnAtLobby, p)
         p:SetAttribute("InRound", false)
         p:SetAttribute("CurrentRoundKills", 0) -- Clear attribute for lobby
         p:SetAttribute("CurrentRoundMode", nil)
