@@ -427,6 +427,7 @@ function MainGame.StartGame(map, modeId: string?)
         player:SetAttribute("LastRoundGold", 0)
         player:SetAttribute("LastRoundXP", 0)
         player:SetAttribute("InRound", false)
+        player:SetAttribute("CurrentRoundParticipant", false)
         
         -- NEW: Ensure spectate UI resets to 0 at the start of every game
         player:SetAttribute("CurrentRoundKills", 0)
@@ -461,6 +462,7 @@ function MainGame.StartGame(map, modeId: string?)
             if lobbyMode and lobbyMode.Value == false then
                 MainGame.PlayersInGame[player.UserId] = true
                 player:SetAttribute("InRound", true)
+                player:SetAttribute("CurrentRoundParticipant", true)
             end
         end
     end
@@ -602,6 +604,7 @@ function MainGame.StartGame(map, modeId: string?)
             p:LoadCharacter()
         end
         p:SetAttribute("InRound", false)
+        p:SetAttribute("CurrentRoundParticipant", false)
         p:SetAttribute("CurrentRoundKills", 0) -- Clear attribute for lobby
         p:SetAttribute("CurrentRoundMode", nil)
     end
