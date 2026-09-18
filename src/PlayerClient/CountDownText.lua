@@ -11,6 +11,8 @@ local StartingText = CountdownTextsFolder:WaitForChild("Starting")
 local AttackText = CountdownTextsFolder:WaitForChild("Attack")
 local RoundOverText = CountdownTextsFolder:WaitForChild("Results")
 
+local SoundHandlerModule = require(script.Parent:WaitForChild("Modules"):WaitForChild("SoundHandler"))
+
 local RoundCountdownRemote = RemotesFolder:WaitForChild("RoundCountdown")
 
 -- State tracking variables
@@ -68,6 +70,10 @@ local function preCountdown(seconds, fadeAtSeconds)
 
     for i = seconds - 1, 1, -1 do
         StartingText.Text = "ROUND BEGINS IN " .. tostring(i)
+
+        if i > 3 then
+            SoundHandlerModule.PlaySound("NormalTick")
+        end
 
         if i <= fadeAtSeconds then
             local slideOff = TweenService:Create(StartingText, TweenInfo.new(1.6, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
@@ -129,8 +135,14 @@ local function roundOverAnimation()
 end
 
 local function fightCountdown()
-    for _, v in ipairs({"3", "2", "1"}) do
-        AttackText.Text = v
+    local countdownNumbers = {"3", "2", "1"}
+    local countdownSounds = {"3sec", "2sec", "1sec"}
+
+    for index, textValue in ipairs(countdownNumbers) do
+        -- Play the corresponding sound for 3, 2, 1
+        SoundHandlerModule.PlaySound(countdownSounds[index])
+        
+        AttackText.Text = textValue
         AttackText.Size = UDim2.new(0.4, 0, 0.2, 0)
         AttackText.Rotation = math.random(-30, 30)
         AttackText.Visible = true
@@ -158,6 +170,9 @@ local function fightCountdown()
         task.wait(0.1)
     end
 
+    -- Play the final Fight sound
+    SoundHandlerModule.PlaySound("Fight")
+    
     AttackText.Text = "FIGHT"
     AttackText.Size = UDim2.new(1, 0, 1, 0)
     AttackText.Rotation = -20
@@ -188,7 +203,7 @@ local function fightCountdown()
 end
 
 RoundCountdownRemote.OnClientEvent:Connect(function(phase, ...)
-    resetUI() -- Critical: Clears old backlogged animations before starting a new one!
+    resetUI() 
 
     if phase == "pre" then
         local seconds, fadeAt = ...

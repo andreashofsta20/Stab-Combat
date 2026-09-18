@@ -17,6 +17,12 @@ SoundHandler.Sounds = {
 	["StabKnife"] = SoundsFolder:WaitForChild("Stab"),
 	["ThrowKnife"] = SoundsFolder:WaitForChild("ThrowKnife"),
 	["Kill"] = SoundsFolder:WaitForChild("EliminatedPlayer"),
+	["NormalTick"] = SoundsFolder:WaitForChild("NormalTick"),
+	["3sec"] = SoundsFolder:WaitForChild("sec3"),
+	["2sec"] = SoundsFolder:WaitForChild("sec2"),
+	["1sec"] = SoundsFolder:WaitForChild("sec1"),
+	["Fight"] = SoundsFolder:WaitForChild("FightSound"),	
+	["CaseOpen"] = SoundsFolder:WaitForChild("SpinSoundAnimation"),
 	
 	
 	

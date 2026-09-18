@@ -17,6 +17,7 @@ local RarityColorModule = require(ReplicatedStorage:WaitForChild("Modules"):Wait
 local RandomItem = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RandomItems"))
 local KnivesInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local ProductINFO = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProductIDS"))
+local SoundHandlerModule = require(script.Parent:WaitForChild("Modules"):WaitForChild("SoundHandler"))
 
 
 local EmotesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Emotes"))
@@ -548,6 +549,7 @@ OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails : SharedTable, dur
 	
 	
 	local tween = TweenService:Create(FRAMETOMOVEPOSITION, tweenInfo, {Position = tweenGoal})
+	SoundHandlerModule.PlaySound("CaseOpen")
 	tween:Play()
 	task.spawn(function()
 		if hasskip then
