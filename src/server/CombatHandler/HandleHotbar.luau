@@ -50,8 +50,29 @@ local function EquipKnife(player : Player)
 			return
 		end
 	end
-	
 end
+
+
+local function EquipGun(player : Player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+	local EquippedGun = leaderstats:FindFirstChild("EquippedKnife")
+
+	if leaderstats and EquippedGun then
+		local Gun = KnivesFolder:FindFirstChild(EquippedGun.Value)
+		if Gun then
+			local GunClone = Gun:Clone()
+			UnequipOtherTools(player)
+			GunClone.Parent = player.Character
+			NotifyClient(player, "Gun", true)
+			return
+		end
+	end
+end
+
+
+
+
 
 
 local equipCooldowns: {[number]: number} = {}
@@ -87,6 +108,16 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 		
 		EquipKnife(player)
 		return
+	end
+	
+	
+	if category == "Revolver" then
+		if CheckIfEquipped(player) then
+			UnequipOtherTools(player)
+			return
+		end
+		
+		EquipGun(player)
 	end
 	
 	
