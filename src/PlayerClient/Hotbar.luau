@@ -15,6 +15,7 @@ local Backpack = Player.Backpack
 
 local leaderstats = Player:WaitForChild("leaderstats")
 local EquippedKnife = leaderstats:WaitForChild("EquippedKnife")
+local EquippedGun = leaderstats:WaitForChild("EquippedGun")
 
 -- // PLAYERGUI // --
 local PlayerGui = Player.PlayerGui
@@ -35,6 +36,7 @@ local EquippedClient = HotBarRemots:WaitForChild("EquippedClient")
 
 -- // MODULES // --
 local KnivesModule = require(RS:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
+local GunsModule = require(RS:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
 local KeybindValidation = require(RS:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
 
 
@@ -48,6 +50,8 @@ local KeyBindsFolder = leaderstats:WaitForChild("KeyBinds")
 local Slot1Keybind
 local Slot2Keybind
 local Slot3Keybind
+local lastEquipInput = 0
+local EQUIP_INPUT_COOLDOWN = 0.05
 
 
 
@@ -122,6 +126,23 @@ local function SetKnifeEquippedUI(equipped)
 	end
 end
 
+local function SetGunEquippedUI(equipped)
+	local gunSlot = HotbarFrame:WaitForChild("2")
+	local slotSelected = gunSlot:WaitForChild("SlotSelected")
+	slotSelected.Visible = equipped
+	if equipped then
+		SoundHandlerModule.PlaySound("EquipKnife")
+	end
+
+	if equipped then
+		TweenSize(gunSlot, UDim2.new(0.081, 5, 1.054, 5))
+		gunSlot.BackgroundColor3 = Color3.fromHex("#121518")
+	else
+		TweenSize(gunSlot, UDim2.new(0.077, 5, 1, 5))
+		gunSlot.BackgroundColor3 = Color3.fromRGB(27, 31, 35)
+	end
+end
+
 
 local function EquipKnife(SlotEquipped)
 	ServerRemote:FireServer("Knife")
@@ -138,6 +159,7 @@ local function EquipTool(SlotEquipped)
 	end
 	
 	if SlotEquipped == 2 then
+		ServerRemote:FireServer("Revolver")
 		return
 	end
 	
@@ -148,14 +170,18 @@ end
 
 
 UserInputService.InputBegan:Connect(function(key, GameProceed)
-	
+	local now = os.clock()
+	if now - lastEquipInput < EQUIP_INPUT_COOLDOWN then return end
 
 	if key.UserInputType == Enum.UserInputType.Keyboard then
 		if key.KeyCode == Slot1Keybind then
+			lastEquipInput = now
 			EquipTool(1)
 		elseif key.KeyCode == Slot2Keybind then
+			lastEquipInput = now
 			EquipTool(2)
 		elseif key.KeyCode == Slot3Keybind then
+			lastEquipInput = now
 			EquipTool(3)
 		end
 	end
@@ -192,9 +218,16 @@ local function RefreshHotBar()
 	local EquippedKnife = leaderstats:WaitForChild("EquippedKnife")
 	
 	local KnifeInfo = KnivesModule[EquippedKnife.Value]
+	local GunInfo = GunsModule[EquippedGun.Value]
 	
 	if KnifeInfo then
 		HotbarFrame:WaitForChild("1").SlotImage.Image = KnifeInfo.Image
+	end
+
+	local revolvers = RS:FindFirstChild("Revolvers")
+	local gun = revolvers and revolvers:FindFirstChild(EquippedGun.Value)
+	if gun and gun:IsA("Tool") then
+		HotbarFrame:WaitForChild("2").SlotImage.Image = GunInfo.Image
 	end
 	
 	
@@ -205,8 +238,10 @@ end
 EquippedClient.OnClientEvent:Connect(function(action, EquippedOrNot)
 	if action == "Knife" then
 		SetKnifeEquippedUI(EquippedOrNot)
+	elseif action == "Gun" then
+		SetGunEquippedUI(EquippedOrNot)
 	else
-		print("no valid arguments")
+		return
 	end
 end)
 
@@ -214,15 +249,24 @@ end)
 local function HookCharacter(char)
 	Character = char
 	SetKnifeEquippedUI(false)
+	SetGunEquippedUI(false)
 
 	Character.ChildRemoved:Connect(function(child)
 		if child:IsA("Tool") then
-			SetKnifeEquippedUI(false)
+			if RS:FindFirstChild("Revolvers") and RS.Revolvers:FindFirstChild(child.Name) then
+				SetGunEquippedUI(false)
+			else
+				SetKnifeEquippedUI(false)
+			end
 		end
 	end)
 	Character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
-			SetKnifeEquippedUI(true)
+			if RS:FindFirstChild("Revolvers") and RS.Revolvers:FindFirstChild(child.Name) then
+				SetGunEquippedUI(true)
+			else
+				SetKnifeEquippedUI(true)
+			end
 		end
 	end)
 end
@@ -234,6 +278,7 @@ end
 
 
 EquippedKnife:GetPropertyChangedSignal("Value"):Connect(RefreshHotBar)
+EquippedGun:GetPropertyChangedSignal("Value"):Connect(RefreshHotBar)
 
 
 

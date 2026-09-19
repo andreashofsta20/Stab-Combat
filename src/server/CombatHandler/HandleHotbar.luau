@@ -14,6 +14,7 @@ local EquippedClient = HotBarRemotes:WaitForChild("EquippedClient")
 
 -- // Other // --
 local KnivesFolder = ServerStorage:WaitForChild("Knives")
+local RevolversFolder = ServerStorage:WaitForChild("Revolvers")
 
 
 local function NotifyClient(player : Player, action : string, equippedornot : boolean)
@@ -29,10 +30,22 @@ local function UnequipOtherTools(player : Player)
 	if not character then return end
 	for i , v in pairs(character:GetChildren()) do
 		if v:IsA("Tool") then
+			local action = RevolversFolder:FindFirstChild(v.Name) and "Gun" or "Knife"
 			v:Destroy()
-			NotifyClient(player, "Knife", false)
+			NotifyClient(player, action, false)
 		end
 	end
+end
+
+local function IsEquippedFrom(folder: Folder, player: Player)
+	local character = player.Character
+	if not character then return false end
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Tool") and folder:FindFirstChild(child.Name) then
+			return true
+		end
+	end
+	return false
 end
 
 local function EquipKnife(player : Player)
@@ -56,10 +69,12 @@ end
 local function EquipGun(player : Player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
-	local EquippedGun = leaderstats:FindFirstChild("EquippedKnife")
+	local EquippedGun = leaderstats:FindFirstChild("EquippedGun")
+	local revolverInventory = leaderstats:FindFirstChild("RevolverInventory")
 
-	if leaderstats and EquippedGun then
-		local Gun = KnivesFolder:FindFirstChild(EquippedGun.Value)
+	if EquippedGun and revolverInventory and EquippedGun.Value ~= ""
+		and revolverInventory:FindFirstChild(EquippedGun.Value) then
+		local Gun = RevolversFolder:FindFirstChild(EquippedGun.Value)
 		if Gun then
 			local GunClone = Gun:Clone()
 			UnequipOtherTools(player)
@@ -76,7 +91,7 @@ end
 
 
 local equipCooldowns: {[number]: number} = {}
-local EQUIP_COOLDOWN = 0.3
+local EQUIP_COOLDOWN = 0.1
 
 local function CheckIfEquipped(player : Player)
 	local character = player.Character
@@ -101,7 +116,7 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 	
 	
 	if category == "Knife" then
-		if CheckIfEquipped(player) then
+		if IsEquippedFrom(KnivesFolder, player) then
 			UnequipOtherTools(player)
 			return
 		end
@@ -112,12 +127,13 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 	
 	
 	if category == "Revolver" then
-		if CheckIfEquipped(player) then
+		if IsEquippedFrom(RevolversFolder, player) then
 			UnequipOtherTools(player)
 			return
 		end
-		
+
 		EquipGun(player)
+		return
 	end
 	
 	

@@ -30,14 +30,15 @@ local PROFILE_TEMPLATE = {
 	XP = 150,
 	Cash = 250,
 	EquippedKnife = "Shadow Dagger",
+	EquippedGun = "White&Black Revolver",
 	Settings = {
-		MusicSetting = true,
 		DaySetting = true,
 		LobbySetting = false,
 		Notifications = true,
 		Trades = true,
 	},
 	Inventory = {},
+	RevolverInventory = {},
 	Emotes = {},
 	KeyBinds = {},
 	DailyRewards = {
@@ -73,19 +74,18 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 	data.XP = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or data.XP
 	data.Cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or data.Cash
 	data.EquippedKnife = leaderstats:FindFirstChild("EquippedKnife") and leaderstats.EquippedKnife.Value or data.EquippedKnife
+	data.EquippedGun = leaderstats:FindFirstChild("EquippedGun") and leaderstats.EquippedGun.Value or data.EquippedGun
 
 	-- Settings
 	local settingsFolder = leaderstats:FindFirstChild("Settings")
 	if settingsFolder then
 		data.Settings = {
-			MusicSetting = settingsFolder:FindFirstChild("Music") and settingsFolder.Music.Value,
 			DaySetting = settingsFolder:FindFirstChild("Day") and settingsFolder.Day.Value,
 			LobbySetting = settingsFolder:FindFirstChild("LobbyMode") and settingsFolder.LobbyMode.Value,
 			Notifications = settingsFolder:FindFirstChild("Notifications") and settingsFolder.Notifications.Value,
 			Trades = settingsFolder:FindFirstChild("Trades") and settingsFolder.Trades.Value,
 		}
 		-- Nil guard for settings (defaults)
-		if data.Settings.MusicSetting == nil then data.Settings.MusicSetting = true end
 		if data.Settings.DaySetting == nil then data.Settings.DaySetting = true end
 		if data.Settings.LobbySetting == nil then data.Settings.LobbySetting = false end
 		if data.Settings.Notifications == nil then data.Settings.Notifications = true end
@@ -111,6 +111,22 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 		end
 	end
 	data.Inventory = inventoryData
+
+	local revolverInventoryFolder = leaderstats:FindFirstChild("RevolverInventory")
+	local revolverInventoryData = {}
+	if revolverInventoryFolder then
+		for _, revolver in pairs(revolverInventoryFolder:GetChildren()) do
+			local quantity = revolver:FindFirstChild("Quantity")
+			table.insert(revolverInventoryData, {
+				Name = revolver.Name,
+				Quantity = quantity and quantity.Value or 1,
+				Rarity = revolver:GetAttribute("Rarity") or "Common",
+				Image = revolver:GetAttribute("Image") or "",
+				Tradeable = revolver.Name ~= "White&Black Revolver" and revolver:GetAttribute("Tradeable") == true,
+			})
+		end
+	end
+	data.RevolverInventory = revolverInventoryData
 
 	-- Emotes
 	local emotesFolder = leaderstats:FindFirstChild("Emotes")
@@ -186,10 +202,11 @@ local function migrateOldData(profile: any, oldData: {[string]: any})
 	data.XP = oldData.XP or data.XP
 	data.Cash = oldData.Cash or data.Cash
 	data.EquippedKnife = oldData.EquippedKnife or data.EquippedKnife
+	data.EquippedGun = oldData.EquippedGun or data.EquippedGun
 
 	if type(oldData.Settings) == "table" then
 		data.Settings = {
-			MusicSetting = if oldData.Settings.MusicSetting ~= nil then oldData.Settings.MusicSetting else true,
+			DaySetting = if oldData.Settings.DaySetting ~= nil then oldData.Settings.DaySetting else true,
 			LobbySetting = if oldData.Settings.LobbySetting ~= nil then oldData.Settings.LobbySetting else false,
 			Notifications = if oldData.Settings.Notifications ~= nil then oldData.Settings.Notifications else true,
 			Trades = if oldData.Settings.Trades ~= nil then oldData.Settings.Trades else true,
@@ -198,6 +215,10 @@ local function migrateOldData(profile: any, oldData: {[string]: any})
 
 	if type(oldData.Inventory) == "table" then
 		data.Inventory = oldData.Inventory
+	end
+
+	if type(oldData.RevolverInventory) == "table" then
+		data.RevolverInventory = oldData.RevolverInventory
 	end
 
 	if type(oldData.Emotes) == "table" then

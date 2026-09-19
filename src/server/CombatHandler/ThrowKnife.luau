@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local MainGame = require(script.Parent.Parent.Game.MainGame)
 local PlayerHitbox = require(script.Parent.PlayerHitbox)
@@ -12,6 +13,7 @@ local KnifeRemotes = ReplicatedStorage.Remotes.Knife
 local ResultRemote = KnifeRemotes.ThrewClient
 local DamageRemote = KnifeRemotes.DamageDealtClient
 local Knives = ReplicatedStorage:WaitForChild("Knives")
+local ServerKnives = ServerStorage:WaitForChild("Knives")
 
 local VISUAL_OFFSET = 0.8
 
@@ -202,7 +204,15 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local head = character and character:FindFirstChild("Head")
-	local tool = character and character:FindFirstChildWhichIsA("Tool")
+	local tool
+	if character then
+		for _, child in ipairs(character:GetChildren()) do
+			if child:IsA("Tool") and ServerKnives:FindFirstChild(child.Name) then
+				tool = child
+				break
+			end
+		end
+	end
 	local physicalOrigin = (head and head.Position) or (root and root.Position)
 	if not humanoid or not physicalOrigin or not tool or humanoid.Health <= 0 then
 		reject(player, shotId)

@@ -16,6 +16,7 @@ local ReplicatedStorageModulesFolder = ReplicatedStorage:WaitForChild("Modules")
 
 -- // FUNCTIONS // --
 local ALLOWED_SETTINGS = {
+    Music = true,
     MusicSetting = true,
     Day = true,
     LobbySetting = true,

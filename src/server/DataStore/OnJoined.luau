@@ -13,6 +13,9 @@ local Leaderboards = require(script.Parent:WaitForChild("LeaderboardsHandler"))
 
 local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("DefaultKeybinds"))
 local KeybindValidation = require(RS:WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
+local RevolversInfo = require(RS:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
+
+local DEFAULT_REVOLVER = "White&Black Revolver"
 
 -- Backward-compatible wrapper so other modules can still call OnJoined.SavePlayerData(player)
 local function savePlayerData(player)
@@ -72,6 +75,10 @@ Players.PlayerAdded:Connect(function(player)
 	EquippedKnife.Name = "EquippedKnife"
 	EquippedKnife.Parent = leaderstats
 
+	local EquippedGun = Instance.new("StringValue")
+	EquippedGun.Name = "EquippedGun"
+	EquippedGun.Parent = leaderstats
+
 	local Cash = Instance.new("IntValue")
 	Cash.Name = "Cash"
 	Cash.Parent = leaderstats
@@ -80,12 +87,17 @@ Players.PlayerAdded:Connect(function(player)
 	PlayersInventory.Name = "Inventory"
 	PlayersInventory.Parent = leaderstats
 
+	local RevolverInventory = Instance.new("Folder")
+	RevolverInventory.Name = "RevolverInventory"
+	RevolverInventory.Parent = leaderstats
+
 	local Settings = Instance.new("Folder")
 	Settings.Name = "Settings"
 	Settings.Parent = leaderstats
 
 	local MusicSetting = Instance.new("BoolValue")
 	MusicSetting.Name = "Music"
+	MusicSetting.Value = true
 	MusicSetting.Parent = Settings
 
 	local DaySetting = Instance.new("BoolValue")
@@ -157,6 +169,7 @@ Players.PlayerAdded:Connect(function(player)
 		Wins.Value = data.Wins or 0
 		WinStreak.Value = data.WinStreak or 0
 		EquippedKnife.Value = data.EquippedKnife or "Shadow Dagger"
+		EquippedGun.Value = data.EquippedGun or DEFAULT_REVOLVER
 
 		local vipExpiresAt = 0
 		if data.VIP and type(data.VIP) == "table" then
@@ -171,12 +184,6 @@ Players.PlayerAdded:Connect(function(player)
 
 		-- Load settings
 		if data.Settings and type(data.Settings) == "table" then
-			if data.Settings.MusicSetting ~= nil then
-				MusicSetting.Value = data.Settings.MusicSetting
-			else
-				MusicSetting.Value = true
-			end
-
 			if data.Settings.DaySetting ~= nil then
 				DaySetting.Value = data.Settings.DaySetting
 			else
@@ -201,7 +208,6 @@ Players.PlayerAdded:Connect(function(player)
 				Trades.Value = true
 			end
 		else
-			MusicSetting.Value = true
 			DaySetting.Value = true
 			LobbySetting.Value = false
 			Notifications.Value = true
@@ -252,6 +258,43 @@ Players.PlayerAdded:Connect(function(player)
 					tradeable.Parent = knife
 				end
 			end
+		end
+
+		if data.RevolverInventory and type(data.RevolverInventory) == "table" then
+			for _, revolverData in ipairs(data.RevolverInventory) do
+				if revolverData.Name then
+					local revolver = Instance.new("Folder")
+					revolver.Name = revolverData.Name
+					revolver:SetAttribute("Rarity", revolverData.Rarity or "Common")
+					revolver:SetAttribute("Image", revolverData.Image or "")
+					revolver:SetAttribute("Tradeable", revolverData.Name ~= DEFAULT_REVOLVER and revolverData.Tradeable == true)
+					revolver.Parent = RevolverInventory
+
+					local quantity = Instance.new("IntValue")
+					quantity.Name = "Quantity"
+					quantity.Value = math.max(1, tonumber(revolverData.Quantity) or 1)
+					quantity.Parent = revolver
+				end
+			end
+		end
+
+		if not RevolverInventory:FindFirstChild(DEFAULT_REVOLVER) then
+			local defaultInfo = RevolversInfo[DEFAULT_REVOLVER]
+			local defaultRevolver = Instance.new("Folder")
+			defaultRevolver.Name = DEFAULT_REVOLVER
+			defaultRevolver:SetAttribute("Rarity", defaultInfo.Rarity)
+			defaultRevolver:SetAttribute("Image", defaultInfo.Image)
+			defaultRevolver:SetAttribute("Tradeable", false)
+			defaultRevolver.Parent = RevolverInventory
+
+			local quantity = Instance.new("IntValue")
+			quantity.Name = "Quantity"
+			quantity.Value = 1
+			quantity.Parent = defaultRevolver
+		end
+
+		if EquippedGun.Value == "" or not RevolverInventory:FindFirstChild(EquippedGun.Value) then
+			EquippedGun.Value = DEFAULT_REVOLVER
 		end
 
 		-- Load emotes

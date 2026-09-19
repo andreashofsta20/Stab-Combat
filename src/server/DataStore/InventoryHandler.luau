@@ -1,8 +1,11 @@
 local InventoryHandler = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
+local RevolversInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
+local RevolversFolder = ServerStorage:WaitForChild("Revolvers")
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -185,6 +188,43 @@ end
 
 function InventoryHandler.AddKnife(player : Player, knifeName : string, tradeable: boolean?)
 	CreateItem(player, knifeName, tradeable)
+end
+
+function InventoryHandler.AddRevolver(player: Player, revolverName: string, quantity: number?)
+	if not player or type(revolverName) ~= "string" or revolverName == "" then return end
+	if not RevolversFolder:FindFirstChild(revolverName) then
+		warn("Revolver not found: " .. revolverName)
+		return
+	end
+	local revolverInfo = RevolversInfo[revolverName]
+	if not revolverInfo then
+		warn("Revolver info not found: " .. revolverName)
+		return
+	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local inventory = leaderstats and leaderstats:FindFirstChild("RevolverInventory")
+	if not inventory then return end
+
+	local existing = inventory:FindFirstChild(revolverName)
+	if not existing then
+		existing = Instance.new("Folder")
+		existing.Name = revolverName
+		existing:SetAttribute("Rarity", revolverInfo.Rarity or "Common")
+		existing:SetAttribute("Image", revolverInfo.Image or "")
+		existing:SetAttribute("Tradeable", revolverInfo.Tradeable == true)
+		existing.Parent = inventory
+
+		local amount = Instance.new("IntValue")
+		amount.Name = "Quantity"
+		amount.Value = 0
+		amount.Parent = existing
+	end
+
+	local amount = existing:FindFirstChild("Quantity")
+	if amount and amount:IsA("IntValue") then
+		amount.Value += math.max(1, math.floor(quantity or 1))
+	end
 end
 
 

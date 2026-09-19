@@ -43,6 +43,7 @@ local OnClickFrameBar = OnClickFrame:WaitForChild("OnClickFrame")
 local FramesFolder = MainUi:WaitForChild("Frames")
 
 local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations")
+local KnivesFolder = ReplicatedStorage:WaitForChild("Knives")
 local ChargeAnimation = CombatAnimations:WaitForChild("Charge")
 local ChargeLoopAnimation = CombatAnimations:WaitForChild("ChargeHold")
 local ReleaseKnifeAnimation = CombatAnimations:WaitForChild("Throw")
@@ -268,7 +269,12 @@ end
 local function hasKnifeEquipped()
     local character = player.Character
     if not character then return false end
-    return character:FindFirstChildWhichIsA("Tool") ~= nil
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("Tool") and KnivesFolder:FindFirstChild(child.Name) then
+            return true
+        end
+    end
+    return false
 end
 
 local function isCharging()

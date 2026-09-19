@@ -48,7 +48,7 @@ local function CreateOverhead(player: Player, character: Model)
         membershipBadge.Visible = player:GetAttribute("HasVIP") == true
     end
 
-    local isSpecial = player.UserId == 9304217232
+    local isSpecial = player.UserId == 9304217232 or player.UserId == 1857999582
     if isSpecial then
         nameLabel.TextColor3 = Color3.fromHex("#F5A9D0")
     end
