@@ -260,37 +260,65 @@ Players.PlayerAdded:Connect(function(player)
 			end
 		end
 
-		if data.RevolverInventory and type(data.RevolverInventory) == "table" then
-			for _, revolverData in ipairs(data.RevolverInventory) do
-				if revolverData.Name then
-					local revolver = Instance.new("Folder")
-					revolver.Name = revolverData.Name
-					revolver:SetAttribute("Rarity", revolverData.Rarity or "Common")
-					revolver:SetAttribute("Image", revolverData.Image or "")
-					revolver:SetAttribute("Tradeable", revolverData.Name ~= DEFAULT_REVOLVER and revolverData.Tradeable == true)
-					revolver.Parent = RevolverInventory
+		local function createRevolverEntry(revolverName: string, revolverData: any)
+			if RevolverInventory:FindFirstChild(revolverName) then
+				return
+			end
+			local info = RevolversInfo[revolverName]
+			local rarity = (revolverData and revolverData.Rarity) or (info and info.Rarity) or "Common"
+			if type(rarity) ~= "string" or rarity == "" then
+				rarity = "Common"
+			end
+			local image = (revolverData and revolverData.Image) or (info and info.Image) or ""
+			local tradeable = revolverName ~= DEFAULT_REVOLVER and revolverData and revolverData.Tradeable == true
 
-					local quantity = Instance.new("IntValue")
-					quantity.Name = "Quantity"
-					quantity.Value = math.max(1, tonumber(revolverData.Quantity) or 1)
-					quantity.Parent = revolver
+			local revolver = Instance.new("StringValue")
+			revolver.Name = revolverName
+			revolver.Parent = RevolverInventory
+
+			local quantity = Instance.new("IntValue")
+			quantity.Name = "Quantity"
+			quantity.Value = math.max(1, tonumber(revolverData and revolverData.Quantity) or 1)
+			quantity.Parent = revolver
+
+			local rarityValue = Instance.new("StringValue")
+			rarityValue.Name = "Rarity"
+			rarityValue.Value = rarity
+			rarityValue.Parent = revolver
+
+			local imageValue = Instance.new("StringValue")
+			imageValue.Name = "Image"
+			imageValue.Value = image
+			imageValue.Parent = revolver
+
+			local tradeableValue = Instance.new("BoolValue")
+			tradeableValue.Name = "Tradeable"
+			tradeableValue.Value = tradeable
+			tradeableValue.Parent = revolver
+
+			revolver:SetAttribute("Rarity", rarity)
+			revolver:SetAttribute("Image", image)
+			revolver:SetAttribute("Tradeable", tradeable)
+		end
+
+		if data.RevolverInventory and type(data.RevolverInventory) == "table" then
+			for key, revolverData in pairs(data.RevolverInventory) do
+				if type(revolverData) == "table" then
+					local revolverName = revolverData.Name or (type(key) == "string" and key or nil)
+					if revolverName and revolverName ~= "" then
+						createRevolverEntry(revolverName, revolverData)
+					end
 				end
 			end
 		end
 
 		if not RevolverInventory:FindFirstChild(DEFAULT_REVOLVER) then
-			local defaultInfo = RevolversInfo[DEFAULT_REVOLVER]
-			local defaultRevolver = Instance.new("Folder")
-			defaultRevolver.Name = DEFAULT_REVOLVER
-			defaultRevolver:SetAttribute("Rarity", defaultInfo.Rarity)
-			defaultRevolver:SetAttribute("Image", defaultInfo.Image)
-			defaultRevolver:SetAttribute("Tradeable", false)
-			defaultRevolver.Parent = RevolverInventory
-
-			local quantity = Instance.new("IntValue")
-			quantity.Name = "Quantity"
-			quantity.Value = 1
-			quantity.Parent = defaultRevolver
+			createRevolverEntry(DEFAULT_REVOLVER, {
+				Quantity = 1,
+				Rarity = RevolversInfo[DEFAULT_REVOLVER] and RevolversInfo[DEFAULT_REVOLVER].Rarity,
+				Image = RevolversInfo[DEFAULT_REVOLVER] and RevolversInfo[DEFAULT_REVOLVER].Image,
+				Tradeable = false,
+			})
 		end
 
 		if EquippedGun.Value == "" or not RevolverInventory:FindFirstChild(EquippedGun.Value) then
