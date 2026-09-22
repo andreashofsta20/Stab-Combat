@@ -220,7 +220,7 @@ local RevolversInfo = {
 		tradeable = true,
 	},
 	["Scarlet Revolver"] = {
-		Rarity = "Epic",
+		Rarity = "Legendary",
 		Image = "rbxassetid://89833127324076",
 		tradeable = true,
 	},
