@@ -86,7 +86,7 @@ local function updateLobbyMusic()
 		lobbyMusicTween = TweenService:Create(
 			lobbyMusic,
 			TweenInfo.new(MUSIC_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
-			{ Volume = 0.35 }
+			{ Volume = 0.6 }
 		)
 		lobbyMusicTween:Play()
 	else
@@ -126,7 +126,7 @@ local function initializeLobbyMusic()
 
 	lobbyMusic = lobbyMusicTemplate:Clone()
 	lobbyMusic.Name = "LobbyMusic"
-	lobbyMusic.Volume = 0.35
+	lobbyMusic.Volume = 0.6
 	lobbyMusic.Looped = true
 	lobbyMusic.Parent = SoundService
 	applyMusicSetting(SettingsFolder:FindFirstChild("Music") == nil or SettingsFolder.Music.Value)
