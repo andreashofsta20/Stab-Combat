@@ -121,7 +121,7 @@ local RevolversInfo = {
 	},
 	["Permafrost Revolver"] = {
 		Rarity = "Legendary",
-		Image = "rbxassetid://91479297835594",
+		Image = "rbxassetid://77353394722329",
 		tradeable = true,
 	},
 	["Phantom Revolver"] = {

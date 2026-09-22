@@ -43,7 +43,7 @@ local function ApplyDayLighting(isDay: boolean)
 	dayTween = TweenService:Create(
 		Lighting,
 		TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
-		{ ClockTime = isDay and 14.5 or 0 }
+		{ ClockTime = isDay and 14.5 or 20 }
 	)
 	dayTween:Play()
 end
