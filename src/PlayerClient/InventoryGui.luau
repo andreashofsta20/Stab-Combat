@@ -246,45 +246,59 @@ local function findTemplateChild(template: Instance, name: string): Instance?
 end
 
 local function applyRevolverTemplate(template: Instance, revolver: Instance, revolverName: string)
-	local info = RevolversInfo[revolverName]
-	local rarityValue = getItemValue(revolver, "Rarity", info and info.Rarity or "Common")
-	local rarityData, rarityName = getRarityData(rarityValue)
-	local imageValue = getItemValue(revolver, "Image", info and info.Image or "")
-	local quantityValue = tonumber(getItemValue(revolver, "Quantity", 1)) or 1
-	local tradeableValue = getItemValue(revolver, "Tradeable", info and info.Tradeable == true)
+    local info = RevolversInfo[revolverName]
 
-	local revolverNameLabel = findTemplateChild(template, "RevolverName")
-	if revolverNameLabel and revolverNameLabel:IsA("TextLabel") then
-		revolverNameLabel.Text = revolverName
-	end
+    local rarityValue = getItemValue(revolver, "Rarity", info and info.Rarity or "Common")
+    local rarityData, rarityName = getRarityData(rarityValue)
 
-	local rarityText = findTemplateChild(template, "KnifeSkin")
-	if rarityText and rarityText:IsA("TextLabel") then
-		rarityText.Text = rarityName
-	end
+    local imageValue = getItemValue(revolver, "Image", info and info.Image or "")
+    local quantityValue = tonumber(getItemValue(revolver, "Quantity", 1)) or 1
 
-	local revolverImage = findTemplateChild(template, "RevolverImage")
-	if revolverImage and (revolverImage:IsA("ImageLabel") or revolverImage:IsA("ImageButton")) then
-		revolverImage.Image = imageValue or ""
-	end
+    -- IMPORTANT: lowercase tradeable because that's how RevolversInfo is defined
+    local tradeableValue = getItemValue(
+        revolver,
+        "Tradeable",
+        info and info.tradeable == true
+    )
 
-	local rarityImage = findTemplateChild(template, "Rarity")
-	if rarityImage and (rarityImage:IsA("ImageLabel") or rarityImage:IsA("ImageButton")) then
-		rarityImage.Image = rarityData.Image
-	end
+    local revolverNameLabel = findTemplateChild(template, "RevolverName")
 
-	template.LayoutOrder = -rarityData.Priority
+    if revolverNameLabel and revolverNameLabel:IsA("TextLabel") then
+        revolverNameLabel.Text = revolverName
+    end
 
-	local quantityLabel = findTemplateChild(template, "Quantity")
-	if quantityLabel and (quantityLabel:IsA("TextLabel") or quantityLabel:IsA("TextButton")) then
-		quantityLabel.Text = "x" .. tostring(quantityValue)
-		quantityLabel.Visible = true
-	end
+    local rarityText = findTemplateChild(template, "KnifeSkin")
 
-	local tradableLabel = findTemplateChild(template, "Tradable")
-	if tradableLabel then
-		tradableLabel.Visible = tradeableValue ~= true
-	end
+    if rarityText and rarityText:IsA("TextLabel") then
+        rarityText.Text = rarityName
+    end
+
+    local revolverImage = findTemplateChild(template, "RevolverImage")
+
+    if revolverImage and (revolverImage:IsA("ImageLabel") or revolverImage:IsA("ImageButton")) then
+        revolverImage.Image = imageValue or ""
+    end
+
+    local rarityImage = findTemplateChild(template, "Rarity")
+
+    if rarityImage and (rarityImage:IsA("ImageLabel") or rarityImage:IsA("ImageButton")) then
+        rarityImage.Image = rarityData.Image
+    end
+
+    template.LayoutOrder = -rarityData.Priority
+
+    local quantityLabel = findTemplateChild(template, "Quantity")
+
+    if quantityLabel and (quantityLabel:IsA("TextLabel") or quantityLabel:IsA("TextButton")) then
+        quantityLabel.Text = "x" .. tostring(quantityValue)
+        quantityLabel.Visible = true
+    end
+
+    local tradableLabel = findTemplateChild(template, "Tradable")
+
+    if tradableLabel then
+        tradableLabel.Visible = tradeableValue == false
+    end
 end
 
 local function RefreshRevolversInventory()
