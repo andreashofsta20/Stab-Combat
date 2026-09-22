@@ -52,7 +52,7 @@ local function isRevolverTradeable(revolverName: string, revolverInfo: any, trad
 	if tradeableOverride ~= nil then
 		return tradeableOverride == true
 	end
-	return revolverInfo and revolverInfo.Tradeable == true
+	return revolverInfo and revolverInfo.tradeable == true
 end
 
 
