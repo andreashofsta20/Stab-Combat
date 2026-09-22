@@ -117,12 +117,29 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 	if revolverInventoryFolder then
 		for _, revolver in pairs(revolverInventoryFolder:GetChildren()) do
 			local quantity = revolver:FindFirstChild("Quantity")
+			local rarity = revolver:FindFirstChild("Rarity")
+			local image = revolver:FindFirstChild("Image")
+			local tradeable = revolver:FindFirstChild("Tradeable")
+			local rarityValue = (rarity and rarity:IsA("StringValue") and rarity.Value ~= "" and rarity.Value)
+				or revolver:GetAttribute("Rarity")
+				or "Common"
+			local imageValue = (image and image:IsA("StringValue") and image.Value)
+				or revolver:GetAttribute("Image")
+				or ""
+			local tradeableValue = false
+			if revolver.Name ~= "White&Black Revolver" then
+				if tradeable and tradeable:IsA("BoolValue") then
+					tradeableValue = tradeable.Value == true
+				else
+					tradeableValue = revolver:GetAttribute("Tradeable") == true
+				end
+			end
 			table.insert(revolverInventoryData, {
 				Name = revolver.Name,
 				Quantity = quantity and quantity.Value or 1,
-				Rarity = revolver:GetAttribute("Rarity") or "Common",
-				Image = revolver:GetAttribute("Image") or "",
-				Tradeable = revolver.Name ~= "White&Black Revolver" and revolver:GetAttribute("Tradeable") == true,
+				Rarity = rarityValue,
+				Image = imageValue,
+				Tradeable = tradeableValue,
 			})
 		end
 	end

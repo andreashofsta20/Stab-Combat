@@ -27,13 +27,39 @@ local EmotesFrame = OtherFramesFolder:WaitForChild("Emotes"):WaitForChild("Scrol
 
 local KnivesInventoryFrame = OtherFramesFolder:WaitForChild("Knives"):WaitForChild("Scroll")
 
+local GunSkinsInventoryFrame = OtherFramesFolder:WaitForChild("GunSkins"):WaitForChild("Scroll")
+
+local InventoryTemplates = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("InventoryTemplates")
+local RevolverInventoryTemplate = InventoryTemplates:WaitForChild("RevolverInventoryTemplate")
+
 
 -- // MODULES // --
 local RarityColors = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
+local RevolversInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
 
 local InventoryRemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Inventory")
 
 local EquipKnifeRemote = InventoryRemotesFolder:WaitForChild("EquipKnife")
+local EquipRevolverRemote = InventoryRemotesFolder:WaitForChild("EquipRevolver")
+
+local function getItemValue(item: Instance, field: string, defaultValue: any)
+	local child = item:FindFirstChild(field)
+	if child and (child:IsA("StringValue") or child:IsA("IntValue") or child:IsA("BoolValue")) then
+		return child.Value
+	end
+	local attribute = item:GetAttribute(field)
+	if attribute ~= nil then
+		return attribute
+	end
+	return defaultValue
+end
+
+local function getRarityData(rarity: any)
+	if type(rarity) == "string" and rarity ~= "" and RarityColors[rarity] then
+		return RarityColors[rarity], rarity
+	end
+	return RarityColors.Common, "Common"
+end
 
 
 
@@ -63,6 +89,26 @@ local function EquipKnife(KnifeName : string)
 	
 	
 	
+end
+
+local function EquipRevolver(revolverName : string)
+	if not revolverName then return end
+
+	EquipRevolverRemote:FireServer(revolverName)
+
+	for _, v in pairs(GunSkinsInventoryFrame:GetChildren()) do
+		if v:IsA("ImageButton") and v.Name ~= revolverName then
+			if v:FindFirstChild("RevolverSelected") and v.RevolverSelected.Visible == true then
+				v.RevolverSelected.Visible = false
+			end
+		end
+
+		if v:IsA("ImageButton") and v.Name == revolverName then
+			if v:FindFirstChild("RevolverSelected") then
+				v.RevolverSelected.Visible = true
+			end
+		end
+	end
 end
 
 
@@ -195,6 +241,110 @@ local function RefreshKnivesInventory()
 	
 end
 
+local function findTemplateChild(template: Instance, name: string): Instance?
+	return template:FindFirstChild(name, true)
+end
+
+local function applyRevolverTemplate(template: Instance, revolver: Instance, revolverName: string)
+	local info = RevolversInfo[revolverName]
+	local rarityValue = getItemValue(revolver, "Rarity", info and info.Rarity or "Common")
+	local rarityData, rarityName = getRarityData(rarityValue)
+	local imageValue = getItemValue(revolver, "Image", info and info.Image or "")
+	local quantityValue = tonumber(getItemValue(revolver, "Quantity", 1)) or 1
+	local tradeableValue = getItemValue(revolver, "Tradeable", info and info.Tradeable == true)
+
+	local revolverNameLabel = findTemplateChild(template, "RevolverName")
+	if revolverNameLabel and revolverNameLabel:IsA("TextLabel") then
+		revolverNameLabel.Text = revolverName
+	end
+
+	local rarityText = findTemplateChild(template, "KnifeSkin")
+	if rarityText and rarityText:IsA("TextLabel") then
+		rarityText.Text = rarityName
+	end
+
+	local revolverImage = findTemplateChild(template, "RevolverImage")
+	if revolverImage and (revolverImage:IsA("ImageLabel") or revolverImage:IsA("ImageButton")) then
+		revolverImage.Image = imageValue or ""
+	end
+
+	local rarityImage = findTemplateChild(template, "Rarity")
+	if rarityImage and (rarityImage:IsA("ImageLabel") or rarityImage:IsA("ImageButton")) then
+		rarityImage.Image = rarityData.Image
+	end
+
+	template.LayoutOrder = -rarityData.Priority
+
+	local quantityLabel = findTemplateChild(template, "Quantity")
+	if quantityLabel and (quantityLabel:IsA("TextLabel") or quantityLabel:IsA("TextButton")) then
+		quantityLabel.Text = "x" .. tostring(quantityValue)
+		quantityLabel.Visible = true
+	end
+
+	local tradableLabel = findTemplateChild(template, "Tradable")
+	if tradableLabel then
+		tradableLabel.Visible = tradeableValue ~= true
+	end
+end
+
+local function RefreshRevolversInventory()
+	local EquippedGun = Player:WaitForChild("leaderstats"):WaitForChild("EquippedGun").Value
+
+	local inventoryFolder = Player:WaitForChild("leaderstats"):WaitForChild("RevolverInventory")
+
+	local ownedRevolvers = {}
+
+	for _, revolver in pairs(inventoryFolder:GetChildren()) do
+		local revolverName = revolver.Name
+		ownedRevolvers[revolverName] = true
+
+		local existingTemplate = GunSkinsInventoryFrame:FindFirstChild(revolverName)
+
+		if existingTemplate then
+			applyRevolverTemplate(existingTemplate, revolver, revolverName)
+
+			if not existingTemplate:GetAttribute("Connected") then
+				existingTemplate.MouseButton1Click:Connect(function()
+					EquipRevolver(revolverName)
+				end)
+				existingTemplate:SetAttribute("Connected", true)
+			end
+		else
+			local template = RevolverInventoryTemplate:Clone()
+
+			template.Name = revolverName
+			applyRevolverTemplate(template, revolver, revolverName)
+
+			if template:FindFirstChild("RevolverSelected") then
+				template.RevolverSelected.Visible = false
+			end
+
+			template.Parent = GunSkinsInventoryFrame
+			template.Visible = true
+
+			template.MouseButton1Click:Connect(function()
+				EquipRevolver(revolverName)
+			end)
+
+			template:SetAttribute("Connected", true)
+		end
+	end
+
+	for _, uiRevolver in pairs(GunSkinsInventoryFrame:GetChildren()) do
+		if uiRevolver:IsA("ImageButton") and not ownedRevolvers[uiRevolver.Name] then
+			uiRevolver:Destroy()
+		end
+	end
+
+	for _, uiRevolver in pairs(GunSkinsInventoryFrame:GetChildren()) do
+		if uiRevolver:IsA("ImageButton") then
+			if uiRevolver:FindFirstChild("RevolverSelected") then
+				uiRevolver.RevolverSelected.Visible = uiRevolver.Name == EquippedGun
+			end
+		end
+	end
+end
+
 
 
 local function CloseFrame()
@@ -263,6 +413,7 @@ end
 task.spawn(function()
 	while task.wait(3) do
 		RefreshKnivesInventory()
+		RefreshRevolversInventory()
 		RefreshEmotesInventory()
 	end
 end)
@@ -279,6 +430,7 @@ end)
 basics()
 RefreshEmotesInventory()
 RefreshKnivesInventory()
+RefreshRevolversInventory()
 
 
 
