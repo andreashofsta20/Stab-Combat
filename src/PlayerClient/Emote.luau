@@ -25,6 +25,9 @@ local EmotesModule = require(game.ReplicatedStorage.Modules:WaitForChild("Emotes
 local RarityColorModule = require(game.ReplicatedStorage.Modules:WaitForChild("RarityColor"))
 local KeybindValidation = require(game.ReplicatedStorage.Modules:WaitForChild("KeybindValidation"))
 
+local HOLD_THRESHOLD = 0.25
+local pressStartTime = 0
+local openedOnPress = false
 local open = false
 local LastAnimationTrack: AnimationTrack?
 local LastAnimation: Animation?
@@ -142,27 +145,45 @@ initializeKeyBind()
 
 
 UIS.InputBegan:Connect(function(key, gp)
-	if gp then return end
-	if UIS:GetFocusedTextBox() ~= nil then return end
+    if gp or UIS:GetFocusedTextBox() ~= nil then return end
 
-	if typeof(CurrentKeyBind) == "EnumItem" and key.UserInputType == Enum.UserInputType.Keyboard then
-		if key.KeyCode == CurrentKeyBind then
-			open = true
-			animateVisibility()
-		end
-	end
+    if typeof(CurrentKeyBind) == "EnumItem" and key.UserInputType == Enum.UserInputType.Keyboard then
+        if key.KeyCode == CurrentKeyBind then
+            pressStartTime = os.clock()
+            
+            if not open then
+                open = true
+                openedOnPress = true
+                animateVisibility()
+            else
+                openedOnPress = false
+            end
+        end
+    end
 end)
 
 UIS.InputEnded:Connect(function(key, gp)
-	if gp then return end
-	if UIS:GetFocusedTextBox() ~= nil then return end
-	if key.KeyCode == CurrentKeyBind then
-		open = false
-		animateVisibility()
-		if LastAnimation then
-			PlayAnimation(LastAnimation)
-		end
-	end
+    if gp or UIS:GetFocusedTextBox() ~= nil then return end
+
+    if typeof(CurrentKeyBind) == "EnumItem" and key.UserInputType == Enum.UserInputType.Keyboard then
+        if key.KeyCode == CurrentKeyBind then
+            local holdDuration = os.clock() - pressStartTime
+
+            if openedOnPress then
+                -- If held down longer than threshold, close on release and play selected emote
+                if holdDuration >= HOLD_THRESHOLD then
+                    open = false
+                    animateVisibility()
+                    if LastAnimation then
+                        PlayAnimation(LastAnimation)
+                    end
+                end
+            else
+                open = false
+                animateVisibility()
+            end
+        end
+    end
 end)
 
 

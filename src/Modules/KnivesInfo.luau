@@ -54,4 +54,13 @@ return {
 		Rarity = "Godly"
 	};
 
+
+	["Ethereal"] = {
+		MeshId = "rbxassetid://94327609424355";
+		Image = "rbxassetid://88521515119416"; 
+		Rarity = "Godly"
+	};
+
+
+
 }

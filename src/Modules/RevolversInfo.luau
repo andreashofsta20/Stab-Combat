@@ -259,6 +259,13 @@ local RevolversInfo = {
 		Image = "rbxassetid://101357381715369",
 		tradeable = true,
 	},
+
+	["Ethereal Revolver"] = {
+		Rarity = "Godly",
+		Image = "rbxassetid://92974226186910",
+		tradeable = true,
+	},
 }
+
 
 return RevolversInfo
