@@ -14,8 +14,8 @@ local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitFo
 local ProfileManager = {}
 local KeybindValidation = require(game:GetService("ReplicatedStorage"):WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 
-local STORE_NAME = "PlayerData_v1.0.0_MainData"
-local OLD_STORE_NAME = "PlayerData_v1.0.0_OldData"
+local STORE_NAME = "PlayerData_v1.0.1_MainData"
+local OLD_STORE_NAME = "PlayerData_v1.0.1_OldData"
 
 local TutorialRemotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Tutorial")
 local StartTutorialRemote = TutorialRemotes:WaitForChild("StartTutorial")
