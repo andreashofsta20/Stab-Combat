@@ -90,7 +90,7 @@ local RevolversInfo = {
 		tradeable = true,
 	},
 	["Love Train Revolver"] = {
-		Rarity = "Godly",
+		Rarity = "Legendary",
 		Image = "rbxassetid://85219009699523",
 		tradeable = true,
 	},
@@ -125,7 +125,7 @@ local RevolversInfo = {
 		tradeable = true,
 	},
 	["Phantom Revolver"] = {
-		Rarity = "Godly",
+		Rarity = "Legendary",
 		Image = "rbxassetid://132811507981856",
 		tradeable = true,
 	},
@@ -150,7 +150,7 @@ local RevolversInfo = {
 		tradeable = true,
 	},
 	["Vermilion Revolver"] = {
-		Rarity = "Godly",
+		Rarity = "Legendary",
 		Image = "rbxassetid://103818079006111",
 		tradeable = true,
 	},
@@ -235,7 +235,7 @@ local RevolversInfo = {
 		tradeable = true,
 	},
 	["Abyssal Tide Revolver"] = {
-		Rarity = "Godly",
+		Rarity = "Legendary",
 		Image = "rbxassetid://127318809058935",
 		tradeable = true,
 	},
