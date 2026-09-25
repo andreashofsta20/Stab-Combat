@@ -265,6 +265,15 @@ local RevolversInfo = {
 		Image = "rbxassetid://92974226186910",
 		tradeable = true,
 	},
+
+
+	["Valentine Revolver"] = {
+		Rarity = "Godly",
+		Image = "rbxassetid://78066337222488",
+		tradeable = true,
+	},
+
+
 }
 
 
