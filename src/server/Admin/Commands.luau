@@ -137,6 +137,8 @@ Commands.PlayerManagement = {
             end
         end,
 
+
+
         WipeInventory = function(adminUserID: number, targetUserID: number)
             if not Commands.CheckAdmin(adminUserID) then
                 warn("No authorization", adminUserID)
@@ -166,6 +168,13 @@ Commands.PlayerManagement = {
                 if emotesFolder then
                     for _, emote in ipairs(emotesFolder:GetChildren()) do
                         emote:Destroy()
+                    end
+                end
+
+                local RevolversFolder = leaderstats:FindFirstChild("RevolverInventory")
+                if RevolversFolder then
+                    for _, revolver in ipairs(RevolversFolder:GetChildren()) do
+                        revolver:Destroy()
                     end
                 end
 
