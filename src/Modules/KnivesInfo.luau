@@ -63,7 +63,7 @@ return {
 
 	["Valentine Knife"] = {
 		MeshId = "rbxassetid://135105493034153";
-		Image = "rbxassetid://104318115790754"; 
+		Image = "rbxassetid://134227929392058"; 
 		Rarity = "Godly"
 	};
 
