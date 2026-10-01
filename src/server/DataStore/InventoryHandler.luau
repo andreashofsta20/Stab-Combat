@@ -61,16 +61,9 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 
 	if not knifeName then return end
 
-	local rarity = nil
-	local image = nil
-
-	for i, v in pairs(KnivesInfoModule) do
-		if i == knifeName then
-			rarity = v.Rarity
-			image = v.Image
-			break 
-		end
-	end
+	local info = KnivesInfoModule[knifeName]
+	local rarity = info and info.Rarity
+	local image = info and info.Image
 
 	if not rarity then
 		warn("Rarity not found for knife: " .. knifeName)
@@ -346,6 +339,7 @@ end
 
 EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : string)
 	if not player then return end
+	if player:GetAttribute("DataReady") ~= true then return end
 	if type(KnifeName) ~= "string" then return end
 	if #KnifeName < 1 or #KnifeName > 64 then return end
 	if not canEquipNow(knifeEquipCooldowns, player) then return end
@@ -367,13 +361,16 @@ EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : str
 		return
 	end
 
-	if inventoryFolder:FindFirstChild(KnifeName) then
+	local owned = inventoryFolder:FindFirstChild(KnifeName)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if quantity and quantity:IsA("IntValue") and quantity.Value > 0 then
 		EquippedKnife.Value = KnifeName
 	end
 end)
 
 EquipRevolverRemote.OnServerEvent:Connect(function(player: Player, revolverName: string)
 	if not player then return end
+	if player:GetAttribute("DataReady") ~= true then return end
 	if type(revolverName) ~= "string" then return end
 	if #revolverName < 1 or #revolverName > 64 then return end
 	if not canEquipNow(revolverEquipCooldowns, player) then return end
@@ -398,7 +395,9 @@ EquipRevolverRemote.OnServerEvent:Connect(function(player: Player, revolverName:
 		return
 	end
 
-	if inventoryFolder:FindFirstChild(revolverName) then
+	local owned = inventoryFolder:FindFirstChild(revolverName)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if quantity and quantity:IsA("IntValue") and quantity.Value > 0 then
 		equippedGun.Value = revolverName
 	end
 end)

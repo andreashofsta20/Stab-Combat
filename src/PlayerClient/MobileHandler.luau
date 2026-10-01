@@ -124,6 +124,7 @@ local function updateShiftLockLoop(enabled: boolean)
     end
 
     shiftLockConnection = RunService.RenderStepped:Connect(function()
+        if RevolverController.IsAiming() then return end -- aimed-fire camera owns body turning
         local character = player.Character
         local camera = workspace.CurrentCamera
         local humanoid = currentHumanoid

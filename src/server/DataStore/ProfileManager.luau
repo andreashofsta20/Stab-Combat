@@ -61,6 +61,9 @@ local Profiles: {[Player]: any} = {}
 -- Serialize all Value objects in leaderstats into Profile.Data.
 -- Called automatically before every ProfileStore save via Profile.OnSave.
 local function syncValueObjectsToProfile(player: Player, profile: any)
+	-- Value objects exist before hydration finishes. Never save their temporary
+	-- defaults over a loaded inventory/cash balance during that window.
+	if player:GetAttribute("DataReady") ~= true then return end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
 	if not profile:IsActive() then return end
@@ -347,6 +350,28 @@ function ProfileManager.SaveProfile(player: Player)
 		syncValueObjectsToProfile(player, profile)
 		profile:Save()
 	end
+end
+
+-- Profile:Save() queues asynchronous work; pcall(Save) is not a durable receipt
+-- acknowledgement. Confirm the receipt marker in the successfully saved data.
+function ProfileManager.ConfirmPurchase(player: Player, purchaseId: string, timeoutSeconds: number?): boolean
+	local profile = Profiles[player]
+	if not profile or not profile:IsActive() or player:GetAttribute("DataReady") ~= true then return false end
+	local function savedReceipt()
+		local saved = profile.LastSavedData
+		return saved and saved.ProcessedPurchases and saved.ProcessedPurchases[purchaseId] == true
+	end
+	if savedReceipt() then return true end
+	if not profile.Data.ProcessedPurchases or profile.Data.ProcessedPurchases[purchaseId] ~= true then return false end
+	syncValueObjectsToProfile(player, profile)
+	profile:Save()
+	local deadline = os.clock() + (timeoutSeconds or 20)
+	repeat
+		if savedReceipt() then return true end
+		if Profiles[player] ~= profile or not profile:IsActive() then return false end
+		task.wait(0.1)
+	until os.clock() >= deadline
+	return savedReceipt() == true
 end
 
 -- End session cleanly (call on PlayerRemoving)

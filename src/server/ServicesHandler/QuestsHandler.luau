@@ -130,15 +130,9 @@ local function ensurePlayerStateForToday(player: Player)
     local userId = player.UserId
     local dayKey = getUtcDayKey()
     local state = playerQuestState[userId]
-    if not state then
-        state = {
-            DayKey = dayKey,
-            Progress = {},
-            Claimed = {},
-            Dirty = true,
-        }
-        playerQuestState[userId] = state
-    end
+    -- An absent state means the read has not succeeded. It must never become
+    -- a blank writable record after a DataStore outage.
+    if not state then return nil, {} end
 
     if state.DayKey ~= dayKey then
         state.DayKey = dayKey
@@ -167,6 +161,9 @@ end
 
 local function buildQuestPayload(player: Player)
     local state, dailyDefinitions = ensurePlayerStateForToday(player)
+    if not state then
+        return { DayKey = getUtcDayKey(), ServerTime = os.time(), Loading = true, Quests = {} }
+    end
     local payload = {
         DayKey = state.DayKey,
         ServerTime = os.time(),
@@ -228,10 +225,24 @@ local function loadPlayerState(player: Player)
         return QUESTS_DATASTORE:GetAsync(tostring(player.UserId))
     end)
 
+    if player.Parent ~= Players or Players:GetPlayerByUserId(player.UserId) ~= player then return end
+    if not ok or (data ~= nil and type(data) ~= "table") then
+        warn("[Quests] Quest data unavailable for", player.Name, data)
+        task.delay(30, function()
+            if player.Parent == Players and not playerQuestState[player.UserId] then
+                loadPlayerState(player)
+                pushQuestUpdate(player)
+            end
+        end)
+        return
+    end
+
     if ok and type(data) == "table" then
         state.DayKey = type(data.DayKey) == "string" and data.DayKey or state.DayKey
         state.Progress = deepCopyStateTable(data.Progress)
         state.Claimed = deepCopyStateTable(data.Claimed)
+    elseif data == nil then
+        state.Dirty = true
     end
 
     playerQuestState[player.UserId] = state
@@ -296,6 +307,7 @@ local function incrementQuestProgress(player: Player, questType: string, amount:
     end
 
     local state, dailyDefinitions = ensurePlayerStateForToday(player)
+    if not state or player:GetAttribute("DataReady") ~= true then return end
     local changed = false
 
     for _, quest in ipairs(dailyDefinitions) do
@@ -331,6 +343,7 @@ local function claimQuest(player: Player, questId: string)
     end
 
     local state, dailyDefinitions = ensurePlayerStateForToday(player)
+    if not state then return false, "Quest data is still loading" end
     local questDef = nil
     for _, quest in ipairs(dailyDefinitions) do
         if quest.Id == questId then
@@ -374,6 +387,7 @@ UpdateQuestsRemote.OnServerEvent:Connect(function(player: Player)
 end)
 
 ClaimQuestRemote.OnServerEvent:Connect(function(player: Player, questId: string)
+	if player:GetAttribute("DataReady") ~= true then return end
     if type(questId) ~= "string" then return end
     local now = os.clock()
     if questRemoteCooldowns[player.UserId] and (now - questRemoteCooldowns[player.UserId]) < QUEST_REMOTE_COOLDOWN then return end

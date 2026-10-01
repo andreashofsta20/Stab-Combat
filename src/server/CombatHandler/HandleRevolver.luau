@@ -30,6 +30,7 @@ local Shot = getOrCreate(folder, "Shot", "RemoteEvent")
 local Aim = getOrCreate(folder, "Aim", "UnreliableRemoteEvent")
 local sessions, buckets, connections = {}, {}, {}
 local poseBuckets = {}
+local poseTunings = {}
 
 local function now() return workspace:GetServerTimeNow() end
 local function heldRevolver(player)
@@ -37,9 +38,11 @@ local function heldRevolver(player)
 	local stats = player:FindFirstChild("leaderstats")
 	local selected = stats and stats:FindFirstChild("EquippedGun")
 	local inventory = stats and stats:FindFirstChild("RevolverInventory")
+	local owned = selected and selected:IsA("StringValue") and inventory and inventory:FindFirstChild(selected.Value)
+	local quantity = owned and owned:FindFirstChild("Quantity")
 	local weapons = ServerStorage:FindFirstChild("Revolvers")
 	if not character or not selected or not selected:IsA("StringValue")
-		or not inventory or not inventory:FindFirstChild(selected.Value)
+		or not quantity or not quantity:IsA("IntValue") or quantity.Value <= 0
 		or not weapons or not Catalog[selected.Value] or not weapons:FindFirstChild(selected.Value) then return nil end
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Tool") and child.Name == selected.Value then return child end
@@ -57,6 +60,15 @@ local function canPlay(player)
 		and MainGame.RoundStats ~= nil and not MainGame.RoundStats.rewardsApplied
 		and player:GetAttribute("DataReady") == true and player:GetAttribute("InRound") == true
 		and humanoid ~= nil and humanoid.Health > 0 and not (lobby and lobby.Value)
+end
+
+local function canPresent(player)
+	if canPlay(player) then return true end
+	if Config.Presentation.LobbyAimingEnabled ~= true or player:GetAttribute("InRound") == true
+		or MainGame.PlayersInGame[player.UserId] == true or player:GetAttribute("DataReady") ~= true then return false end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
 end
 
 local function getSession(player)
@@ -207,20 +219,23 @@ end)
 
 -- Cosmetic angles only: these packets never authorize damage or change ammo.
 -- A separate bucket keeps pose updates from consuming the shooting budget.
-Aim.OnServerEvent:Connect(function(player, sessionId, sequence, pitch, yaw)
+Aim.OnServerEvent:Connect(function(player, sessionId, sequence, pitch, yaw, aiming)
 	local time = now()
 	local limits = Config.PoseReplication
 	local bucket = poseBuckets[player]
 	if not bucket then bucket = { tokens = limits.RequestBurst, time = time }; poseBuckets[player] = bucket end
 	if not State.AllowRequest(bucket, time, limits.RequestBurst, limits.RequestsPerSecond) then return end
+	if type(aiming) ~= "boolean" then return end
 	local session = sessions[player]
 	if not session or sessionId ~= session.id or session.character ~= player.Character
-		or session.round ~= MainGame.RoundStats or not canPlay(player) then return end
+		or session.round ~= MainGame.RoundStats or not canPresent(player) then return end
 	local tool = heldRevolver(player)
 	if not tool then return end
-	local settings = Config.Get(tool.Name).Pose
-	if not settings.Enabled or not PoseMath.AcceptPacket(session, sequence, pitch, yaw, settings) then return end
-	Aim:FireAllClients(player.UserId, session.character, session.id, sequence, pitch, yaw, session.reloadEnd > time, time)
+	local tuning = poseTunings[tool.Name]
+	if not tuning then tuning = Config.Get(tool.Name); poseTunings[tool.Name] = tuning end
+	if not tuning.Pose.Enabled or not PoseMath.AcceptPacket(session, sequence, pitch, yaw, tuning.Pose, aiming) then return end
+	Aim:FireAllClients(player.UserId, session.character, session.id, sequence, pitch, yaw,
+		aiming and tuning.Aim.Enabled, canPlay(player) and session.reloadEnd > time, time)
 end)
 
 local function bindPlayer(player)

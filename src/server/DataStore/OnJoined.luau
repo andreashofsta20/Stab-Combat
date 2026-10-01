@@ -24,9 +24,9 @@ end
 
 Players.PlayerAdded:Connect(function(player)
 	player:SetAttribute("DataReady", false)
-	player.CharacterAdded:Connect(function()
+	player.CharacterAdded:Connect(function(character)
 		task.delay(1, function()
-			local character = player.Character
+			if player.Character ~= character then return end
 			local forceField = character and character:FindFirstChildOfClass("ForceField")
 			if forceField then
 				forceField:Destroy()
@@ -37,10 +37,9 @@ Players.PlayerAdded:Connect(function(player)
 			PlayerResettedRemote:FireClient(player)
 		else
 		end
-		local character = player.Character
 		local humanoid = character:WaitForChild("Humanoid")
 		humanoid.Died:Connect(function()
-			MainGameModule.OnDeath(player)
+			if player.Character == character then MainGameModule.OnDeath(player) end
 		end)
 	end)
 	
@@ -349,9 +348,6 @@ Players.PlayerAdded:Connect(function(player)
 			end
 		end
 
-		-- Push freshly loaded stats to leaderboards once (avoids initial zero write)
-		Leaderboards.UpdatePlayer(player)
-
 		   -- Load daily rewards
 			  if data.DailyRewards and type(data.DailyRewards) == "table" then
 				  local lastClaimTime = data.DailyRewards.LastClaimTime or 0
@@ -395,6 +391,7 @@ Players.PlayerAdded:Connect(function(player)
 		end
 
 		player:SetAttribute("DataReady", true)
+		Leaderboards.UpdatePlayer(player)
 	else
 		-- Profile failed to load (player was kicked by ProfileManager)
 		return

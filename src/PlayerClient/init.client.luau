@@ -5,6 +5,8 @@ local controllers = {
 	"FramesHandler",
 	"HandleKnifeCombat",
 	"HandleRevolverCombat",
+	"HandleFood",
+	"HandleWeaponCursor",
 	"Hotbar",
 	"InventoryGui",
 	"KeyBindClient",

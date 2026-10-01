@@ -8,6 +8,8 @@ I started with this project around 6 months ago and have gotten a long way but s
 ## Source
 If this source ever gets open to the public, ill leave a full documentation below. Yes, the source is messy but understandable and rarely bugs out. 
 
+See [Game setup and source review](GAME_SETUP_AND_REVIEW.md) for Burger setup, cursor fixes, data handling findings, remaining persistence issues and verification steps.
+
 
 ## Who am i?
 My name is Andreas, a small roblox developer who makes games for fun.

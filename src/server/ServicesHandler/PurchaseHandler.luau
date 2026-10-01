@@ -81,7 +81,7 @@ local function processPurchase(player, productId, goldAmount, purchaseId): boole
 	end
 	profile.Data.ProcessedPurchases = profile.Data.ProcessedPurchases or {}
 	if profile.Data.ProcessedPurchases[purchaseId] then
-		return true
+		return ProfileManager.ConfirmPurchase(player, purchaseId)
 	end
 
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -93,16 +93,14 @@ local function processPurchase(player, productId, goldAmount, purchaseId): boole
 	if VIPService.HasVIPByUserId(player.UserId) then
 		finalGoldAmount = math.floor(goldAmount * 1.1)
 	end
+	-- A cache miss may yield while checking VIP. Recheck session ownership.
+	if not player.Parent or ProfileManager.GetProfile(player) ~= profile or not profile:IsActive()
+		or player:GetAttribute("DataReady") ~= true then return false end
 	gold.Value += finalGoldAmount
 	profile.Data.ProcessedPurchases[purchaseId] = true
-	local saved = pcall(function()
-		ProfileManager.SaveProfile(player)
-	end)
-	if not saved then
-		profile.Data.ProcessedPurchases[purchaseId] = nil
-		gold.Value -= finalGoldAmount
-		return false
-	end
+	-- Keep the in-memory grant/marker on a timeout. A queued save may succeed
+	-- later; retries confirm that same grant instead of awarding it twice.
+	if not ProfileManager.ConfirmPurchase(player, purchaseId) then return false end
 	NotificationHandler.SendNotification(player, "Purchase successful", 3, "Success")
 
 	print(player.Name .. " purchased " .. goldAmount .. "ProductID: " .. productId)
@@ -154,12 +152,6 @@ local function isReceiptProcessed(purchaseId: string): (boolean, boolean)
 	return success, result == true
 end
 
-local function markReceiptProcessed(purchaseId: string)
-	pcall(function()
-		PurchaseReceiptStore:SetAsync(purchaseId, true)
-	end)
-end
-
 MarketPlaceService.ProcessReceipt = function(receiptInfo)
 	local purchaseId = tostring(receiptInfo.PurchaseId)
 	if processingReceipts[purchaseId] then
@@ -171,64 +163,70 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 		return decision
 	end
 
-	-- Idempotency: check if this receipt was already processed
-	local receiptRead, receiptProcessed = isReceiptProcessed(purchaseId)
-	if not receiptRead then
-		return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-	end
-	if receiptProcessed then
+	local ok, decision = pcall(function()
+		-- Idempotency: check if this receipt was already processed
+		local receiptRead, receiptProcessed = isReceiptProcessed(purchaseId)
+		if not receiptRead then
+			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+		end
+		if receiptProcessed then
+			return finish(Enum.ProductPurchaseDecision.PurchaseGranted)
+		end
+
+		local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+		if not player then
+			warn("[Purchase] Player not in server for receipt", receiptInfo.PlayerId)
+			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+		end
+
+		local productId = receiptInfo.ProductId
+		local vipDuration = VIP_PRODUCT_DURATIONS[productId]
+		if vipDuration then
+			print("[Purchase] VIP receipt detected for", player.Name, "duration=", vipDuration)
+			local success, newExpiry = VIPService.GrantDuration(player, vipDuration, purchaseId)
+			if not success then
+				warn("[Purchase] Failed to grant VIP for", player.Name, "productId=", productId)
+				return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+			end
+
+			VIPStatusRemote:FireClient(player, {
+				HasVIP = true,
+				ExpiresAt = newExpiry,
+				Now = os.time(),
+			})
+			NotificationHandler.SendNotification(player, "VIP purchase successful", 4, "Success")
+			local profile = ProfileManager.GetProfile(player)
+			if not profile or not profile:IsActive() or player:GetAttribute("DataReady") ~= true then
+				return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+			end
+			profile.Data.ProcessedPurchases = profile.Data.ProcessedPurchases or {}
+			profile.Data.ProcessedPurchases[purchaseId] = true
+			if not ProfileManager.ConfirmPurchase(player, purchaseId) then return finish(Enum.ProductPurchaseDecision.NotProcessedYet) end
+			return finish(Enum.ProductPurchaseDecision.PurchaseGranted)
+		end
+
+		local productInfo = ProductINFO[productId]
+		if not productInfo then
+			warn("[Purchase] Unknown productId in ProcessReceipt:", productId)
+			NotificationHandler.SendNotification(player, "Something wrong happend", 3, "Error")
+			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+		end
+
+		local goldAmount = productInfo
+
+		if not processPurchase(player, productId, goldAmount, purchaseId) then
+			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
+		end
 		return finish(Enum.ProductPurchaseDecision.PurchaseGranted)
-	end
-
-	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
-	if not player then
-		warn("[Purchase] Player not in server for receipt", receiptInfo.PlayerId)
-		return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-	end
-
-	local productId = receiptInfo.ProductId
-	local vipDuration = VIP_PRODUCT_DURATIONS[productId]
-	if vipDuration then
-		print("[Purchase] VIP receipt detected for", player.Name, "duration=", vipDuration)
-		local success, newExpiry = VIPService.GrantDuration(player, vipDuration, purchaseId)
-		if not success then
-			warn("[Purchase] Failed to grant VIP for", player.Name, "productId=", productId)
-			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-		end
-
-		VIPStatusRemote:FireClient(player, {
-			HasVIP = true,
-			ExpiresAt = newExpiry,
-			Now = os.time(),
-		})
-		NotificationHandler.SendNotification(player, "VIP purchase successful", 4, "Success")
-		local profile = ProfileManager.GetProfile(player)
-		if not profile or not profile:IsActive() or player:GetAttribute("DataReady") ~= true then
-			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-		end
-		profile.Data.ProcessedPurchases = profile.Data.ProcessedPurchases or {}
-		profile.Data.ProcessedPurchases[purchaseId] = true
-		local saved = pcall(function() ProfileManager.SaveProfile(player) end)
-		if not saved then
-			profile.Data.ProcessedPurchases[purchaseId] = nil
-			return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-		end
-		return finish(Enum.ProductPurchaseDecision.PurchaseGranted)
-	end
-
-	local productInfo = ProductINFO[productId]
-	if not productInfo then
-		warn("[Purchase] Unknown productId in ProcessReceipt:", productId)
-		NotificationHandler.SendNotification(player, "Something wrong happend", 3, "Error")
+	end)
+	-- Unexpected errors must also release the per-receipt lock. A retry will
+	-- confirm the existing marker if the grant happened before the error.
+	processingReceipts[purchaseId] = nil
+	if not ok then
+		warn("[Purchase] Receipt processing failed:", purchaseId, decision)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-
-	local goldAmount = productInfo
-
-	if not processPurchase(player, productId, goldAmount, purchaseId) then
-		return finish(Enum.ProductPurchaseDecision.NotProcessedYet)
-	end
-	return finish(Enum.ProductPurchaseDecision.PurchaseGranted)
+	return decision
 end
 
 return {}

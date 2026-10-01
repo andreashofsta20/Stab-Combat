@@ -1,6 +1,44 @@
 local SpawnMap = {}
 local Maps = require(script.Parent:WaitForChild("Maps"))
-local spawnedMaps: {[string]: Instance} = {}
+local spawnedMaps: {[Instance]: boolean} = {}
+local activeMap: Instance? = nil
+local mapNames = {}
+for _, info in pairs(Maps) do mapNames[info.MapFolder.Name] = true end
+
+local function isGameplayMap(instance: Instance): boolean
+	return instance.Name ~= "IntermissionMap" and not instance:FindFirstChildOfClass("Humanoid")
+		and (instance:IsA("Model") or instance:IsA("Folder"))
+		and (mapNames[instance.Name] == true or instance:GetAttribute("RoundMap") == true)
+end
+
+local function liveMaps()
+	local found, seen = {}, {}
+	local function add(instance)
+		if not seen[instance] then seen[instance] = true; table.insert(found, instance) end
+	end
+	-- Include pre-existing Studio copies and duplicate siblings, not just clones
+	-- recorded by this module. Never sweep arbitrary Workspace objects/the lobby.
+	for _, instance in ipairs(workspace:GetChildren()) do
+		if isGameplayMap(instance) then add(instance) end
+		if instance.Name == "Maps" and instance:IsA("Folder") then
+			for _, nested in ipairs(instance:GetChildren()) do if isGameplayMap(nested) then add(nested) end end
+		end
+	end
+	for instance in pairs(spawnedMaps) do add(instance) end
+	return found
+end
+
+local function removeExcept(keep: Instance?)
+	for _, instance in ipairs(liveMaps()) do
+		if instance ~= keep then instance:Destroy(); spawnedMaps[instance] = nil end
+	end
+	if activeMap ~= keep then activeMap = nil end
+end
+
+local function getMap(MapName: string)
+	local info = Maps[MapName]
+	return info and activeMap and activeMap.Parent == workspace and activeMap.Name == info.MapFolder.Name and activeMap or nil
+end
 
 local function collectSpawnParts(spawnFolder: Instance)
 	local parts = {}
@@ -45,7 +83,7 @@ function SpawnMap.RespawnPlayer(player: Player, MapName: string)
 		return false
 	end
 
-	local map = workspace:FindFirstChild(mapInfo.MapFolder.Name)
+	local map = getMap(MapName)
 	local spawnFolder = map and map:FindFirstChild("Spawns", true)
 	if not spawnFolder then
 		return false
@@ -61,47 +99,47 @@ end
 
 function SpawnMap.Spawn(MapName: string)
 	if not MapName then
-		return
+		return false
 	end
 
 	local mapInfo = Maps[MapName]
 	if not mapInfo then
 		warn("MODULE SPAWNMAP. Error is: invalid map name : ", MapName)
-		return
+		return false
 	end
 
 	local folderName = mapInfo.MapFolder.Name
 
-	if workspace:FindFirstChild(folderName) then
-		return
-	end
-
-	local original = game:GetService("ServerStorage"):FindFirstChild(folderName)
-	if not original then
+	local original = mapInfo.MapFolder
+	if not original or not (original:IsA("Model") or original:IsA("Folder")) then
 		warn("MODULE SPAWNMAP. Couldn't find map for : ", folderName)
-		return
+		return false
 	end
 
 	local clone = original:Clone()
-	clone.Parent = workspace
-	spawnedMaps[folderName] = clone
-
-	task.wait(4)
-
+	if not clone then warn("SpawnMap: map template must be Archivable:", folderName); return false end
 	local spawnFolder = clone:FindFirstChild("Spawns", true)
 	if not spawnFolder then
 		warn("MODULE SPAWNMAP. No Spawns folder for map : ", folderName)
-		return
+		clone:Destroy()
+		return false
 	end
 
 	local spawnParts = collectSpawnParts(spawnFolder)
 	if #spawnParts == 0 then
 		warn("MODULE SPAWNMAP. No spawn parts found in Spawns folder for map : ", folderName)
-		return
+		clone:Destroy()
+		return false
 	end
 
 	shuffleParts(spawnParts)
-
+	-- Validate before replacing the old map. There are no yields between cleanup
+	-- and publication, so another spawn cannot leave two active map instances.
+	removeExcept(nil)
+	clone:SetAttribute("RoundMap", true)
+	activeMap, spawnedMaps[clone] = clone, true
+	clone.Parent = workspace
+	return true
 end
 
 function SpawnMap.PlacePlayers(MapName: string, players: {Player}): number
@@ -111,7 +149,7 @@ function SpawnMap.PlacePlayers(MapName: string, players: {Player}): number
 		return 0
 	end
 
-	local map = workspace:FindFirstChild(mapInfo.MapFolder.Name)
+	local map = getMap(MapName)
 	local spawnFolder = map and map:FindFirstChild("Spawns", true)
 	if not spawnFolder then
 		warn("SpawnMap: no Spawns folder for placement:", MapName)
@@ -147,12 +185,7 @@ function SpawnMap.PlacePlayers(MapName: string, players: {Player}): number
 end
 
 function SpawnMap.RemoveAllMaps()
-	for mapName, map in pairs(spawnedMaps) do
-		if map.Parent then
-			map:Destroy()
-		end
-		spawnedMaps[mapName] = nil
-	end
+	removeExcept(nil)
 end
 
 function SpawnMap.RemoveOtherMapsThen(MapName: string)
@@ -162,16 +195,10 @@ function SpawnMap.RemoveOtherMapsThen(MapName: string)
 		return
 	end
 
-	local folderName = mapInfo.MapFolder.Name
-
-	for mapName, map in pairs(spawnedMaps) do
-		if mapName ~= folderName then
-			if map.Parent then
-				map:Destroy()
-			end
-			spawnedMaps[mapName] = nil
-		end
-	end
+	removeExcept(getMap(MapName))
 end
+
+-- Clean Studio leftovers during startup as well as at round transitions.
+SpawnMap.RemoveAllMaps()
 
 return SpawnMap

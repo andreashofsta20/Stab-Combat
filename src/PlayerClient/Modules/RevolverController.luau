@@ -2,11 +2,13 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 local Config = require(ReplicatedStorage.Modules.RevolverConfig)
 local Catalog = require(ReplicatedStorage.Modules.RevolversInfo)
 local Raycast = require(ReplicatedStorage.Modules.RevolverRaycast)
 local Effects = require(script.Parent.RevolverEffects)
 local AimPose = require(script.Parent.RevolverAimPose)
+local AimCamera = require(script.Parent.RevolverAimCamera)
 local player = Players.LocalPlayer
 local Controller = {}
 local initialized = false
@@ -26,20 +28,34 @@ local lastSyncAt = 0
 local oldZoom = nil
 local hitMarkerUntil = 0
 local touchAimPosition, touchAimUntil = nil, 0
-local gui, ammoLabel, crosshair, hitMarker, shootButton, reloadButton
+local gui, ammoLabel, crosshair, hitMarker, shootButton, reloadButton, aimButton
+local aimRequested = false
+local aimInput
+local equippedTool, equippedTuning
 
 local function now() return workspace:GetServerTimeNow() end
 local function getTool()
 	local character = player.Character
 	if not character then return nil end
+	if equippedTool and equippedTool.Parent == character then return equippedTool end
+	equippedTool, equippedTuning = nil, nil
 	for _, child in ipairs(character:GetChildren()) do
-		if child:IsA("Tool") and Catalog[child.Name] then return child end
+		if child:IsA("Tool") and Catalog[child.Name] then
+			equippedTool, equippedTuning = child, Config.Get(child.Name)
+			return child
+		end
 	end
 	return nil
 end
 
+local function stopAim(immediate)
+	aimRequested = false
+	aimInput = nil
+	AimCamera.Stop(immediate)
+end
+
 local function uiBlocksCombat()
-	if UserInputService:GetFocusedTextBox() then return true end
+	if GuiService.MenuIsOpen or UserInputService:GetFocusedTextBox() then return true end
 	local playerGui = player:FindFirstChildOfClass("PlayerGui")
 	local main = playerGui and playerGui:FindFirstChild("Main")
 	local frames = main and main:FindFirstChild("Frames")
@@ -58,6 +74,36 @@ local function canPlay()
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	return gameActive and gameActive.Value and player:GetAttribute("InRound") == true
 		and player:GetAttribute("DataReady") == true and humanoid and humanoid.Health > 0
+end
+
+local function canPresent()
+	if canPlay() then return true end
+	if Config.Presentation.LobbyAimingEnabled ~= true or player:GetAttribute("InRound") == true
+		or player:GetAttribute("DataReady") ~= true then return false end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
+end
+
+local function canAim()
+	if aimInput then
+		if aimInput.UserInputType == Enum.UserInputType.MouseButton2 then
+			if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return false end
+		elseif aimInput.UserInputState == Enum.UserInputState.End or aimInput.UserInputState == Enum.UserInputState.Cancel then
+			return false
+		end
+	end
+	return getTool() ~= nil and canPresent() and not uiBlocksCombat()
+end
+
+function Controller.SetAiming(enabled, heldInput)
+	if not initialized then return false end
+	if not enabled then stopAim(); return true end
+	aimInput = heldInput
+	if not canAim() then stopAim(); return false end
+	local tool = getTool()
+	aimRequested = AimCamera.Start(tool, equippedTuning.Aim, canAim)
+	return aimRequested
 end
 
 local function clearPredictions()
@@ -83,8 +129,8 @@ end
 local function aimRay(screenPosition)
 	local camera = workspace.CurrentCamera
 	if not camera then return nil end
-	if not screenPosition and (UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
-		or touchShiftLock or gamepadMode or touchMode) then
+	if AimCamera.IsAiming() or (not screenPosition and (UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
+		or touchShiftLock or gamepadMode or touchMode)) then
 		local center = camera.ViewportSize / 2
 		return camera:ViewportPointToRay(center.X, center.Y)
 	end
@@ -130,11 +176,11 @@ function Controller.Fire(screenPosition: Vector2?)
 		or reloadPredicted or time < nextShot then return false end
 	local ray = aimRay(screenPosition)
 	if not ray then return false end
-	local tuning = Config.Get(tool.Name)
+	local tuning = equippedTuning
 	local result, origin = predict(tool, ray, tuning)
 	if not result then return false end
 	if screenPosition then touchAimPosition, touchAimUntil = screenPosition, time + 0.6 end
-	AimPose.SetLocalAim(tool, result.position, false)
+	AimPose.SetLocalAim(tool, result.position, false, AimCamera.IsAiming())
 	AimPose.Kick(player, player.Character, tool.Name)
 	sequence += 1
 	nextShot = time + tuning.FireIntervalMs / 1000
@@ -155,13 +201,17 @@ function Controller.Reload()
 	sequence += 1
 	reloadSequence = sequence
 	reloadPredicted, reloadRequestedAt = true, now()
-	Effects.Reload(tool, Config.Get(tool.Name))
+	Effects.Reload(tool, equippedTuning)
 	Action:FireServer("Reload", session, sequence)
 	return true
 end
 
 function Controller.HasRevolverEquipped() return getTool() ~= nil end
-function Controller.SetMobileShiftLock(enabled) touchShiftLock = enabled == true end
+function Controller.IsAiming() return AimCamera.IsAiming() end
+function Controller.SetMobileShiftLock(enabled)
+	touchShiftLock = enabled == true
+	AimCamera.SetExternalShiftLock(touchShiftLock)
+end
 
 local function makeUI()
 	gui = Instance.new("ScreenGui")
@@ -178,23 +228,26 @@ local function makeUI()
 	hitMarker = Instance.new("TextLabel")
 	hitMarker.AnchorPoint, hitMarker.Size, hitMarker.BackgroundTransparency = Vector2.new(0.5, 0.5), UDim2.fromOffset(32, 32), 1
 	hitMarker.Text, hitMarker.TextColor3, hitMarker.TextSize, hitMarker.Parent = "X", Color3.fromRGB(255, 210, 80), 32, gui
-	local function button(text, x)
+	local function button(text, offset)
 		local control = Instance.new("TextButton")
-		control.AnchorPoint, control.Position, control.Size = Vector2.new(1, 1), UDim2.fromScale(x, 0.63), UDim2.fromOffset(80, 52)
+		control.AnchorPoint, control.Position, control.Size = Vector2.new(1, 1), UDim2.new(1, offset, 0.63, 0), UDim2.fromOffset(80, 52)
 		control.Text, control.TextSize, control.Font = text, 18, Enum.Font.GothamBold
 		control.BackgroundColor3, control.TextColor3, control.Parent = Color3.fromRGB(35, 35, 45), Color3.new(1, 1, 1), gui
 		return control
 	end
-	shootButton, reloadButton = button("SHOOT", 0.98), button("RELOAD", 0.85)
+	shootButton, reloadButton, aimButton = button("SHOOT", -12), button("RELOAD", -100), button("AIM", -188)
 	shootButton.Activated:Connect(function()
 		-- A dedicated touch button shoots at the displayed center crosshair.
 		local camera = workspace.CurrentCamera
 		if camera then Controller.Fire(camera.ViewportSize / 2) end
 	end)
 	reloadButton.Activated:Connect(Controller.Reload)
+	aimButton.Activated:Connect(function() Controller.SetAiming(not AimCamera.IsAiming()) end)
 end
 
 local function onCharacter(character)
+	stopAim(true)
+	equippedTool, equippedTuning = nil, nil
 	for _, connection in ipairs(characterConnections) do connection:Disconnect() end
 	table.clear(characterConnections)
 	session, revision, sequence, acknowledged = nil, -1, 0, 0
@@ -205,6 +258,10 @@ local function onCharacter(character)
 	AimPose.ResetLocal()
 	local function toolsChanged(child)
 		if not child:IsA("Tool") then return end
+		if child == equippedTool and child.Parent ~= character then
+			stopAim(true)
+			equippedTool, equippedTuning = nil, nil
+		end
 		if not getTool() then
 			reloadPredicted = false
 			reloadSequence = nil
@@ -271,26 +328,38 @@ function Controller.Init()
 		touchMode = input.UserInputType == Enum.UserInputType.Touch
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
 			Controller.Fire()
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
+			Controller.SetAiming(true, input)
 		elseif input.KeyCode.Name == Config.ReloadKey or input.KeyCode.Name == Config.GamepadReloadKey then
 			Controller.Reload()
 		end
 	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then stopAim() end
+	end)
+	UserInputService.WindowFocusReleased:Connect(function() stopAim(true) end)
+	UserInputService.TextBoxFocused:Connect(function() stopAim(true) end)
+	GuiService.MenuOpened:Connect(function() stopAim(true) end)
 	UserInputService.LastInputTypeChanged:Connect(function(inputType)
 		gamepadMode = inputType.Name:match("^Gamepad") ~= nil
 		touchMode = inputType == Enum.UserInputType.Touch
 	end)
 	player.CharacterAdded:Connect(onCharacter)
+	player.CharacterRemoving:Connect(function() stopAim(true) end)
 	gameActive.Changed:Connect(function()
 		sync()
-		if not gameActive.Value then reloadPredicted = false; Effects.StopReload() end
+		if not gameActive.Value then stopAim(true); reloadPredicted = false; Effects.StopReload() end
 	end)
 	player:GetAttributeChangedSignal("DataReady"):Connect(sync)
 	player:GetAttributeChangedSignal("InRound"):Connect(sync)
 	if player.Character then onCharacter(player.Character) end
-	RunService.RenderStepped:Connect(function()
+	RunService:BindToRenderStep("RevolverHUD", Enum.RenderPriority.Camera.Value + 3, function()
 		local tool = getTool()
-		local visible = tool ~= nil and canPlay() and not uiBlocksCombat()
+		local visible = tool ~= nil and canPresent() and not uiBlocksCombat()
+		local combat = visible and canPlay()
 		gui.Enabled = visible == true
+		ammoLabel.Visible = combat == true
+		if aimRequested and (not visible or not canAim() or not AimCamera.IsAiming()) then stopAim(not visible) end
 		if tool and oldZoom == nil then
 			oldZoom = player.CameraMaxZoomDistance
 			player.CameraMaxZoomDistance = math.min(oldZoom, Config.Security.CameraZoomLimit)
@@ -300,7 +369,7 @@ function Controller.Init()
 		local time = now()
 		if visible then
 			local touchPosition = touchMode and time < touchAimUntil and touchAimPosition or nil
-			AimPose.SampleCursor(tool, aimRay(touchPosition), reloadEnd > 0 or reloadPredicted)
+			AimPose.SampleCursor(tool, aimRay(touchPosition), combat and (reloadEnd > 0 or reloadPredicted), AimCamera.IsAiming())
 		else
 			AimPose.SetLocalAim(nil)
 		end
@@ -310,11 +379,13 @@ function Controller.Init()
 				or (reloadPredicted and "RELOADING" or string.format("%d / %d  |  [%s] RELOAD", ammo, Config.Capacity, Config.ReloadKey))
 			ammoLabel.Text = text
 			local camera = workspace.CurrentCamera
-			local centered = UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or touchShiftLock or gamepadMode or touchMode
+			local centered = AimCamera.IsAiming() or UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or touchShiftLock or gamepadMode or touchMode
 			local pos = centered and camera and camera.ViewportSize / 2 or UserInputService:GetMouseLocation()
 			crosshair.Position, hitMarker.Position = UDim2.fromOffset(pos.X, pos.Y), UDim2.fromOffset(pos.X, pos.Y)
-			hitMarker.Visible = time < hitMarkerUntil
-			shootButton.Visible, reloadButton.Visible = UserInputService.TouchEnabled, UserInputService.TouchEnabled
+			hitMarker.Visible = combat and time < hitMarkerUntil
+			shootButton.Visible, reloadButton.Visible = combat and UserInputService.TouchEnabled, combat and UserInputService.TouchEnabled
+			aimButton.Visible = UserInputService.TouchEnabled
+			aimButton.Text = AimCamera.IsAiming() and "AIM ON" or "AIM"
 		end
 		for id, prediction in pairs(predictions) do
 			if time - prediction.time > 2 then predictions[id] = nil end

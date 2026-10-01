@@ -500,7 +500,21 @@ function MainGame.StartGame(map, modeId: string?)
 
     task.wait(COUNTDOWN_SECONDS - FADE_AT + 0.5)
 
-    SpawnMapModule.Spawn(map)
+    if not SpawnMapModule.Spawn(map) then
+        warn("MainGame: unable to load round map:", map)
+        RoundHandlerModule.ChangeStatus("MAP COULD NOT LOAD")
+        MainGame.WipeTools()
+        MainGame.GameActive = false
+        GameActiveBoolean.Value = false
+        MainGame.LobbyModeLock = false
+        MainGame.CurrentMap = nil
+        table.clear(MainGame.PlayersInGame)
+        for _, player in ipairs(Players:GetPlayers()) do
+            player:SetAttribute("InRound", false)
+            player:SetAttribute("CurrentRoundParticipant", false)
+        end
+        return
+    end
     task.wait(2)
 
     RoundCountdownRemote:FireAllClients("fight")

@@ -27,9 +27,19 @@ local function cast(origin, direction, length, candidates, size, worldCast)
 	}
 end
 
+function Raycast.GetAimOrigin(cameraOrigin, cameraDirection, muzzleOrigin)
+	-- A third-person camera can see ground/props between itself and the gun.
+	-- Never converge the barrel toward an aim point behind its forward plane:
+	-- that flips the shot backward/downward even when its forward path is clear.
+	-- Advancing along the SAME camera ray keeps the cursor alignment intact.
+	local depth = math.max(0, (muzzleOrigin - cameraOrigin):Dot(cameraDirection))
+	return cameraOrigin + cameraDirection * depth
+end
+
 function Raycast.Resolve(cameraOrigin, cameraDirection, muzzleOrigin, tuning, candidates, worldCast)
-	local aim = cast(cameraOrigin, cameraDirection,
-		tuning.Range + (cameraOrigin - muzzleOrigin).Magnitude, candidates, tuning.HitboxSize, worldCast)
+	local aimOrigin = Raycast.GetAimOrigin(cameraOrigin, cameraDirection, muzzleOrigin)
+	local aim = cast(aimOrigin, cameraDirection,
+		tuning.Range + (aimOrigin - muzzleOrigin).Magnitude, candidates, tuning.HitboxSize, worldCast)
 	local vector = aim.position - muzzleOrigin
 	if vector.Magnitude < 0.001 then return nil end
 	-- Extend just past the picked box surface to avoid numeric boundary misses.

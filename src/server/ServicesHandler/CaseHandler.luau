@@ -10,6 +10,7 @@ local AbbreviateModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitF
 local RarityColorModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
+local ProfileManager = require(script.Parent.Parent.DataStore.ProfileManager)
 local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("GameReward"))
 
 local GetRarity = require(script.Parent.GetRarityWeight)
@@ -37,6 +38,8 @@ local CASE_OPEN_MIN_GAP = 0.35
 
 OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string)
 	if not player then return end
+	local profile = ProfileManager.GetProfile(player)
+	if player:GetAttribute("DataReady") ~= true or not profile or not profile:IsActive() then return end
 	if type(CaseName) ~= "string" then return end
 	if #CaseName < 1 or #CaseName > 64 then return end
 
@@ -92,7 +95,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 
 	
-	if not player.Parent then
+	if not player.Parent or not profile:IsActive() or ProfileManager.GetProfile(player) ~= profile then
 		clearDebounce()
 		return
 	end

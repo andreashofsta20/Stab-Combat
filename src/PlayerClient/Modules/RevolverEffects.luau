@@ -1,15 +1,32 @@
-local Debris = game:GetService("Debris")
+local DebrisService = game:GetService("Debris")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Modules.RevolverConfig)
 local Effects = {}
 local animationTracks = {}
 local tracers = {}
+local tracerConnection, tracerCount = nil, 0
+local updateTracers
 local reloadSoundAnchor = nil
 local effectFolder = Instance.new("Folder")
 effectFolder.Name, effectFolder.Parent = "LocalRevolverEffects", workspace
 local SPARK = "rbxasset://textures/particles/sparkles_main.dds"
 local FLARE = "rbxasset://textures/particles/flare_main.dds"
 local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+
+local function nearby(position)
+	local camera = workspace.CurrentCamera
+	return not camera or (position - camera.CFrame.Position).Magnitude <= Config.Presentation.MaxEffectDistance
+end
+
+local function removeTracer(model)
+	if not tracers[model] then return end
+	tracers[model] = nil
+	tracerCount -= 1
+	model:Destroy()
+	if tracerCount == 0 and tracerConnection then tracerConnection:Disconnect(); tracerConnection = nil end
+end
 
 local function lookAlong(position, direction)
 	local up = math.abs(direction.Y) / direction.Magnitude > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0)
@@ -37,7 +54,7 @@ local function playSound(id, position, settings)
 	local sound = Instance.new("Sound")
 	sound.SoundId, sound.RollOffMaxDistance, sound.Volume, sound.Parent = id, settings.SoundRange, settings.SoundVolume, part
 	sound:Play()
-	Debris:AddItem(part, 8)
+	DebrisService:AddItem(part, 8)
 	return part
 end
 
@@ -105,7 +122,7 @@ local function muzzleBurst(origin, destination, settings)
 		smoke.Acceleration, smoke.Drag, smoke.Rotation = Vector3.new(0, 2, 0), 3, NumberRange.new(0, 360)
 		smoke:Emit(settings.SmokeParticleCount)
 	end
-	Debris:AddItem(part, 1)
+	DebrisService:AddItem(part, 1)
 end
 
 local function beam(parent, first, last, color, width, glow)
@@ -135,6 +152,11 @@ end
 function Effects.Tracer(origin, destination, settings)
 	local vector = destination - origin
 	if not settings.TracerEnabled or vector.Magnitude < 0.001 then return nil end
+	if tracerCount >= Config.Presentation.MaxActiveTracers then
+		local oldest, started = nil, math.huge
+		for model, state in pairs(tracers) do if state.start < started then oldest, started = model, state.start end end
+		if oldest then removeTracer(oldest) end
+	end
 	local model = Instance.new("Folder")
 	model.Name, model.Parent = "RevolverShotStreak", effectFolder
 	local holder = anchor("Path", CFrame.new(origin), model)
@@ -145,7 +167,7 @@ function Effects.Tracer(origin, destination, settings)
 	local glow = beam(holder, first, last, ColorSequence.new(color), settings.TracerGlowWidth, true)
 	local tip = anchor("BulletGlint", lookAlong(origin, vector), model)
 	tip.Transparency, tip.Material, tip.Color = 0.15, Enum.Material.Neon, Color3.new(1, 1, 1)
-	tip.Size = Vector3.new(settings.TracerThickness, settings.TracerThickness, 0.22)
+	tip.Size = Vector3.new(settings.TracerThickness, settings.TracerThickness, settings.TracerTipLength)
 	local fade = settings.TracerLifetimeMs / 1000
 	trail(tip, settings.TracerThickness, fade * 0.7, gold, 0.15)
 	trail(tip, settings.TracerGlowWidth, fade, ColorSequence.new(color), 0.7)
@@ -153,7 +175,9 @@ function Effects.Tracer(origin, destination, settings)
 		distance = vector.Magnitude, start = os.clock(), travel = math.max(0.001, settings.VisualTravelMs / 1000),
 		fade = math.max(0.01, fade), settings = settings, first = first, last = last, core = core, glow = glow, tip = tip }
 	last.Position = vector.Unit * math.min(vector.Magnitude, 0.8)
-	Debris:AddItem(model, settings.VisualTravelMs / 1000 + fade + 0.5)
+	tracerCount += 1
+	if not tracerConnection then tracerConnection = RunService.RenderStepped:Connect(updateTracers) end
+	DebrisService:AddItem(model, settings.VisualTravelMs / 1000 + fade + 0.5)
 	return model
 end
 
@@ -161,31 +185,38 @@ function Effects.CorrectTracer(model, destination)
 	local state = tracers[model]
 	if not state then return end
 	local vector = destination - state.origin
-	if vector.Magnitude < 0.001 then model:Destroy(); tracers[model] = nil; return end
+	if vector.Magnitude < 0.001 then removeTracer(model); return end
 	state.direction, state.distance = vector.Unit, vector.Magnitude
 end
 
--- One update for all cosmetic shots, rather than one connection per bullet.
-RunService.RenderStepped:Connect(function()
+-- One shared update, connected only while there are live streaks.
+updateTracers = function()
 	local now = os.clock()
+	local camera = workspace.CurrentCamera
+	local pixelScale = camera and 2 * math.tan(math.rad(camera.FieldOfView) / 2) / math.max(1, camera.ViewportSize.Y) or 0
 	for model, state in pairs(tracers) do
-		if not model.Parent then tracers[model] = nil; continue end
+		if not model.Parent then removeTracer(model); continue end
 		local elapsed = now - state.start
-		if elapsed >= state.travel + state.fade then model:Destroy(); tracers[model] = nil; continue end
+		if elapsed >= state.travel + state.fade then removeTracer(model); continue end
 		local distance = math.min(state.distance, state.distance * elapsed / state.travel)
 		state.first.Position = state.direction * math.max(0, distance - state.settings.TracerTailLength)
 		state.last.Position = state.direction * distance
 		local position = state.origin + state.direction * distance
 		state.tip.CFrame = lookAlong(position, state.direction)
+		local settings = state.settings
+		local pixels = camera and (position - camera.CFrame.Position).Magnitude * pixelScale * settings.TracerMinPixels or 0
+		local width = math.max(settings.TracerThickness, math.min(settings.TracerMaxThickness, pixels))
+		local glowWidth = settings.TracerGlowWidth * width / math.max(0.001, settings.TracerThickness)
+		state.tip.Size = Vector3.new(width, width, settings.TracerTipLength)
 		local fade = math.clamp((elapsed - state.travel) / state.fade, 0, 1)
 		state.tip.Transparency = elapsed >= state.travel and 1 or 0.15
-		state.core.Width0, state.core.Width1 = state.settings.TracerThickness * 0.3 * (1 - fade), state.settings.TracerThickness * (1 - fade)
-		state.glow.Width0, state.glow.Width1 = state.settings.TracerGlowWidth * 0.3 * (1 - fade), state.settings.TracerGlowWidth * (1 - fade)
+		state.core.Width0, state.core.Width1 = width * 0.3 * (1 - fade), width * (1 - fade)
+		state.glow.Width0, state.glow.Width1 = glowWidth * 0.3 * (1 - fade), glowWidth * (1 - fade)
 	end
-end)
+end
 
 function Effects.Impact(position, normal, settings)
-	if not settings.ImpactEnabled or typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 then return end
+	if not settings.ImpactEnabled or typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 or not nearby(position) then return end
 	local part = anchor("RevolverImpact", lookAlong(position + normal * 0.025, normal))
 	local socket = attachment(part)
 	local sparks = emitter(socket, SPARK, ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(255, 165, 65)))
@@ -193,10 +224,11 @@ function Effects.Impact(position, normal, settings)
 	sparks.Size, sparks.Transparency, sparks.LightEmission = NumberSequence.new(0.09, 0), NumberSequence.new(0, 1), 1
 	sparks.Acceleration, sparks.Drag = Vector3.new(0, -12, 0), 4
 	sparks:Emit(settings.ImpactSparkCount)
-	Debris:AddItem(part, 0.5)
+	DebrisService:AddItem(part, 0.5)
 end
 
 function Effects.Fire(tool, origin, destination, tuning, animateCharacter)
+	if not animateCharacter and not nearby(origin) and not nearby(destination) then return nil end
 	-- Prefer this client's posed barrel for presentation; this never changes
 	-- the server's firing origin or sends cosmetic positions back to it.
 	if tool then
@@ -239,8 +271,7 @@ function Effects.Clear()
 	Effects.StopReload()
 	for _, entry in pairs(animationTracks) do entry.track:Destroy() end
 	table.clear(animationTracks)
-	for model in pairs(tracers) do model:Destroy() end
-	table.clear(tracers)
+	for model in pairs(tracers) do removeTracer(model) end
 end
 
 return Effects

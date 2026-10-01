@@ -35,6 +35,7 @@ end
 
 local function ChangeKeybind(player : Player, Action : string, NewKeybind)
 	if not player or not KeybindValidation.IsKnownAction(Action) then return end
+	if player:GetAttribute("DataReady") ~= true then return end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	local keybindsFolder = leaderstats and leaderstats:FindFirstChild("KeyBinds")
 	if not keybindsFolder then return end

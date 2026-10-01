@@ -26,6 +26,7 @@ local PROFILE_VIEW_COOLDOWN = 1.0
 RecieveProfileRequest.OnServerEvent:Connect(function(player : Player, TargetID)
 	if not player then return end
 	if typeof(TargetID) ~= "number" then return end
+	if TargetID ~= TargetID or math.abs(TargetID) == math.huge or TargetID > 9007199254740991 then return end
 	TargetID = math.floor(TargetID)
 	if TargetID <= 0 then return end
 
