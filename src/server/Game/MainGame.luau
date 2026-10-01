@@ -36,6 +36,15 @@ local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):Wa
 
 
 local PlayerGotKilledRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("PlayerGotKilledRemote")
+
+-- Kill cam: server tells ONLY the victim whom to watch. Created here if it doesn't exist yet.
+local KillCamRemote = RemotesFolder:FindFirstChild("KillCam")
+if not KillCamRemote then
+    KillCamRemote = Instance.new("RemoteEvent")
+    KillCamRemote.Name = "KillCam"
+    KillCamRemote.Parent = RemotesFolder
+end
+local FFA_KILLCAM_SECONDS = 2   -- how long an FFA victim watches their killer before respawning
 MainGame.RoundStats = nil
 
 local eliminationOrder = {}
@@ -190,7 +199,7 @@ local function FinalizeRoundStats()
 
     local survivors = {}
     for userId, data in pairs(stats.players) do
-        if not eliminatedSet[userId] then
+        if not eliminatedSet[userId] and not data.forfeited then
             table.insert(survivors, { userId = userId, kills = data.kills or 0 })
         end
     end
@@ -335,6 +344,8 @@ function MainGame.OnDeath(player: Player)
     deathLocks[userId] = true
 
     local killer = pendingKills[userId]
+    -- Who should the victim watch? Only a real, still-connected, different player.
+    local killCamTarget = (killer and killer ~= player and killer.Parent == Players) and killer or nil
     local stats = MainGame.RoundStats
     if killer and killer ~= player and stats
         and stats.players[killer.UserId]
@@ -365,7 +376,10 @@ function MainGame.OnDeath(player: Player)
     local mode = MainGame.CurrentMode
     if mode.Respawns then
         player:SetAttribute("InRound", true)
-        task.delay(1.5, function()
+        if killCamTarget then
+            KillCamRemote:FireClient(player, "Respawn", killCamTarget.UserId, FFA_KILLCAM_SECONDS)
+        end
+        task.delay(FFA_KILLCAM_SECONDS, function()
             deathLocks[userId] = nil
             if MainGame.GameActive and MainGame.PlayersInGame[userId] and player.Parent then
                 player:LoadCharacter()
@@ -380,6 +394,9 @@ function MainGame.OnDeath(player: Player)
     player:SetAttribute("InRound", false)
     ZoneHandler.NotifyPlayer(player, false)
 
+    -- Battle Royale: eliminated player spectates their killer (or anyone alive if no killer, e.g. zone).
+    KillCamRemote:FireClient(player, "Spectate", killCamTarget and killCamTarget.UserId or 0, 0)
+
     task.spawn(function()
         task.wait(1.5)
         RespawnAtLobby(player)
@@ -392,6 +409,10 @@ function MainGame.LeaveRound(player: Player)
     end
 
     MainGame.PlayersInGame[player.UserId] = nil
+    if MainGame.RoundStats and MainGame.RoundStats.players[player.UserId] then
+        MainGame.RoundStats.players[player.UserId].forfeited = true
+        MainGame.RoundStats.players[player.UserId].placement = 0
+    end
     pendingKills[player.UserId] = nil
     deathLocks[player.UserId] = nil
     player:SetAttribute("InRound", false)
@@ -581,6 +602,8 @@ function MainGame.StartGame(map, modeId: string?)
         ZoneHandler.StopZone()
     end
 
+	MainGame.GameActive = false
+	GameActiveBoolean.Value = false
     FinalizeRoundStats()
     local gameResults, playerResults = BuildRoundResults()
 

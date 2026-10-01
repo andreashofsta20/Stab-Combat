@@ -28,15 +28,15 @@ function VIPService.GetVIPExpiry(userId: number): number
 		return cached
 	end
 
-	local expiresAt = 0
 	local ok, data = pcall(function()
 		return VIPStore:GetAsync(tostring(userId))
 	end)
 
-	if ok and type(data) == "table" then
-		expiresAt = normalizeExpiry(data.ExpiresAt)
+	if not ok then
+		return 0
 	end
 
+	local expiresAt = type(data) == "table" and normalizeExpiry(data.ExpiresAt) or 0
 	vipExpiryCache[userId] = expiresAt
 	return expiresAt
 end
@@ -87,21 +87,40 @@ function VIPService.SetVIPExpiry(userId: number, expiresAt: number): boolean
 	return ok
 end
 
-function VIPService.GrantDuration(player: Player, secondsToAdd: number): (boolean, number)
+function VIPService.GrantDuration(player: Player, secondsToAdd: number, purchaseId: string?): (boolean, number)
 	secondsToAdd = math.max(0, math.floor(tonumber(secondsToAdd) or 0))
 	local now = os.time()
-	local currentExpiry = VIPService.GetVIPExpiry(player.UserId)
-	local base = math.max(now, currentExpiry)
-	local newExpiry = base + secondsToAdd
-
-	local ok = VIPService.SetVIPExpiry(player.UserId, newExpiry)
+	local newExpiry = now
+	local ok = pcall(function()
+		VIPStore:UpdateAsync(tostring(player.UserId), function(old)
+			old = type(old) == "table" and old or {}
+			local currentExpiry = normalizeExpiry(old.ExpiresAt)
+			old.ProcessedPurchases = type(old.ProcessedPurchases) == "table" and old.ProcessedPurchases or {}
+			if purchaseId and old.ProcessedPurchases[purchaseId] then
+				newExpiry = currentExpiry
+				return old
+			end
+			newExpiry = math.max(now, currentExpiry) + secondsToAdd
+			old.ExpiresAt = newExpiry
+			old.UpdatedAt = now
+			if purchaseId then
+				old.ProcessedPurchases[purchaseId] = true
+			end
+			return old
+		end)
+	end)
 	if ok then
+		VIPService.SetCachedExpiry(player.UserId, newExpiry)
 		VIPService.ApplyToPlayer(player, newExpiry)
 	else
-		VIPService.ApplyToPlayer(player, currentExpiry)
+		VIPService.ApplyToPlayer(player, VIPService.GetVIPExpiry(player.UserId))
 	end
 
 	return ok, newExpiry
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	vipExpiryCache[player.UserId] = nil
+end)
 
 return VIPService

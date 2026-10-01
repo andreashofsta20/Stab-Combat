@@ -103,7 +103,7 @@ function GetPlayerInfo.Inventory(UserId : number)
 							Quantity = quantity and quantity.Value or 0,
 							Rarity = rarity and rarity.Value or "Unknown",
 							Image = image and image.Value or "",
-							Tradeable = tradeable and tradeable:IsA("BoolValue") and tradeable.Value or true,
+							Tradeable = if tradeable and tradeable:IsA("BoolValue") then tradeable.Value else true,
 						}
 					end
 				end

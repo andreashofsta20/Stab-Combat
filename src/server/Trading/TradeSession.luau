@@ -173,7 +173,8 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
             Quantity = quantity,
             Rarity = item:FindFirstChild("Rarity") and item.Rarity.Value or "Common",
             Image = item:FindFirstChild("Image") and item.Image.Value or "",
-            Tradeable = tradeableValue and tradeableValue.Value or true
+            EmoteId = item:IsA("StringValue") and item.Value or "",
+            Tradeable = if tradeableValue then tradeableValue.Value else true
         })
 
         self:LockItem(userId, itemName)

@@ -167,7 +167,7 @@ end
 -- SPECTATE LOGIC
 -- ==========================================
 
-function SpectateHandler.StartSpectating()
+function SpectateHandler.StartSpectating(preferredTarget: Player?)
     if not GameActiveBoolean.Value then return end
     
     RandomTextLabel.Visible = false
@@ -175,6 +175,14 @@ function SpectateHandler.StartSpectating()
     SpectateFrame.Visible = true
     
     spectateIndex = 1
+    if preferredTarget then
+        for i, p in ipairs(GetAlivePlayers()) do
+            if p == preferredTarget then
+                spectateIndex = i
+                break
+            end
+        end
+    end
     SetSpectateTarget(spectateIndex)
 
     -- Heartbeat loop: STRICTLY for keeping the camera locked to the target's respawning humanoid
@@ -290,6 +298,72 @@ end)
 
 
 
+
+-- ==========================================
+-- KILL CAM (server-driven)
+-- ==========================================
+local killCamToken = 0
+
+local function CancelKillCam()
+    killCamToken += 1
+end
+
+-- FFA: watch your killer for a moment, then the server respawns you.
+local function RunFFAKillCam(killer: Player, duration: number)
+    killCamToken += 1
+    local token = killCamToken
+    local endAt = os.clock() + duration
+
+    task.spawn(function()
+        while token == killCamToken and os.clock() < endAt and killer.Parent == Players do
+            local humanoid = killer.Character and killer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and camera.CameraSubject ~= humanoid then
+                camera.CameraSubject = humanoid
+            end
+            RunService.Heartbeat:Wait()
+        end
+        -- Do nothing on exit: the respawn (CharacterAdded) hands the camera back to us.
+    end)
+end
+
+-- Battle Royale: once the server marks us eliminated, open the normal spectate UI on the killer.
+local function RunBRSpectate(killer: Player?)
+    task.spawn(function()
+        local deadline = os.clock() + 5
+        while player:GetAttribute("InRound") == true and os.clock() < deadline do
+            task.wait(0.1)
+        end
+        if player:GetAttribute("InRound") == true or not GameActiveBoolean.Value then return end
+        if SpectateFrame.Visible then return end
+        SpectateHandler.StartSpectating(killer)
+    end)
+end
+
+local KillCamRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("KillCam", 10)
+if KillCamRemote then
+    KillCamRemote.OnClientEvent:Connect(function(mode, killerUserId, duration)
+        -- Server is trusted, but never trust the shape of the data.
+        if type(mode) ~= "string" or type(killerUserId) ~= "number" then return end
+        local killer = killerUserId > 0 and Players:GetPlayerByUserId(killerUserId) or nil
+        if killer == player then return end
+
+        if mode == "Respawn" then
+            if not killer then return end
+            local seconds = math.clamp(tonumber(duration) or 2, 0.5, 5)
+            RunFFAKillCam(killer, seconds)
+        elseif mode == "Spectate" then
+            RunBRSpectate(killer)
+        end
+    end)
+end
+
+GameActiveBoolean.Changed:Connect(function(isActive)
+    if not isActive then CancelKillCam() end
+end)
+
+player.CharacterAdded:Connect(function()
+    CancelKillCam()
+end)
 
 -- Initialize
 UpdateSpectateButtonVisibility()

@@ -1,5 +1,6 @@
 local SpawnMap = {}
 local Maps = require(script.Parent:WaitForChild("Maps"))
+local spawnedMaps: {[string]: Instance} = {}
 
 local function collectSpawnParts(spawnFolder: Instance)
 	local parts = {}
@@ -83,6 +84,7 @@ function SpawnMap.Spawn(MapName: string)
 
 	local clone = original:Clone()
 	clone.Parent = workspace
+	spawnedMaps[folderName] = clone
 
 	task.wait(4)
 
@@ -145,10 +147,11 @@ function SpawnMap.PlacePlayers(MapName: string, players: {Player}): number
 end
 
 function SpawnMap.RemoveAllMaps()
-	for _, v in pairs(workspace:GetChildren()) do
-		if v:IsA("Folder") and v.Name ~= "IntermissionMap" then
-			v:Destroy()
+	for mapName, map in pairs(spawnedMaps) do
+		if map.Parent then
+			map:Destroy()
 		end
+		spawnedMaps[mapName] = nil
 	end
 end
 
@@ -161,9 +164,12 @@ function SpawnMap.RemoveOtherMapsThen(MapName: string)
 
 	local folderName = mapInfo.MapFolder.Name
 
-	for _, v in pairs(workspace:GetChildren()) do
-		if v:IsA("Folder") and v.Name ~= folderName and v.Name ~= "IntermissionMap" then
-			v:Destroy()
+	for mapName, map in pairs(spawnedMaps) do
+		if mapName ~= folderName then
+			if map.Parent then
+				map:Destroy()
+			end
+			spawnedMaps[mapName] = nil
 		end
 	end
 end

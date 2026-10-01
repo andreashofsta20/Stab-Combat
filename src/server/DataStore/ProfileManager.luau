@@ -49,6 +49,8 @@ local PROFILE_TEMPLATE = {
 		HasVIP = false,
 		ExpiresAt = 0,
 	},
+	ProcessedPurchases = {},
+	MigrationComplete = false,
 	FirstTimePlaying = false,
 }
 
@@ -106,7 +108,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 				Quantity = quantity and quantity.Value or 1,
 				Rarity = rarity and rarity.Value or "Common",
 				Image = image and image.Value or "1",
-				Tradeable = tradeable and tradeable.Value or (knife.Name ~= "Shadow Dagger"),
+				Tradeable = if tradeable then tradeable.Value else knife.Name ~= "Shadow Dagger",
 			})
 		end
 	end
@@ -296,15 +298,21 @@ function ProfileManager.LoadProfile(player: Player): any?
 	profile:AddUserId(player.UserId) -- GDPR compliance
 	profile:Reconcile() -- Fill in any missing template fields
 
-	-- One-time migration from old raw DataStore
-	if profile.SessionLoadCount == 1 then
+	-- Retry migration until the legacy read succeeds. A successful nil read is complete.
+	if profile.Data.MigrationComplete ~= true then
 		local oldStore = DataStoreService:GetDataStore(OLD_STORE_NAME)
 		local success, oldData = pcall(function()
 			return oldStore:GetAsync(tostring(player.UserId))
 		end)
-		if success and type(oldData) == "table" then
+		if not success then
+			profile:EndSession()
+			player:Kick("Failed to migrate your data. Please rejoin.")
+			return nil
+		end
+		if type(oldData) == "table" then
 			migrateOldData(profile, oldData)
 		end
+		profile.Data.MigrationComplete = true
 	end
 
 	-- Before every save, sync Value objects → Profile.Data
@@ -377,9 +385,7 @@ end
 
 StartTutorialRemote.OnServerEvent:Connect(function(player)
     local profile = Profiles[player]
-	print(profile)
-	print(profile.Data.FirstTimePlaying)
-    if profile and profile.Data.FirstTimePlaying == false then
+    if profile and profile:IsActive() and profile.Data.FirstTimePlaying == false then
         profile.Data.FirstTimePlaying = true
         StartTutorialRemote:FireClient(player)
     end

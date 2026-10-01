@@ -16,6 +16,9 @@ local NotificationHandler = require(script.Parent.SendNotification)
 local function CanStart()
 	local count = 0
 	for _, player in pairs(Players:GetPlayers()) do
+		if player:GetAttribute("DataReady") ~= true then
+			continue
+		end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local settings = leaderstats:FindFirstChild("Settings")
@@ -33,9 +36,16 @@ end
 
 
 RoundHandlerModule.ChangeStatus("WAITING FOR SERVER")
-task.wait(2)
 
-while true do
+local started = false
+local function runLoop()
+	if started then
+		return
+	end
+	started = true
+	task.wait(2)
+
+	while true do
 	
 	while not RoundHandlerModule.Intermission() do
 		task.wait(0.3)
@@ -86,13 +96,20 @@ while true do
 
 
 --	RoundHandlerModule.ChangeStatus("Removing map")
-	SpawnMapModule.RemoveAllMaps()
+		SpawnMapModule.RemoveAllMaps()
 
 
 
 
-	--SpawnMapModule.RemoveAllMaps()
+		--SpawnMapModule.RemoveAllMaps()
+	end
+end
+
+function Start()
+	task.spawn(runLoop)
 end
 
 
-return {}
+return {
+	Start = Start,
+}

@@ -17,7 +17,8 @@ local ServerKnives = ServerStorage:WaitForChild("Knives")
 
 local VISUAL_OFFSET = 0.8
 
-local activeShots: {[number]: {[string]: boolean}} = {}
+local activeShots: {[number]: {[string]: number}} = {}
+local shotOrder: {[number]: {string}} = {}
 local lastShot: {[number]: number} = {}
 
 local function reject(player: Player, shotId: string)
@@ -184,8 +185,6 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 		reject(player, shotId)
 		return
 	end
-	activeShots[player.UserId] = activeShots[player.UserId] or {}
-	activeShots[player.UserId][shotId] = true
 	local now = os.clock()
 	if lastShot[player.UserId] and now - lastShot[player.UserId] < Projectile.COOLDOWN then
 		reject(player, shotId)
@@ -221,6 +220,22 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 	if (origin - physicalOrigin).Magnitude > Projectile.MAX_ORIGIN_DISTANCE then
 		reject(player, shotId)
 		return
+	end
+	local originParams = RaycastParams.new()
+	originParams.FilterType = Enum.RaycastFilterType.Exclude
+	originParams.FilterDescendantsInstances = {character}
+	if workspace:Raycast(physicalOrigin, origin - physicalOrigin, originParams) then
+		reject(player, shotId)
+		return
+	end
+
+	activeShots[player.UserId] = activeShots[player.UserId] or {}
+	shotOrder[player.UserId] = shotOrder[player.UserId] or {}
+	activeShots[player.UserId][shotId] = now
+	table.insert(shotOrder[player.UserId], shotId)
+	while #shotOrder[player.UserId] > 128 do
+		local oldest = table.remove(shotOrder[player.UserId], 1)
+		if oldest then activeShots[player.UserId][oldest] = nil end
 	end
 
 	local params = RaycastParams.new()
@@ -270,7 +285,7 @@ function Projectile.Throw(player: Player, shotId: string, origin: Vector3, direc
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	activeShots[player.UserId], lastShot[player.UserId] = nil, nil
+	activeShots[player.UserId], shotOrder[player.UserId], lastShot[player.UserId] = nil, nil, nil
 end)
 
 return Projectile

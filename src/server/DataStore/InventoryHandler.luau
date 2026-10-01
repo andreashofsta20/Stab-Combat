@@ -90,12 +90,12 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 		if not tradeableFlag then
 			tradeableFlag = Instance.new("BoolValue")
 			tradeableFlag.Name = "Tradeable"
-			tradeableFlag.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+			tradeableFlag.Value = if tradeable ~= nil then tradeable else not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
 			tradeableFlag.Parent = existing
 		elseif tradeable ~= nil then
 			tradeableFlag.Value = tradeable
 		end
-		return
+		return existing
 	end
 
 	local Knife = Instance.new("StringValue")
@@ -119,7 +119,7 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 
 	local Tradeable = Instance.new("BoolValue")
 	Tradeable.Name = "Tradeable"
-	Tradeable.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+	Tradeable.Value = if tradeable ~= nil then tradeable else not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
 	Tradeable.Parent = Knife
 
 
@@ -155,7 +155,7 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 			q.Value = 2
 			q.Parent = existing
 		end
-		return
+		return existing
 	end
 
 
@@ -180,6 +180,8 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 		image.Value = info.Image
 		image.Parent = emote
 	end
+
+	return emote
 end
 
 
@@ -223,7 +225,7 @@ end
 
 
 function InventoryHandler.AddKnife(player : Player, knifeName : string, tradeable: boolean?)
-	CreateItem(player, knifeName, tradeable)
+	return CreateItem(player, knifeName, tradeable)
 end
 
 function InventoryHandler.AddRevolver(player: Player, revolverName: string, quantity: number?, tradeable: boolean?)

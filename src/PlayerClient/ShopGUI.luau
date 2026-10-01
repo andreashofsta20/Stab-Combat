@@ -70,6 +70,9 @@ local CasesPopUpFrame = ShopFrameUI:WaitForChild("CasesPopup")
 
 
 local EmotesFrame = OtherFramesFolder:WaitForChild("Emotes")
+-- Optional dedicated tab. If you haven't built "RevolverCases" in Studio yet,
+-- revolver cases simply show up in the normal Cases frame.
+local RevolverCasesFrame = OtherFramesFolder:FindFirstChild("RevolverCases") or CasesFrame
 
 
 -- // CASE ANIMATION FRAMES // --
@@ -167,6 +170,31 @@ local function openGoldPurchaseFlow(requiredGold: number)
 	end
 end
 
+-- True chance of ONE specific item: rarity weight / total weight / items in that rarity.
+-- (Weights don't have to sum to 100, so never display the raw weight as a percent.)
+local function getItemOddsText(caseInfo, rarity: string): string
+	local weights = caseInfo.Percentages
+	local total = 0
+	for _, w in pairs(weights) do
+		if type(w) == "number" and w > 0 then
+			total += w
+		end
+	end
+	local count = 0
+	for _, skin in pairs(caseInfo.Skins) do
+		if skin.Rarity == rarity then
+			count += 1
+		end
+	end
+	local weight = weights[rarity]
+	if total <= 0 or count == 0 or type(weight) ~= "number" or weight <= 0 then
+		return "0%"
+	end
+	local pct = weight / total / count * 100
+	local text = string.format("%.2f", pct):gsub("0+$", ""):gsub("%.$", "")
+	return text .. "%"
+end
+
 local function tryOpenCase(caseName: string)
 	local caseInfo = CaseInfoModule[caseName]
 	if not caseInfo then
@@ -228,7 +256,7 @@ local function CasePopUp(CaseName : string)
 				ItemOddFrame.Name = tostring(i)
 				ItemOddFrame.Rarity.Image = RarityColorModule[v.Rarity].Image
 				ItemOddFrame.LayoutOrder = RarityColorModule[v.Rarity].Priority
-				ItemOddFrame.Odds.Text = tostring(Chances[v.Rarity]) .. "%"
+				ItemOddFrame.Odds.Text = getItemOddsText(CaseInfo, v.Rarity)
 				ItemOddFrame.Parent = OddsContainer
 				
 				
@@ -291,7 +319,7 @@ local function CasePopUp(CaseName : string)
 			ItemOddFrame.Rarity.Image = RarityColorModule[v.Rarity].Image
 			ItemOddFrame.KnifeImage.Image = v.Image
 			ItemOddFrame.LayoutOrder = RarityColorModule[v.Rarity].Priority
-			ItemOddFrame.Odds.Text = tostring(Chances[v.Rarity]) .. "%"
+			ItemOddFrame.Odds.Text = getItemOddsText(CaseInfo, v.Rarity)
 			ItemOddFrame.Parent = OddsContainer
 			
 
@@ -322,16 +350,30 @@ CasesPopUpFrame.Holder.Top.Close.MouseButton1Up:Connect(function()
 end)
 
 local function LoadCases()
-	for i , v in pairs(CaseInfoModule) do
-		task.wait(0.3)
+	local sorted = {}
+	for caseName, caseData in pairs(CaseInfoModule) do
+		table.insert(sorted, { Name = caseName, Data = caseData })
+	end
+	table.sort(sorted, function(a, b)
+		local ao, bo = a.Data.Order or 999, b.Data.Order or 999
+		if ao ~= bo then return ao < bo end
+		return a.Name < b.Name
+	end)
+
+	for _, entry in ipairs(sorted) do
+		local i, v = entry.Name, entry.Data
+		task.wait(0.05)
 		local CaseFrame = CaseTemplate:Clone()
 		CaseFrame.Name = i
 		CaseFrame.CaseImage.Image = v.CaseImage
 		CaseFrame.Bottom.CaseName.Text = i
 		CaseFrame.Bottom.CaseCost.Text = tostring(AbbreviateModule.WithCommas(v.Price))
 		CaseFrame.Visible = true
+		CaseFrame.LayoutOrder = v.Order or 999
 		if v.EmoteCase then
 			CaseFrame.Parent = EmotesFrame
+		elseif v.ItemType == "Revolver" then
+			CaseFrame.Parent = RevolverCasesFrame
 		else
 			CaseFrame.Parent = CasesFrame
 		end

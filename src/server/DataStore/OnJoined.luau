@@ -23,6 +23,7 @@ local function savePlayerData(player)
 end
 
 Players.PlayerAdded:Connect(function(player)
+	player:SetAttribute("DataReady", false)
 	player.CharacterAdded:Connect(function()
 		task.delay(1, function()
 			local character = player.Character
@@ -345,11 +346,11 @@ Players.PlayerAdded:Connect(function(player)
 					rarity.Parent = emote
 
 				end
-
-				-- Push freshly loaded stats to leaderboards immediately (avoids initial zero write)
-				Leaderboards.UpdatePlayer(player)
 			end
 		end
+
+		-- Push freshly loaded stats to leaderboards once (avoids initial zero write)
+		Leaderboards.UpdatePlayer(player)
 
 		   -- Load daily rewards
 			  if data.DailyRewards and type(data.DailyRewards) == "table" then
@@ -392,6 +393,8 @@ Players.PlayerAdded:Connect(function(player)
 		if #data.Inventory == 0 then
 			test.AddKnife(player, "Shadow Dagger", false)
 		end
+
+		player:SetAttribute("DataReady", true)
 	else
 		-- Profile failed to load (player was kicked by ProfileManager)
 		return

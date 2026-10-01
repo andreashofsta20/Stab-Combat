@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 local PlayerHitbox = require(script.Parent.PlayerHitbox)
+local ServerStorage = game:GetService("ServerStorage")
 
 -- // ANIMS
 local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations") 
@@ -47,9 +48,11 @@ function KnifeModule.Stab(player: Player)
 
     local hrp = character:FindFirstChild("HumanoidRootPart")
     local hum = character:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum then return end
+    if not hrp or not hum or hum.Health <= 0 then return end
 
-    if not character:FindFirstChildWhichIsA("Tool") then return end
+    local equippedTool = character:FindFirstChildWhichIsA("Tool")
+    local serverKnives = ServerStorage:FindFirstChild("Knives")
+    if not equippedTool or not serverKnives or not serverKnives:FindFirstChild(equippedTool.Name) then return end
 
     playStabAnim(hum)
 
@@ -87,6 +90,13 @@ function KnifeModule.Stab(player: Player)
             if dist > (STAB_RANGE + 8) then -- 8 studs of leeway for player latency/ping
                 continue 
             end
+			local rayParams = RaycastParams.new()
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			rayParams.FilterDescendantsInstances = {character, victimHum.Parent}
+			local obstruction = workspace:Raycast(hrp.Position, victimHrp.Position - hrp.Position, rayParams)
+			if obstruction then
+				continue
+			end
         end
 
         if victimId then

@@ -107,29 +107,28 @@ end
 
 local function applyReward(player, reward)
 	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return end
+	if not leaderstats or player:GetAttribute("DataReady") ~= true then return false end
+	local cash = reward.Cash and leaderstats:FindFirstChild("Cash")
+	local xp = reward.XP and leaderstats:FindFirstChild("XP")
+	if reward.Cash and not cash then return false end
+	if reward.XP and not xp then return false end
 
 	if reward.Cash then
-		local cash = leaderstats:FindFirstChild("Cash")
-		if cash then
-			cash.Value += reward.Cash
-		end
+		cash.Value += reward.Cash
 	end
 
 	if reward.XP then
-		local xp = leaderstats:FindFirstChild("XP")
-		if xp then
-			xp.Value += reward.XP
-		end
+		xp.Value += reward.XP
 	end
 
 	if reward.Item then
 		if reward.Item.Type == "Knife" then
-			InventoryHandler.AddKnife(player, reward.Item.Name)
+			if not InventoryHandler.AddKnife(player, reward.Item.Name) then return false end
 		elseif reward.Item.Type == "Emote" then
-			InventoryHandler.AddEmote(player, reward.Item.Name)
+			if not InventoryHandler.AddEmote(player, reward.Item.Name) then return false end
 		end
 	end
+	return true
 end
 
 local function claim(player, requestedDayIndex)
@@ -173,12 +172,6 @@ local function claim(player, requestedDayIndex)
 	   end
    end
 
-
-   if requestedDayIndex == 1 and not streakReset and lastClaimTime ~= 0 then
-	   return false, "Not available"
-   end
-
-
    if streakReset then
 	   streak = 1
    else
@@ -194,7 +187,9 @@ local function claim(player, requestedDayIndex)
 	   return false, "Invalid reward"
    end
 
-   applyReward(player, reward)
+	if not applyReward(player, reward) then
+		return false, "Reward could not be granted"
+	end
 
    if lct then lct.Value = now end
    if stv then stv.Value = streak end
