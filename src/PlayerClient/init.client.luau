@@ -4,6 +4,7 @@ local controllers = {
 	"Emote",
 	"FramesHandler",
 	"HandleKnifeCombat",
+	"HandleRevolverCombat",
 	"Hotbar",
 	"InventoryGui",
 	"KeyBindClient",

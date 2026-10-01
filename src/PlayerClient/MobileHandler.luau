@@ -5,6 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local CombatController = require(script.Parent:WaitForChild("Modules"):WaitForChild("CombatController"))
+local RevolverController = require(script.Parent:WaitForChild("Modules"):WaitForChild("RevolverController"))
+local KnivesInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local SprintState = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("SprintState"))
 
 local UI = player:WaitForChild("PlayerGui"):WaitForChild("Main")
@@ -46,10 +48,15 @@ local walkSpeedConnection: RBXScriptConnection? = nil
 
 local function isKnifeEquipped(): boolean
     local character = player.Character
-    return character ~= nil and character:FindFirstChildWhichIsA("Tool") ~= nil
+    if not character then return false end
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("Tool") and KnivesInfo[child.Name] then return true end
+    end
+    return false
 end
 
 local function updateMobileCrosshair(isVisible: boolean, pos: Vector2?)
+    ThrowKnifeButton.Visible = not RevolverController.HasRevolverEquipped()
     if not isVisible or not knifeEquipped or ShiftLockToggled then
         MobileCrossHairImage.Visible = false
         return
@@ -146,6 +153,7 @@ local function setShiftLock(enabled: boolean)
     end
     
     CombatController.SetMobileShiftLock(ShiftLockToggled)
+    RevolverController.SetMobileShiftLock(ShiftLockToggled)
 end
 
 local function toggleEmoteFrame()
@@ -153,6 +161,7 @@ local function toggleEmoteFrame()
 end
 
 local function onThrowPressed()
+    if RevolverController.HasRevolverEquipped() then return end
     if throwHolding then return end
     throwHolding = true
     CombatController.BeginCharge()
@@ -186,7 +195,7 @@ local function onCharacterAdded(character: Model)
 
     character.ChildAdded:Connect(function(child)
         if not child:IsA("Tool") then return end
-        knifeEquipped = true
+        knifeEquipped = isKnifeEquipped()
         updateMobileCrosshair(touchHolding, lastTouchAimPos)
     end)
 
@@ -276,6 +285,7 @@ local function setUp()
 
     UserInputService.TouchStarted:Connect(function(input, _processed)
         if not isMobile or touchHolding or throwHolding then return end
+        if RevolverController.HasRevolverEquipped() then return end
         
         local pos = Vector2.new(input.Position.X, input.Position.Y)
         if touchOverGui(pos) then return end
@@ -336,6 +346,14 @@ local function setUp()
 
     UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)
         if not isMobile or processedByUI or throwHolding or touchHolding then return end
+        if RevolverController.HasRevolverEquipped() then
+            if ShiftLockToggled then
+                RevolverController.Fire()
+            elseif typeof(position) == "Vector2" then
+                RevolverController.Fire(position)
+            end
+            return
+        end
 
         local cam = workspace.CurrentCamera
         if cam then

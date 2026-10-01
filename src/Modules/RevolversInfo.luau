@@ -264,6 +264,13 @@ local RevolversInfo = {
 		Rarity = "Godly",
 		Image = "rbxassetid://92974226186910",
 		tradeable = true,
+
+		CframeBackrelativeOffset = CFrame.new(
+	-1.14834509, -1.5207468, 0.0278930664,
+	1, 3.72879725e-07, -1.06765183e-05,
+	1.06830266e-05, -0.0349067077, 0.999390662,
+	-2.95584633e-11, -0.999390602, -0.0349067077
+)
 	},
 
 
@@ -271,6 +278,12 @@ local RevolversInfo = {
 		Rarity = "Godly",
 		Image = "rbxassetid://78066337222488",
 		tradeable = true,
+		CframeBackrelativeOffset = CFrame.new(
+	-1.14834509, -1.5207468, 0.0278930664,
+	1, 3.72879725e-07, -1.06765183e-05,
+	1.06830266e-05, -0.0349067077, 0.999390662,
+	-2.95584633e-11, -0.999390602, -0.0349067077
+)
 	},
 
 
