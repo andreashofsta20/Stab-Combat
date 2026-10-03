@@ -3,6 +3,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Math = require(ReplicatedStorage.Modules.RevolverPoseMath)
+local MouseVisibility = require(ReplicatedStorage.Modules.MouseCursorVisibility)
 local player = Players.LocalPlayer
 local Aim = {}
 local current, bound, turnConnection
@@ -18,7 +19,7 @@ local function restoreControls(state)
 	-- A temporary camera/RMB lock is not a persistent user preference. Release
 	-- our lock; the native camera reapplies first person/native shift lock itself.
 	UserInputService.MouseBehavior = state.mouseBehavior
-	if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = state.mouseIcon end
+	MouseVisibility.Release(binding)
 	if turnConnection then turnConnection:Disconnect(); turnConnection = nil end
 end
 
@@ -68,8 +69,10 @@ local function update(dt)
 	local alpha = Math.Alpha(state.settings.CameraFollowSpeed, dt)
 	state.weight += ((state.active and 1 or 0) - state.weight) * alpha
 	-- Keep native camera collision/zoom. Avoid a shoulder offset in first person.
-	local firstPerson = (state.camera.CFrame.Position - state.camera.Focus.Position).Magnitude < 1
-	local wantedShoulder = state.active and not firstPerson and 1 or 0
+	local distance = (state.camera.CFrame.Position - state.camera.Focus.Position).Magnitude
+	if distance < 0.8 then state.firstPerson = true
+	elseif distance > 1.4 then state.firstPerson = false end
+	local wantedShoulder = state.active and not state.firstPerson and 1 or 0
 	state.shoulder += (wantedShoulder - state.shoulder) * alpha
 	state.lastFov = state.fov + (math.min(state.fov, state.settings.FieldOfView) - state.fov) * state.weight
 	state.lastOffset = state.offset + state.shoulderOffset * state.shoulder
@@ -79,7 +82,7 @@ local function update(dt)
 	state.lastFov, state.lastOffset = state.camera.FieldOfView, state.humanoid.CameraOffset
 	if state.active then
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-		UserInputService.MouseIconEnabled = false
+		MouseVisibility.Acquire(binding)
 	elseif state.weight < 0.001 and state.shoulder < 0.001 then finish() end
 end
 
@@ -98,13 +101,15 @@ function Aim.Start(tool, settings, allowed)
 			fov = camera.FieldOfView, lastFov = camera.FieldOfView, offset = humanoid.CameraOffset,
 			lastOffset = humanoid.CameraOffset, autoRotate = humanoid.AutoRotate,
 			mouseBehavior = externalShiftLock and UserInputService.MouseEnabled and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default,
-			mouseIcon = UserInputService.MouseIconEnabled, weight = 0, shoulder = 0 }
+			weight = 0, shoulder = 0,
+			firstPerson = (camera.CFrame.Position - camera.Focus.Position).Magnitude < 1 }
 	end
 	local state = current
 	state.active, state.controlsReleased, state.settings, state.allowed = true, false, settings, allowed
 	state.shoulderOffset = Vector3.new(table.unpack(settings.CameraOffset))
 	state.humanoid.AutoRotate = false
-	UserInputService.MouseBehavior, UserInputService.MouseIconEnabled = Enum.MouseBehavior.LockCenter, false
+	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	MouseVisibility.Acquire(binding)
 	if not bound then
 		bound = true
 		RunService:BindToRenderStep(binding, Enum.RenderPriority.Camera.Value + 1, function(dt)
@@ -119,10 +124,12 @@ function Aim.Start(tool, settings, allowed)
 			if not validCamera(s) or not s.allowed() then Aim.Stop(true); return end
 			if s.humanoid.Sit or s.humanoid.PlatformStand or s.root.Anchored then return end
 			local look = s.camera.CFrame.LookVector
-			if look.X * look.X + look.Z * look.Z < 1e-6 then return end
+			local horizontal = math.sqrt(look.X * look.X + look.Z * look.Z)
+			local stability = math.clamp((horizontal - s.settings.MinHorizontalLook) / 0.2, 0, 1)
+			if stability == 0 then return end
 			local body = s.root.CFrame.LookVector
 			local yaw, wanted = math.atan2(-body.X, -body.Z), math.atan2(-look.X, -look.Z)
-			yaw += Math.WrapAngle(wanted - yaw) * Math.Alpha(s.settings.BodyFollowSpeed, dt)
+			yaw += Math.WrapAngle(wanted - yaw) * Math.Alpha(s.settings.BodyFollowSpeed * stability, dt)
 			s.root.CFrame = CFrame.new(s.root.Position) * CFrame.Angles(0, yaw, 0)
 		end)
 	end

@@ -1,0 +1,21 @@
+return {
+	DaySeconds = 86400,
+	ClaimCooldown = 0.5,
+	StatusCooldown = 0.5,
+	Rewards = {
+		{ Item = { Type = "Knife", Name = "Bowie" }, XP = 50 },
+		{ Cash = 600, XP = 25 },
+		{ Cash = 700, XP = 50 },
+		{ Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
+		{ Cash = 800, XP = 75 },
+		{ Item = { Type = "Knife", Name = "Gut Knife" }, XP = 75 },
+		{ Item = { Type = "Emote", Name = "Griddy" }, XP = 100 },
+		{ Cash = 1000, XP = 100 },
+		{ Item = { Type = "Knife", Name = "Karambit" }, XP = 125 },
+		{ Cash = 1200, XP = 150 },
+		{ Item = { Type = "Knife", Name = "Skeleton" }, XP = 150 },
+		{ Cash = 1300, XP = 175 },
+		{ Item = { Type = "Emote", Name = "Godly Dance" }, XP = 200 },
+		{ Item = { Type = "Knife", Name = "Butterfly" }, XP = 250 },
+	},
+}

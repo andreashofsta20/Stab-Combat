@@ -1,33 +1,28 @@
-
-local RemotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
-
-local ChangeStatusRecieveRemote = RemotesFolder:WaitForChild("ChangeStatus")
-
-local Player = game.Players.LocalPlayer
-
-if not Player then warn("couldnt find player") 
-	return
+local RS = game:GetService("ReplicatedStorage")
+local player = game:GetService("Players").LocalPlayer
+local label
+local latest = RS:GetAttribute("GameStatus") or "WAITING FOR SERVER"
+local function apply()
+	if not label then return end
+	if RS:GetAttribute("ServerStartupState") == "Failed" then
+		label.Text = "SERVER COULD NOT START"
+	elseif RS:GetAttribute("ServerReady") == false then
+		label.Text = "WAITING FOR SERVER"
+	else
+		label.Text = latest
+	end
 end
-
-
-local Gui = Player.PlayerGui:WaitForChild("Main")
-
-local StatusTextLabel = Gui:WaitForChild("SystemTexts"):WaitForChild("Status")
-
-
-
-local function ChangeStats(arg : string)
-	StatusTextLabel.Text = arg or "Error 101: No status recieved"
-end
-
-
-
-
-if ChangeStatusRecieveRemote then
-	ChangeStatusRecieveRemote.OnClientEvent:Connect(function(arg : string)
-		ChangeStats(arg)
-	end)
-end
-
-
+-- Subscribe before waiting for UI. Keep only the latest status during loading.
+RS:GetAttributeChangedSignal("GameStatus"):Connect(function()
+	latest = RS:GetAttribute("GameStatus") or ""
+	apply()
+end)
+RS:GetAttributeChangedSignal("ServerStartupState"):Connect(apply)
+RS:GetAttributeChangedSignal("ServerReady"):Connect(apply)
+local remote = RS:WaitForChild("Remotes"):WaitForChild("ChangeStatus")
+remote.OnClientEvent:Connect(function(value)
+	if type(value) == "string" then latest = value; apply() end
+end)
+label = player:WaitForChild("PlayerGui"):WaitForChild("Main"):WaitForChild("SystemTexts"):WaitForChild("Status")
+apply()
 return {}

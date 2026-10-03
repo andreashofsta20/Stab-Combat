@@ -20,11 +20,15 @@ R6 shoulders cannot realistically turn a rigid arm through 180 degrees. Free cur
 
 ## Ground and foreground aiming
 
+The newer [death ragdoll and camera aiming review](RAGDOLL_AND_AIMING.md) also covers high-camera close/elevated targets. Target selection now uses the head as a stable reference, limits near clipping by the horizontal character plane, and preserves actual close hits for the arm pose. `Pose.MinAimDistance` is now 0.75 studs measured from the shoulder, replacing the old 12-stud camera-ray extension.
+
 A third-person camera can see a low ledge or floor intersection behind the barrel. Using that point as the target made the barrel turn backward/downward toward it. Target selection now advances along the same cursor ray to the barrel's forward plane before looking for a hit. Client prediction, server hit detection and arm cursor sampling share this correction, including free cursor aim and ADS.
 
 The actual shot still starts at the validated muzzle and stops at cover in its path. Camera/muzzle validation, victim cover checks and the maximum barrel range remain enforced. This changes where the camera starts selecting a target; it does not make bullets pass through walls.
 
 ## Camera and animation
+
+First-person arms and the equipped skin now use a local cosmetic model with restrained sway/bob/recoil and a lower-left aim transition. See [First-person revolver presentation](FIRST_PERSON_REVOLVER.md) for the implementation, performance limits, configuration and Studio checks.
 
 `RevolverAimCamera` retains the default Custom camera and its collision/zoom behavior. It uses [MouseBehavior.LockCenter](https://create.roblox.com/docs/reference/engine/classes/UserInputService#MouseBehavior), [Humanoid.CameraOffset and AutoRotate](https://create.roblox.com/docs/reference/engine/classes/Humanoid), and an update after the normal camera using [BindToRenderStep](https://create.roblox.com/docs/reference/engine/classes/RunService#BindToRenderStep). Cursor sampling and HUD updates run afterward. First person fades out the added shoulder offset.
 
@@ -65,7 +69,7 @@ Larger transparent effects can still increase GPU overdraw. These changes bound 
 
 ## Configuration
 
-Edit `src/Modules/RevolverConfig.luau`. `Pose`, `Aim` and `Effects` support nested per-weapon overrides. Restart the play session after changing settings.
+Edit `src/Modules/RevolverConfig.luau`. `Pose`, `Aim`, `FirstPerson` and `Effects` support nested per-weapon overrides. Restart the play session after changing settings.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

@@ -8,7 +8,10 @@ local ServerStorage = game:GetService("ServerStorage")
 
 
 
-Players.PlayerAdded:Connect(function(player)
+local initializedPlayers = {}
+local function initializePlayer(player)
+    if player.Parent ~= Players or initializedPlayers[player] then return end
+    initializedPlayers[player] = true
     
     local PlayerID = player.UserId
 
@@ -22,14 +25,21 @@ Players.PlayerAdded:Connect(function(player)
 
     if AdminClientFolder then
         local AdminClientClone = AdminClientFolder:Clone()
-        AdminClientClone.Parent = player:WaitForChild("PlayerGui")
+        local gui = player:WaitForChild("PlayerGui", 10)
+        if gui and player.Parent == Players then
+            if not gui:FindFirstChild(AdminClientFolder.Name) then AdminClientClone.Parent = gui
+            else AdminClientClone:Destroy() end
+        else AdminClientClone:Destroy() end
     end
 
 
 
 
 
-end)
+end
+Players.PlayerAdded:Connect(initializePlayer)
+for _, player in ipairs(Players:GetPlayers()) do task.spawn(initializePlayer, player) end
+Players.PlayerRemoving:Connect(function(player) initializedPlayers[player] = nil end)
 
 
 return {}

@@ -9,16 +9,16 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
+local StartupLoader = require(game:GetService("ReplicatedStorage").Modules.StartupLoader)
+local Packages = StartupLoader.RequireChild(ServerScriptService, "Packages", "Folder")
+local ProfileStore = require(StartupLoader.RequireChild(Packages, "ProfileStore", "ModuleScript"))
 
 local ProfileManager = {}
 local KeybindValidation = require(game:GetService("ReplicatedStorage"):WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 
-local STORE_NAME = "PlayerData_v1.0.1_MainData"
-local OLD_STORE_NAME = "PlayerData_v1.0.1_OldData"
-
-local TutorialRemotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Tutorial")
-local StartTutorialRemote = TutorialRemotes:WaitForChild("StartTutorial")
+local DataConfig = require(game:GetService("ReplicatedStorage").Modules.DataConfig)
+local STORE_NAME = DataConfig.ProfileStoreName
+local OLD_STORE_NAME = DataConfig.LegacyStoreName
 
 local PROFILE_TEMPLATE = {
 	Name = "",
@@ -45,6 +45,9 @@ local PROFILE_TEMPLATE = {
 		LastClaimTime = 0,
 		Streak = 0,
 	},
+	-- Imported once from DailyQuestsProgress_v1.0 by QuestsHandler. Claims and
+	-- Cash then share this profile's session lock and atomic DataStore record.
+	DailyQuests = { MigrationComplete = false },
 	VIP = {
 		HasVIP = false,
 		ExpiresAt = 0,
@@ -326,6 +329,8 @@ function ProfileManager.LoadProfile(player: Player): any?
 	-- If another server steals the session, kick the player
 	profile.OnSessionEnd:Connect(function()
 		Profiles[player] = nil
+		player:SetAttribute("DataReady", false)
+		player:SetAttribute("DataLoadState", "Failed")
 		if player.Parent == Players then
 			player:Kick("Your data has been loaded on another server. Please rejoin.")
 		end
@@ -407,13 +412,5 @@ function ProfileManager.GetStore()
 	return PlayerStore
 end
 
-
-StartTutorialRemote.OnServerEvent:Connect(function(player)
-    local profile = Profiles[player]
-    if profile and profile:IsActive() and profile.Data.FirstTimePlaying == false then
-        profile.Data.FirstTimePlaying = true
-        StartTutorialRemote:FireClient(player)
-    end
-end)
 
 return ProfileManager

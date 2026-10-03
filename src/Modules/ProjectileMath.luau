@@ -1,17 +1,18 @@
 -- Shared knife projectile rules. Keep this module free of Roblox services so the
 -- client prediction and the server simulation use exactly the same numbers.
 local ProjectileMath = {}
+local Config = require(script.Parent.KnifeConfig).Throw
 
-ProjectileMath.MAX_DISTANCE = 350
-ProjectileMath.MAX_FLIGHT_TIME = 2
-ProjectileMath.FIXED_STEP = 1 / 60
-ProjectileMath.MIN_SPEED = 90
-ProjectileMath.MAX_SPEED = 180
-ProjectileMath.DAMAGE = 50
-ProjectileMath.COOLDOWN = 0.5
+ProjectileMath.MAX_DISTANCE = Config.MaxDistance
+ProjectileMath.MAX_FLIGHT_TIME = Config.MaxFlightTime
+ProjectileMath.FIXED_STEP = 1 / 60 -- Legacy API; straight sweeps no longer need steps.
+ProjectileMath.MIN_SPEED = Config.MinSpeed
+ProjectileMath.MAX_SPEED = Config.MaxSpeed
+ProjectileMath.DAMAGE = Config.Damage
+ProjectileMath.COOLDOWN = Config.Cooldown
 ProjectileMath.MAX_CHARGE = 1
 ProjectileMath.MIN_ORIGIN_DISTANCE = 0
-ProjectileMath.MAX_ORIGIN_DISTANCE = 8
+ProjectileMath.MAX_ORIGIN_DISTANCE = Config.MaxOriginDistance
 
 function ProjectileMath.IsFiniteNumber(value: any): boolean
 	return typeof(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
@@ -33,10 +34,12 @@ function ProjectileMath.GetSpeed(charge: number): number
 end
 
 function ProjectileMath.NormalizeDirection(direction: Vector3): Vector3?
-	if not ProjectileMath.IsFiniteVector(direction) or direction.Magnitude < 0.001 then
+	if not ProjectileMath.IsFiniteVector(direction) or not ProjectileMath.IsFiniteNumber(direction.Magnitude)
+		or direction.Magnitude < 0.001 then
 		return nil
 	end
-	return direction.Unit
+	local unit = direction.Unit
+	return ProjectileMath.IsFiniteVector(unit) and unit or nil
 end
 
 function ProjectileMath.GetPosition(origin: Vector3, direction: Vector3, elapsed: number, charge: number): Vector3

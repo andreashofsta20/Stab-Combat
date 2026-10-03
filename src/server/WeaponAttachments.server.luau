@@ -143,6 +143,11 @@ end
 local function refresh(state)
 	local character = state.character
 	if not character or character ~= state.player.Character or not character.Parent then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if character:GetAttribute("Ragdolled") == true or humanoid and humanoid.Health <= 0 then
+		for category in pairs(config) do clearDisplay(state, category) end
+		return
+	end
 	local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
 	if state.torso ~= torso then
 		for category in pairs(config) do clearDisplay(state, category) end
@@ -223,6 +228,7 @@ local function bindCharacter(state, character)
 	end
 	table.insert(state.characterConnections, character.ChildAdded:Connect(onChildChanged))
 	table.insert(state.characterConnections, character.ChildRemoved:Connect(onChildChanged))
+	table.insert(state.characterConnections, character:GetAttributeChangedSignal("Ragdolled"):Connect(state.schedule))
 	state.schedule()
 end
 

@@ -10,10 +10,28 @@ $revolverModules = [ordered]@{
     Raycast = 'src/Modules/RevolverRaycast.luau'
     Pose = 'src/PlayerClient/Modules/RevolverAimPose.luau'
     Camera = 'src/PlayerClient/Modules/RevolverAimCamera.luau'
+    ViewmodelMath = 'src/Modules/RevolverViewmodelMath.luau'
+    WeaponGeometry = 'src/PlayerClient/Modules/WeaponViewmodelGeometry.luau'
+    WeaponEffects = 'src/PlayerClient/Modules/WeaponViewmodelEffects.luau'
+    WeaponViewmodel = 'src/PlayerClient/Modules/WeaponViewmodel.luau'
+    ViewmodelGeometry = 'src/PlayerClient/Modules/RevolverViewmodelGeometry.luau'
+    ViewmodelEffects = 'src/PlayerClient/Modules/RevolverViewmodelEffects.luau'
+    Viewmodel = 'src/PlayerClient/Modules/RevolverViewmodel.luau'
+    ViewmodelPhysicsServer = 'src/server/RevolverViewmodelPhysics.luau'
+    ToolPhysics = 'src/Modules/RevolverToolPhysics.luau'
+    MouseVisibility = 'src/Modules/MouseCursorVisibility.luau'
     Controller = 'src/PlayerClient/Modules/RevolverController.luau'
     Effects = 'src/PlayerClient/Modules/RevolverEffects.luau'
     State = 'src/server/CombatHandler/RevolverState.luau'
     Server = 'src/server/CombatHandler/HandleRevolver.luau'
+    KnifeConfig = 'src/Modules/KnifeConfig.luau'
+    Projectile = 'src/Modules/ProjectileMath.luau'
+    KnifeThrow = 'src/server/CombatHandler/ThrowKnife.luau'
+    KnifeStab = 'src/server/CombatHandler/StabKnife.luau'
+    KnifeEffectsConfig = 'src/Modules/KnifeEffectsConfig.luau'
+    KnifeEffects = 'src/PlayerClient/Modules/KnifeEffects.luau'
+    KnifeVisual = 'src/PlayerClient/Modules/KnifeVisual.luau'
+    KnifeController = 'src/PlayerClient/Modules/CombatController.luau'
 }
 $revolverBundle = [System.Text.StringBuilder]::new()
 [void]$revolverBundle.AppendLine('local nativeTypeof = typeof; local loaders = {}')
@@ -22,6 +40,7 @@ foreach ($revolverEntry in $revolverModules.GetEnumerator()) {
     [void]$revolverBundle.AppendLine('local game, workspace, script, require = env.game, env.workspace, env.script, env.require')
     [void]$revolverBundle.AppendLine('local CFrame, Vector3, Vector2, Instance = env.CFrame, env.Vector3, env.Vector2, env.Instance')
     [void]$revolverBundle.AppendLine('local RaycastParams, UDim2 = env.RaycastParams, env.UDim2')
+    [void]$revolverBundle.AppendLine('local OverlapParams, task = env.OverlapParams, env.task')
     [void]$revolverBundle.AppendLine('local typeof, os, Enum = env.typeof or nativeTypeof, env.os or os, env.Enum')
     [void]$revolverBundle.AppendLine('local warn = env.warn or function() end')
     [void]$revolverBundle.AppendLine('local Color3, ColorSequence, ColorSequenceKeypoint = env.Color3, env.ColorSequence, env.ColorSequenceKeypoint')

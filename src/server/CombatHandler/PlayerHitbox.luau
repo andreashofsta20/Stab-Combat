@@ -12,10 +12,15 @@ local HEAL_INTERVAL = 3 -- seconds between self-heal checks
 
 local activeHitboxes: {[number]: BasePart} = {}
 local characterConnections: {[number]: {RBXScriptConnection}} = {}
+local playerConnections = {}
+local initialized = false
 
 -- ─── Core creation ────────────────────────────────────────────────────
 
 local function attachHitbox(player: Player, character: Model)
+    if player.Parent ~= Players or player.Character ~= character or not character.Parent then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if character:GetAttribute("Ragdolled") == true or humanoid and humanoid.Health <= 0 then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
@@ -60,7 +65,7 @@ local function safeAttach(player: Player, character: Model)
     if not hrp then
         hrp = character:WaitForChild("HumanoidRootPart", 10)
     end
-    if not hrp or character.Parent == nil then return end
+    if not hrp or character.Parent == nil or player.Parent ~= Players or player.Character ~= character then return end
 
     attachHitbox(player, character)
 end
@@ -110,7 +115,8 @@ local function onCharacterAdded(player: Player, character: Model)
 end
 
 local function onPlayerAdded(player: Player)
-    player.CharacterAdded:Connect(function(character)
+    if player.Parent ~= Players or playerConnections[player] then return end
+    playerConnections[player] = player.CharacterAdded:Connect(function(character)
         onCharacterAdded(player, character)
     end)
 
@@ -121,6 +127,7 @@ local function onPlayerAdded(player: Player)
 end
 
 local function onPlayerRemoving(player: Player)
+    if playerConnections[player] then playerConnections[player]:Disconnect(); playerConnections[player] = nil end
     cleanupConnections(player.UserId)
     local hitbox = activeHitboxes[player.UserId]
     if hitbox then
@@ -192,12 +199,13 @@ end
 -- ─── Init ─────────────────────────────────────────────────────────────
 
 function PlayerHitbox.Init()
+    if initialized then return end
+    initialized = true
+    Players.PlayerAdded:Connect(onPlayerAdded)
+    Players.PlayerRemoving:Connect(onPlayerRemoving)
     for _, player in ipairs(Players:GetPlayers()) do
         onPlayerAdded(player)
     end
-
-    Players.PlayerAdded:Connect(onPlayerAdded)
-    Players.PlayerRemoving:Connect(onPlayerRemoving)
 
     -- Start background self-healing
     task.spawn(healLoop)

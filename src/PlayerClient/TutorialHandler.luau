@@ -56,11 +56,15 @@ StartTutorialRemote.OnClientEvent:Connect(function()
 	setupButtons()
 end)
 
-if not game:IsLoaded() then
-	game.Loaded:Wait()
+local requested = false
+local function requestWhenReady()
+	if requested or plr:GetAttribute("DataReady") ~= true
+		or ReplicatedStorage:GetAttribute("ServerReady") ~= true then return end
+	requested = true
+	StartTutorialRemote:FireServer()
 end
-
-task.wait(2)
-StartTutorialRemote:FireServer()
+plr:GetAttributeChangedSignal("DataReady"):Connect(requestWhenReady)
+ReplicatedStorage:GetAttributeChangedSignal("ServerReady"):Connect(requestWhenReady)
+requestWhenReady()
 
 return {}

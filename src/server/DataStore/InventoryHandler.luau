@@ -5,7 +5,9 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local RevolversInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
-local RevolversFolder = ServerStorage:WaitForChild("Revolvers")
+local StartupLoader = require(ReplicatedStorage.Modules.StartupLoader)
+local RevolversFolder = StartupLoader.RequireChild(ServerStorage, "Revolvers")
+assert(RevolversFolder:IsA("Folder") or RevolversFolder:IsA("Model"), "ServerStorage.Revolvers must be a Folder or Model")
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 

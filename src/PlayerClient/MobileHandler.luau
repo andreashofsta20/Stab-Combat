@@ -1,392 +1,122 @@
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
+local RS = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
-local CombatController = require(script.Parent:WaitForChild("Modules"):WaitForChild("CombatController"))
-local RevolverController = require(script.Parent:WaitForChild("Modules"):WaitForChild("RevolverController"))
-local KnivesInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
-local SprintState = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("SprintState"))
+local Combat = require(script.Parent.Modules.CombatController)
+local Revolver = require(script.Parent.Modules.RevolverController)
+local Knives = require(RS.Modules.KnivesInfo)
+local ui = player:WaitForChild("PlayerGui"):WaitForChild("Main")
+local frame = ui:WaitForChild("MobileFrame")
+local controls = frame:WaitForChild("BasicControls")
+local throwButton, shiftButton = controls:WaitForChild("Throw"), frame:WaitForChild("ShiftLock")
+local shiftImage = frame:WaitForChild("ShiftLockToogled")
+local oldCrosshair = frame:WaitForChild("MobileCrosshair")
+local emoteFrame = ui:WaitForChild("EmoteFrame"):WaitForChild("background")
+local gameActive = RS:WaitForChild("GameActive")
+local mobile, shifted, heldTouch, humanoid = false, false, nil, nil
+local connections = {}
+oldCrosshair.Visible = false
+local customJump = controls:FindFirstChild("Jump")
+if customJump then customJump.Visible = false end
 
-local UI = player:WaitForChild("PlayerGui"):WaitForChild("Main")
-local MobileFrame = UI:WaitForChild("MobileFrame")
-local EmoteFrame = UI:WaitForChild("EmoteFrame"):WaitForChild("background")
-
-local ShiftLockToggled = false
-local ShiftLockImage = MobileFrame:WaitForChild("ShiftLockToogled")
-
-local OtherButtonsFrame = MobileFrame:WaitForChild("BasicControls")
-local EmoteButton = OtherButtonsFrame:WaitForChild("Emote")
-
-local CustomJumpButton = OtherButtonsFrame:FindFirstChild("Jump")
-local SprintButton = OtherButtonsFrame:WaitForChild("Sprint")
-local ThrowKnifeButton = OtherButtonsFrame:WaitForChild("Throw")
-local ShiftLockButton = MobileFrame:WaitForChild("ShiftLock")
-
-local MobileCrossHairImage = MobileFrame:WaitForChild("MobileCrosshair")
-
-local ShiftLockUnlockedImage = "rbxassetid://13848680756"
-local ShiftLockLockedImage = "rbxassetid://13848672949"
-
-local ToggledOrActivatedColor = Color3.fromRGB(0, 184, 255)
-local DefaultColor = Color3.fromRGB(255, 255, 255)
-
-local currentHumanoid: Humanoid? = nil
-local throwHolding = false
-local touchHolding = false
-local pendingTouch: InputObject? = nil
-local pendingTouchStartPos: Vector2? = nil
-local lastTouchAimPos: Vector2? = nil
-local shiftLockConnection: RBXScriptConnection? = nil
-local decided = false
-local isMobile = false
-local sprintToggled = false
-local knifeEquipped = false
-local walkSpeedConnection: RBXScriptConnection? = nil
-
-
-local function isKnifeEquipped(): boolean
-    local character = player.Character
-    if not character then return false end
-    for _, child in ipairs(character:GetChildren()) do
-        if child:IsA("Tool") and KnivesInfo[child.Name] then return true end
-    end
-    return false
+local function decorate(button, active)
+	local deco = button:FindFirstChild("deco")
+	if deco then deco.ImageColor3 = active and Color3.fromRGB(0, 184, 255) or Color3.new(1, 1, 1) end
 end
-
-local function updateMobileCrosshair(isVisible: boolean, pos: Vector2?)
-    ThrowKnifeButton.Visible = not RevolverController.HasRevolverEquipped()
-    if not isVisible or not knifeEquipped or ShiftLockToggled then
-        MobileCrossHairImage.Visible = false
-        return
-    end
-
-    MobileCrossHairImage.Visible = true
-    if pos then
-        MobileCrossHairImage.Position = UDim2.fromOffset(pos.X, pos.Y + 60)
-    else
-        MobileCrossHairImage.Position = UDim2.fromScale(0.5, 0.5)
-    end
+local function cancel()
+	heldTouch = nil
+	Combat.CancelCharge()
+	Combat.SetTouchAimPosition(nil)
+	decorate(throwButton, false)
 end
-------------------------------
-
-local function getCharacter(): Model
-    return player.Character or player.CharacterAdded:Wait()
+local function setShift(enabled)
+	shifted = enabled == true and mobile
+	local deco = shiftButton:FindFirstChild("deco")
+	if deco then deco.Image = shifted and "rbxassetid://13848672949" or "rbxassetid://13848680756" end
+	decorate(shiftButton, shifted)
+	shiftImage.Visible = mobile and shifted
+	Combat.SetMobileShiftLock(shifted)
+	Revolver.SetMobileShiftLock(shifted)
+	if not shifted and humanoid then humanoid.AutoRotate = true end
 end
-
-local function getHumanoid(): Humanoid?
-    local character = getCharacter()
-    return character and character:FindFirstChildOfClass("Humanoid")
+local function knifeEquipped()
+	local character = player.Character
+	local tool = character and character:FindFirstChildOfClass("Tool")
+	return tool and Knives[tool.Name] ~= nil
 end
-
-local function getHrp(character: Model): BasePart?
-    return character:FindFirstChild("HumanoidRootPart")
+local function refresh()
+	oldCrosshair.Visible = false
+	shiftImage.Visible = mobile and shifted
+	throwButton.Visible = mobile and knifeEquipped() and gameActive.Value and player:GetAttribute("InRound") == true
 end
-
-local function setButtonToggled(button: GuiObject, toggled: boolean)
-    if not button:IsA("ImageButton") then return end
-    button:WaitForChild("deco").ImageColor3 = toggled and ToggledOrActivatedColor or DefaultColor
+local function inputMode()
+	mobile = UIS.PreferredInput == Enum.PreferredInput.Touch
+	frame.Visible = mobile
+	Combat.SetInputMode(mobile)
+	if not mobile then cancel(); setShift(false) end
+	refresh()
 end
-
-local function updateShiftLockVisual()
-    ShiftLockButton:WaitForChild("deco").Image = ShiftLockToggled and ShiftLockLockedImage or ShiftLockUnlockedImage
-    ShiftLockButton:WaitForChild("deco").ImageColor3 = ShiftLockToggled and ToggledOrActivatedColor or DefaultColor
-    ShiftLockButton:WaitForChild("deco").ImageTransparency = 0.5
-    ShiftLockImage.Visible = ShiftLockToggled
+local function onCharacter(character)
+	cancel()
+	setShift(false)
+	for _, connection in ipairs(connections) do connection:Disconnect() end
+	table.clear(connections)
+	local hum
+	repeat hum = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 2)
+	until hum or player.Character ~= character
+	if not hum or player.Character ~= character then return end
+	humanoid = hum
+	table.insert(connections, character.ChildAdded:Connect(refresh))
+	table.insert(connections, character.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") then cancel(); refresh() end
+	end))
+	table.insert(connections, hum.Died:Connect(function() cancel(); setShift(false); refresh() end))
+	refresh()
 end
-
-local function updateSprintVisual()
-    setButtonToggled(SprintButton, sprintToggled)
-end
-
-local function syncSprintStateFromHumanoid()
-    sprintToggled = SprintState.GetEnabled()
-    updateSprintVisual()
-end
-
-local function setSprintState(enabled: boolean)
-    SprintState.SetEnabled(enabled)
-    syncSprintStateFromHumanoid()
-end
-
-local function updateShiftLockLoop(enabled: boolean)
-    if shiftLockConnection then
-        shiftLockConnection:Disconnect()
-        shiftLockConnection = nil
-    end
-
-    if not enabled then
-        if currentHumanoid then
-            currentHumanoid.AutoRotate = true
-        end
-        return
-    end
-
-    shiftLockConnection = RunService.RenderStepped:Connect(function()
-        if RevolverController.IsAiming() then return end -- aimed-fire camera owns body turning
-        local character = player.Character
-        local camera = workspace.CurrentCamera
-        local humanoid = currentHumanoid
-
-        if not character or not camera or not humanoid then return end
-        local hrp = getHrp(character)
-        if not hrp then return end
-
-        local look = camera.CFrame.LookVector
-        local flatLook = Vector3.new(look.X, 0, look.Z)
-        if flatLook.Magnitude <= 0.001 then return end
-
-        humanoid.AutoRotate = false
-        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + flatLook.Unit)
-    end)
-end
-
-local function setShiftLock(enabled: boolean)
-    ShiftLockToggled = enabled
-    updateShiftLockVisual()
-    updateShiftLockLoop(ShiftLockToggled)
-    
-    updateMobileCrosshair(ShiftLockToggled)
-
-    if UserInputService.MouseEnabled then
-        UserInputService.MouseBehavior = ShiftLockToggled and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
-    end
-    
-    CombatController.SetMobileShiftLock(ShiftLockToggled)
-    RevolverController.SetMobileShiftLock(ShiftLockToggled)
-end
-
-local function toggleEmoteFrame()
-    EmoteFrame.Visible = not EmoteFrame.Visible
-end
-
-local function onThrowPressed()
-    if RevolverController.HasRevolverEquipped() then return end
-    if throwHolding then return end
-    throwHolding = true
-    CombatController.BeginCharge()
-    setButtonToggled(ThrowKnifeButton, true)
-end
-
-local function onThrowReleased()
-    if not throwHolding then return end
-    throwHolding = false
-    setButtonToggled(ThrowKnifeButton, false)
-    CombatController.ReleaseCharge()
-end
-
-local function onCharacterAdded(character: Model)
-    local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-    currentHumanoid = humanoid
-    knifeEquipped = false
-    updateMobileCrosshair(false)
-
-    if walkSpeedConnection then
-        walkSpeedConnection:Disconnect()
-        walkSpeedConnection = nil
-    end
-
-    walkSpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-        syncSprintStateFromHumanoid()
-    end)
-
-    syncSprintStateFromHumanoid()
-    updateShiftLockLoop(ShiftLockToggled)
-
-    character.ChildAdded:Connect(function(child)
-        if not child:IsA("Tool") then return end
-        knifeEquipped = isKnifeEquipped()
-        updateMobileCrosshair(touchHolding, lastTouchAimPos)
-    end)
-
-    character.ChildRemoved:Connect(function(child)
-        if not child:IsA("Tool") then return end
-        knifeEquipped = isKnifeEquipped()
-        updateMobileCrosshair(touchHolding, lastTouchAimPos)
-    end)
-
-    knifeEquipped = isKnifeEquipped()
-end
-
-local TOUCH_DRAG_THRESHOLD = 50
-
-local function touchOverGui(position: Vector2): boolean
-    local playerGui = player:FindFirstChildOfClass("PlayerGui")
-    if not playerGui then return false end
-
-    local uiObjects = playerGui:GetGuiObjectsAtPosition(position.X, position.Y)
-    for _, obj in ipairs(uiObjects) do
-        if obj:IsA("GuiButton") or obj:IsDescendantOf(MobileFrame) then
-            return true
-        end
-    end
-    return false
-end
-
-local function detectInputMode()
-    if UserInputService.TouchEnabled then
-        isMobile = true
-        decided = true
-        return
-    end
-
-    local inputConnection: RBXScriptConnection? = nil
-    inputConnection = UserInputService.InputBegan:Connect(function(input)
-        if decided then return end
-        if input.UserInputType == Enum.UserInputType.Touch then
-            isMobile = true
-            decided = true
-        elseif input.UserInputType == Enum.UserInputType.Keyboard then
-            isMobile = false
-            decided = true
-        end
-
-        if decided and inputConnection then
-            inputConnection:Disconnect()
-            inputConnection = nil
-        end
-    end)
-
-    while not decided do task.wait() end
-end
-
-local function setUp()
-    detectInputMode()
-    
-    CombatController.SetInputMode(isMobile)
-
-    if not isMobile then
-        MobileFrame.Visible = false
-        return
-    end
-
-    MobileFrame.Visible = true
-    knifeEquipped = isKnifeEquipped()
-    updateMobileCrosshair(false) 
-    
-    -- Keep Roblox's native TouchGui jump button. It follows platform layout,
-    -- safe areas, accessibility settings, and the standard jump behavior.
-    if CustomJumpButton then
-        CustomJumpButton.Visible = false
-    end
-    CombatController.Init()
-    updateShiftLockVisual()
-    setButtonToggled(ThrowKnifeButton, false)
-
-    EmoteButton.MouseButton1Up:Connect(toggleEmoteFrame)
-
-    ShiftLockButton.MouseButton1Up:Connect(function()
-        setShiftLock(not ShiftLockToggled)
-    end)
-
-    ThrowKnifeButton.MouseButton1Down:Connect(onThrowPressed)
-    ThrowKnifeButton.MouseButton1Up:Connect(onThrowReleased)
-    ThrowKnifeButton.MouseLeave:Connect(onThrowReleased)
-
-    UserInputService.TouchStarted:Connect(function(input, _processed)
-        if not isMobile or touchHolding or throwHolding then return end
-        if RevolverController.HasRevolverEquipped() then return end
-        
-        local pos = Vector2.new(input.Position.X, input.Position.Y)
-        if touchOverGui(pos) then return end
-
-        pendingTouch = input
-        pendingTouchStartPos = pos
-        lastTouchAimPos = pos
-        CombatController.SetTouchAimPosition(pos)
-
-        task.delay(0.15, function()
-            if pendingTouch == input and not touchHolding then
-                touchHolding = true
-                CombatController.BeginCharge()
-                updateMobileCrosshair(true, lastTouchAimPos)
-            end
-        end)
-    end)
-
-    UserInputService.TouchMoved:Connect(function(input, _processed)
-        if pendingTouch ~= input then return end
-
-        local currentPos = Vector2.new(input.Position.X, input.Position.Y)
-
-        if touchHolding then
-            lastTouchAimPos = currentPos
-            CombatController.SetTouchAimPosition(currentPos)
-            updateMobileCrosshair(true, currentPos)
-            return
-        end
-
-        local delta = (currentPos - pendingTouchStartPos).Magnitude
-        lastTouchAimPos = currentPos
-        CombatController.SetTouchAimPosition(currentPos)
-
-        if delta > TOUCH_DRAG_THRESHOLD then
-            pendingTouch = nil
-            pendingTouchStartPos = nil
-        end
-    end)
-
-    UserInputService.TouchEnded:Connect(function(input, _processed)
-        if not isMobile or pendingTouch ~= input then return end
-
-        local wasCharging = touchHolding
-        pendingTouch = nil
-        pendingTouchStartPos = nil
-        touchHolding = false
-
-        if wasCharging then
-            CombatController.ReleaseCharge()
-        end
-        
-        lastTouchAimPos = nil
-        CombatController.SetTouchAimPosition(nil)
-        
-        updateMobileCrosshair(ShiftLockToggled)
-    end)
-
-    UserInputService.TouchTapInWorld:Connect(function(position, processedByUI)
-        if not isMobile or processedByUI or throwHolding or touchHolding then return end
-        if RevolverController.HasRevolverEquipped() then
-            if ShiftLockToggled then
-                RevolverController.Fire()
-            elseif typeof(position) == "Vector2" then
-                RevolverController.Fire(position)
-            end
-            return
-        end
-
-        local cam = workspace.CurrentCamera
-        if cam then
-            local screenPos: Vector2?
-            if typeof(position) == "Vector3" then
-                local vpPos = cam:WorldToViewportPoint(position)
-                screenPos = Vector2.new(vpPos.X, vpPos.Y)
-            elseif typeof(position) == "Vector2" then
-                screenPos = position
-            end
-
-            if screenPos then
-                lastTouchAimPos = screenPos
-                CombatController.SetTouchAimPosition(lastTouchAimPos)
-            end
-        end
-        
-        CombatController.BeginCharge()
-        task.defer(function()
-            CombatController.ReleaseCharge()
-            lastTouchAimPos = nil
-            CombatController.SetTouchAimPosition(nil)
-        end)
-    end)
-
-    player.CharacterAdded:Connect(onCharacterAdded)
-    if player.Character then
-        onCharacterAdded(player.Character)
-    else
-        updateSprintVisual()
-    end
-end
-
-setUp()
+throwButton.InputBegan:Connect(function(input)
+	if not mobile or heldTouch or input.UserInputType ~= Enum.UserInputType.Touch then return end
+	-- The action button aims at the visible center dot; camera/joystick fingers
+	-- cannot begin a charge or release a different finger's charge.
+	Combat.SetTouchAimPosition(nil)
+	if Combat.BeginCharge() then heldTouch = input; decorate(throwButton, true) end
+end)
+UIS.InputEnded:Connect(function(input)
+	if input ~= heldTouch then return end
+	heldTouch = nil
+	decorate(throwButton, false)
+	if input.UserInputState == Enum.UserInputState.Cancel then Combat.CancelCharge() else Combat.ReleaseCharge() end
+end)
+UIS.TouchTapInWorld:Connect(function(position, processed)
+	if not mobile or processed or heldTouch or GuiService.MenuIsOpen or UIS:GetFocusedTextBox() then return end
+	if Revolver.HasRevolverEquipped() then
+		if shifted then Revolver.Fire() else Revolver.Fire(position) end
+	elseif knifeEquipped() then Combat.Stab() end
+end)
+shiftButton.Activated:Connect(function() setShift(not shifted) end)
+controls:WaitForChild("Emote").Activated:Connect(function() emoteFrame.Visible = not emoteFrame.Visible end)
+UIS:GetPropertyChangedSignal("PreferredInput"):Connect(inputMode)
+UIS.WindowFocusReleased:Connect(cancel)
+UIS.TextBoxFocused:Connect(cancel)
+GuiService.MenuOpened:Connect(cancel)
+player.CharacterAdded:Connect(onCharacter)
+player.CharacterRemoving:Connect(function() cancel(); setShift(false); humanoid = nil; refresh() end)
+player:GetAttributeChangedSignal("InRound"):Connect(refresh)
+gameActive.Changed:Connect(function() cancel(); refresh() end)
+RunService:BindToRenderStep("MobileShiftLock", Enum.RenderPriority.Camera.Value + 2, function()
+	if not mobile or not shifted or Revolver.IsAiming() or not humanoid or humanoid.Health <= 0 then return end
+	local character, camera = player.Character, workspace.CurrentCamera
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not camera then return end
+	local look = camera.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.001 then return end
+	humanoid.AutoRotate = false
+	root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+end)
+Combat.Init()
+inputMode()
+setShift(false)
+if player.Character then onCharacter(player.Character) end
 return {}

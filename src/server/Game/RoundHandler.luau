@@ -44,6 +44,7 @@ RoundHandler.StatusMessages = {
 	Minimum = function()
 		local activePlayers = 0
 		for _, player in pairs(Players:GetPlayers()) do
+			if player:GetAttribute("DataReady") ~= true then continue end
 			local leaderstats = player:FindFirstChild("leaderstats")
 			if leaderstats then
 				local settings = leaderstats:FindFirstChild("Settings")
@@ -104,23 +105,15 @@ function RoundHandler.StartVoting()
 	RoundHandler.MapsAbleToVoteOn = {}
 	RoundHandler.VoteOptions = {}
 	local mapsToVoteOn = {}
-
-	while #mapsToVoteOn < 3 do
-		local RandomMap = RoundHandler.GetRandomMap()
-		if not RandomMap then break end
-
-		local alreadyChosen = false
-		for _, chosen in ipairs(mapsToVoteOn) do
-			if chosen["Name"] == RandomMap["Name"] then
-				alreadyChosen = true
-				break
-			end
-		end
-
-		if not alreadyChosen then
-			table.insert(mapsToVoteOn, RandomMap)
-		end
+	local availableMaps = {}
+	for _, mapData in pairs(RoundHandler.GetMaps()) do
+		if mapData.Name ~= "Intermission Map" then table.insert(availableMaps, mapData) end
 	end
+	for index = #availableMaps, 2, -1 do
+		local swap = math.random(index)
+		availableMaps[index], availableMaps[swap] = availableMaps[swap], availableMaps[index]
+	end
+	for index = 1, math.min(3, #availableMaps) do table.insert(mapsToVoteOn, availableMaps[index]) end
 
 	local modes = GameModes.GetAll()
 	for _, mapData in ipairs(mapsToVoteOn) do
@@ -165,6 +158,7 @@ end
 local function CanStart()
 	local count = 0
 	for _, player in pairs(Players:GetPlayers()) do
+		if player:GetAttribute("DataReady") ~= true then continue end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local settings = leaderstats:FindFirstChild("Settings")
@@ -192,6 +186,7 @@ function RoundHandler.GetRandomMap()
 		end
 	end
 
+	if #MapsList == 0 then return nil end
 	local RandomNumber = math.random(1, #MapsList)
 	local SelectedMap = MapsList[RandomNumber]
 	
@@ -215,6 +210,7 @@ function RoundHandler.Intermission()
 end
 
 function RoundHandler.GetRandomMapFromVoting()
+	if #RoundHandler.MapsAbleToVoteOn == 0 then return nil end
 	return RoundHandler.MapsAbleToVoteOn[math.random(1, #RoundHandler.MapsAbleToVoteOn)]
 end
 

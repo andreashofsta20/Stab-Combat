@@ -4,27 +4,33 @@ local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local Config = require(ReplicatedStorage.Modules.CursorConfig)
+local MouseVisibility = require(ReplicatedStorage.Modules.MouseCursorVisibility)
 local Knives = require(ReplicatedStorage.Modules.KnivesInfo)
 local Revolvers = require(ReplicatedStorage.Modules.RevolversInfo)
 local AimCamera = require(script.Parent.Modules.RevolverAimCamera)
+local KnifeCombat = require(script.Parent.Modules.CombatController)
 local player = Players.LocalPlayer
-local mouse = player:GetMouse()
 local gui = Instance.new("ScreenGui")
 gui.Name, gui.ResetOnSpawn, gui.IgnoreGuiInset, gui.DisplayOrder = "WeaponCursor", false, true, 19
 gui.Enabled, gui.Parent = false, player:WaitForChild("PlayerGui")
 local image = Instance.new("ImageLabel")
 image.Name, image.BackgroundTransparency, image.AnchorPoint = "Cursor", 1, Vector2.new(0.5, 0.5)
+image.ZIndex = 1
 image.Size, image.Parent = UDim2.fromOffset(Config.HiddenMouseSize, Config.HiddenMouseSize), gui
+local dot = Instance.new("Frame")
+dot.Name, dot.AnchorPoint, dot.Size = "WhiteDot", Vector2.new(0.5, 0.5), UDim2.fromOffset(Config.WhiteDotSize, Config.WhiteDotSize)
+dot.BackgroundColor3, dot.BorderSizePixel, dot.Parent = Color3.new(1, 1, 1), 0, gui
+dot.ZIndex = 2
 local character, humanoid, heldTool, weaponType
 local connections = {}
-local originalIcon, lastIcon, bound
+local bound
 local binding = "WeaponCursor"
 local nextMenuCheck, blockingMenu = 0, false
 
 local function release()
-	if originalIcon ~= nil and mouse.Icon == lastIcon then mouse.Icon = originalIcon end
-	originalIcon, lastIcon = nil, nil
+	MouseVisibility.Release(binding)
 	gui.Enabled = false
+	image.Visible, dot.Visible = false, false
 end
 
 local function menuOpen()
@@ -51,24 +57,28 @@ local function update()
 	local touch = input == Enum.UserInputType.Touch
 	local gamepad = input.Name:match("^Gamepad") ~= nil
 	if not Config.Enabled or not heldTool or heldTool.Parent ~= character or player.Character ~= character
-		or not humanoid or humanoid.Health <= 0 or (touch and not Config.ShowOnTouch)
+		or not humanoid or humanoid.Health <= 0 or (touch and not Config.ShowOnTouch and weaponType ~= "Knife")
 		or (Config.HideInMenus and menuOpen()) then release(); return end
 	local aiming = weaponType == "Revolver" and AimCamera.IsAiming()
 	local preset = weaponType == "Knife" and Config.Knife or (aiming and Config.Revolver.Aiming or Config.Revolver.Equipped)
 	local cursor = preset.Image
-	if cursor == "" then release(); return end
-	if originalIcon == nil then originalIcon = mouse.Icon end
-	if mouse.Icon ~= cursor then mouse.Icon = cursor end
-	lastIcon = cursor
-	-- ADS hides the native pointer. Show the configured image below the white
-	-- dot without taking ownership of MouseBehavior or MouseIconEnabled.
-	gui.Enabled = not UserInputService.MouseIconEnabled or gamepad or (touch and Config.ShowOnTouch)
+	if cursor == "" and not Config.WhiteDotEnabled then release(); return end
+	-- Never set or restore Mouse.Icon: Roblox's native shift-lock controller
+	-- owns it, including icon changes made while this GUI cursor hides it.
+	-- Render one GUI image below the revolver HUD's dot. Share pointer ownership
+	-- with ADS so neither system restores the original pointer over the overlay.
+	MouseVisibility.Acquire(binding)
+	image.Visible = cursor ~= "" and (not touch or Config.ShowOnTouch)
+	dot.Visible = weaponType == "Knife" and Config.WhiteDotEnabled
+	gui.Enabled = image.Visible or dot.Visible
 	if gui.Enabled then
 		image.Image = cursor
 		local camera = workspace.CurrentCamera
 		local centered = aiming or gamepad or touch or UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
-		local position = centered and camera and camera.ViewportSize / 2 or UserInputService:GetMouseLocation()
+		local position = weaponType == "Knife" and KnifeCombat.GetAimScreenPosition()
+			or (centered and camera and camera.ViewportSize / 2 or UserInputService:GetMouseLocation())
 		image.Position = UDim2.fromOffset(position.X, position.Y)
+		dot.Position = image.Position
 	end
 end
 

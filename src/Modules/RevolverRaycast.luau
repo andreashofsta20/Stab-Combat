@@ -27,17 +27,26 @@ local function cast(origin, direction, length, candidates, size, worldCast)
 	}
 end
 
-function Raycast.GetAimOrigin(cameraOrigin, cameraDirection, muzzleOrigin)
+function Raycast.GetAimOrigin(cameraOrigin, cameraDirection, referenceOrigin)
 	-- A third-person camera can see ground/props between itself and the gun.
 	-- Never converge the barrel toward an aim point behind its forward plane:
 	-- that flips the shot backward/downward even when its forward path is clear.
 	-- Advancing along the SAME camera ray keeps the cursor alignment intact.
-	local depth = math.max(0, (muzzleOrigin - cameraOrigin):Dot(cameraDirection))
+	local offset = referenceOrigin - cameraOrigin
+	local depth = math.max(0, offset:Dot(cameraDirection))
+	local horizontalSquared = cameraDirection.X * cameraDirection.X + cameraDirection.Z * cameraDirection.Z
+	if horizontalSquared > 1e-4 then
+		-- An overhead camera's perpendicular plane can sit beyond an elevated
+		-- target that is still in front of the character. Clip no farther than
+		-- the character's horizontal forward plane; keep the exact cursor ray.
+		local horizontalDepth = (offset.X * cameraDirection.X + offset.Z * cameraDirection.Z) / horizontalSquared
+		depth = math.min(depth, math.max(0, horizontalDepth))
+	end
 	return cameraOrigin + cameraDirection * depth
 end
 
-function Raycast.Resolve(cameraOrigin, cameraDirection, muzzleOrigin, tuning, candidates, worldCast)
-	local aimOrigin = Raycast.GetAimOrigin(cameraOrigin, cameraDirection, muzzleOrigin)
+function Raycast.Resolve(cameraOrigin, cameraDirection, muzzleOrigin, tuning, candidates, worldCast, referenceOrigin)
+	local aimOrigin = Raycast.GetAimOrigin(cameraOrigin, cameraDirection, referenceOrigin or muzzleOrigin)
 	local aim = cast(aimOrigin, cameraDirection,
 		tuning.Range + (aimOrigin - muzzleOrigin).Magnitude, candidates, tuning.HitboxSize, worldCast)
 	local vector = aim.position - muzzleOrigin

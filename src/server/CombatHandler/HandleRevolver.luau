@@ -7,9 +7,11 @@ local Config = require(ReplicatedStorage.Modules.RevolverConfig)
 local Math = require(ReplicatedStorage.Modules.RevolverMath)
 local Raycast = require(ReplicatedStorage.Modules.RevolverRaycast)
 local Catalog = require(ReplicatedStorage.Modules.RevolversInfo)
+local ToolPhysics = require(ReplicatedStorage.Modules.RevolverToolPhysics).New(Catalog)
 local State = require(script.Parent.RevolverState)
 local History = require(script.Parent.RevolverHitHistory)
 local PoseMath = require(ReplicatedStorage.Modules.RevolverPoseMath)
+local RagdollQuery = require(ReplicatedStorage.Modules.RagdollQuery)
 local MainGame = require(script.Parent.Parent.Game.MainGame)
 local DamageRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("DamageDealtClient")
 
@@ -101,7 +103,7 @@ local function worldCaster()
 	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = ignore
+	params.FilterDescendantsInstances = RagdollQuery.Exclude(ignore)
 	params.IgnoreWater = true
 	return function(origin, vector) return workspace:Raycast(origin, vector, params) end
 end
@@ -196,7 +198,7 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 		muzzle = head.Position
 	end
 	local rewind = Math.RewindTime(time, timestamp, ping, Config.LagCompensation)
-	local result = Raycast.Resolve(cameraOrigin, cameraDirection.Unit, muzzle, tuning, candidates(player, rewind, tuning), cast)
+	local result = Raycast.Resolve(cameraOrigin, cameraDirection.Unit, muzzle, tuning, candidates(player, rewind, tuning), cast, head.Position)
 	if not result then sendState(player, session, "InvalidAim"); return end
 	local accepted, reason = State.Fire(session, time, tuning.FireIntervalMs / 1000, Config.Capacity)
 	if not accepted then sendState(player, session, reason); return end
@@ -205,10 +207,9 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 	local hit = false
 	if victim and canPlay(victim.player) and victim.player.Character == victim.character
 		and victim.humanoid.Health > 0 and not victim.character:FindFirstChildOfClass("ForceField") then
-		if victim.humanoid.Health <= tuning.Damage then MainGame.RegisterPendingKill(player, victim.player.UserId) end
-		victim.humanoid:TakeDamage(tuning.Damage)
-		DamageRemote:FireClient(player, victim.character, tuning.Damage)
-		hit = true
+        local dealt = MainGame.DamagePlayer(player, victim.player, victim.humanoid, tuning.Damage,
+			{ Kind = "Revolver", Direction = result.position - muzzle })
+		if dealt > 0 then DamageRemote:FireClient(player, victim.character, dealt, "Revolver", tool.Name); hit = true end
 	end
 	sendState(player, session, "Fired")
 	Shot:FireAllClients({
@@ -240,6 +241,7 @@ end)
 
 local function bindPlayer(player)
 	if connections[player] then return end
+	ToolPhysics.BindPlayer(player)
 	connections[player] = player.CharacterRemoving:Connect(function()
 		sessions[player] = nil
 		History.Remove(player)
@@ -247,6 +249,7 @@ local function bindPlayer(player)
 end
 Players.PlayerAdded:Connect(bindPlayer)
 Players.PlayerRemoving:Connect(function(player)
+	ToolPhysics.RemovePlayer(player)
 	if connections[player] then connections[player]:Disconnect() end
 	connections[player], sessions[player], buckets[player] = nil, nil, nil
 	poseBuckets[player] = nil

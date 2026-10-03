@@ -1,9 +1,4 @@
--- Initialize player hitbox system first
-local PlayerHitbox = require(script:WaitForChild("PlayerHitbox"))
-PlayerHitbox.Init()
-
-for i , v in pairs(script:GetChildren()) do
-	if v:IsA("ModuleScript") then
-		require(v)
-	end
-end
+require(script.Parent.StartupService).LoadGroup(script, {
+	Priority = {"PlayerHitbox", "HandleKnife", "HandleRevolver", "FoodService", "HandleHotbar"},
+	Init = {PlayerHitbox = function(module) module.Init() end},
+})

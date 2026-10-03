@@ -1,5 +1,7 @@
 # Game setup and source review
 
+The [2026-10-02 gameplay reliability review](GAMEPLAY_RELIABILITY.md) supersedes the daily quest persistence, hover, knife cursor, map startup and animation notes below. Quest data now migrates into the session-locked main profile; the former cross-store claim issue is addressed there.
+
 Updated 2026-10-01. This covers the Burger feature, cursor-lock fixes, and the data paths reviewed in this change. It is a source review and regression-tested patch; the actual Studio assets, live DataStore failures, default Roblox camera and multiplayer performance still need the checks below.
 
 ## What you need to add in Studio
@@ -34,7 +36,7 @@ Optional polish still to add: an R6 eating animation, bite sound and small feedb
 
 ## Weapon cursors and map cleanup
 
-The weapon cursor is configured in [CursorConfig](src/Modules/CursorConfig.luau). `Knife.Image`, `Revolver.Equipped.Image` and `Revolver.Aiming.Image` each default to **rbxassetid://140476432521467** and can be changed independently. An empty image restores the default cursor for that state. The existing revolver white dot stays in place. Native mouse cursor images use Roblox's own icon sizing; `HiddenMouseSize` controls the GUI image shown when ADS/first person hides the native pointer. Food and unequipped states use the original cursor. See [REVOLVER_PRESENTATION.md](REVOLVER_PRESENTATION.md) for reload/aim behavior and cursor options.
+The weapon cursor is configured in [CursorConfig](src/Modules/CursorConfig.luau). `Knife.Image`, `Revolver.Equipped.Image` and `Revolver.Aiming.Image` use `rbxassetid://92817416767688` below the existing white dot. `HiddenMouseSize` controls the GUI image size. `ShowOnTouch` defaults to true. The weapon overlay and ADS share native pointer visibility, preventing the original pointer from appearing over the crosshair; food and unequipped states restore visibility after both owners release it. Weapon cursors never overwrite or restore Mouse.Icon, leaving native shift-lock icon management with Roblox. See [GAMEPLAY_RELIABILITY.md](GAMEPLAY_RELIABILITY.md) for the latest cursor, aiming, placement and leaderboard fixes.
 
 `Presentation.LobbyAimingEnabled` in [RevolverConfig](src/Modules/RevolverConfig.luau) defaults to true. Lobby players can hold and move their revolver using the same R6 arm tracking and RMB/L2/touch aim as in a round, visible to other clients. Set it to false to restrict these poses and ADS to rounds. Lobby firing/reloading stay blocked on both client and server, with combat HUD controls hidden; no additional assets or remotes are needed.
 

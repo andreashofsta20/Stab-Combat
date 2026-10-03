@@ -1,239 +1,76 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RS = game:GetService("ReplicatedStorage")
+local Inventory = require(script.Parent.Parent.DataStore.InventoryHandler)
+local Profiles = require(script.Parent.Parent.DataStore.ProfileManager)
+local Notifications = require(script.Parent.Parent.Game.SendNotification)
+local Quests = require(script.Parent.QuestsHandler)
+local Config = require(RS.Modules.DailyRewardsConfig)
+local Math = require(RS.Modules.RewardMath)
+local remotes = RS:WaitForChild("Remotes"):WaitForChild("DailyRewards")
+local request, response = remotes:WaitForChild("ClaimDailyReward"), remotes:WaitForChild("DailyRewardClient")
+local nextStatus, nextClaim = {}, {}
 
-local InventoryHandler = require(script.Parent.Parent.DataStore.InventoryHandler)
-local NotificationHandler = require(script.Parent.Parent.Game.SendNotification)
-local ProfileManager = require(script.Parent.Parent.DataStore:WaitForChild("ProfileManager"))
-local QuestsHandler = require(script.Parent:WaitForChild("QuestsHandler"))
-
-local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local DailyRewardsRemotesFolder = RemotesFolder:WaitForChild("DailyRewards")
-
-local ClaimDailyRewardRemote = DailyRewardsRemotesFolder:WaitForChild("ClaimDailyReward")
-local DailyRewardClientRemote = DailyRewardsRemotesFolder:WaitForChild("DailyRewardClient")
-
-local REWARD_CYCLE = 14
-local DAY_LENGTH = 86400 -- 1 day
-
--- Server anti-spam
-local CLAIM_COOLDOWN = 1
-local lastClaimTimes = {}
-
-local Rewards = {
-	[1] = { Item = { Type = "Knife", Name = "Bowie" }, XP = 50 },
-	[2] = { Cash = 600, XP = 25 },
-	[3] = { Cash = 700, XP = 50 },
-	[4] = { Item = { Type = "Knife", Name = "Shadow Dagger" }, XP = 50 },
-	[5] = { Cash = 800, XP = 75 },
-	[6] = { Item = { Type = "Knife", Name = "Gut Knife" }, XP = 75 },
-	[7] = { Item = { Type = "Emote", Name = "Griddy" }, XP = 100 },
-	[8] = { Cash = 1000, XP = 100 },
-	[9] = { Item = { Type = "Knife", Name = "Karambit" }, XP = 125 },
-	[10] = { Cash = 1200, XP = 150 },
-	[11] = { Item = { Type = "Knife", Name = "Skeleton" }, XP = 150 },
-	[12] = { Cash = 1300, XP = 175 },
-	[13] = { Item = { Type = "Emote", Name = "Godly Dance" }, XP = 200 },
-	[14] = { Item = { Type = "Knife", Name = "Butterfly" }, XP = 250 },
-}
-
-local function getNow()
-	return os.time(os.date("!*t"))
+local function values(player)
+	local profile = Profiles.GetProfile(player)
+	if player:GetAttribute("DataReady") ~= true or not profile or not profile:IsActive() then return nil end
+	local stats = player:FindFirstChild("leaderstats")
+	local daily = stats and stats:FindFirstChild("DailyRewards")
+	local last, streak = daily and daily:FindFirstChild("LastClaimTime"), daily and daily:FindFirstChild("Streak")
+	if not last or not streak then return nil end
+	return stats, last, streak, profile
 end
-
-local function secondsUntilNextClaim(lastClaimTime)
-	local now = getNow()
-	local last = lastClaimTime or 0
-	local nextClaim = last + DAY_LENGTH
-	return math.max(0, nextClaim - now)
+local function status(player)
+	local stats, last, streak = values(player)
+	if not stats then return {Loading = true, CanClaim = false, ServerTime = os.time()} end
+	local payload = Math.DailyStatus(last.Value, streak.Value, os.time(), Config.DaySeconds, #Config.Rewards)
+	payload.Rewards = Config.Rewards
+	return payload
 end
-
-local function getStatus(player)
-   local now = getNow()
-   local leaderstats = player:FindFirstChild("leaderstats")
-   local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
-   local lastClaimTime = 0
-   local streak = 0
-   if drFolder then
-	   local lct = drFolder:FindFirstChild("LastClaimTime")
-	   local stv = drFolder:FindFirstChild("Streak")
-	   lastClaimTime = lct and lct.Value or print("Error: No LastClaimTime for player " .. player.Name)
-	   streak = stv and stv.Value or print("Error: No Streak for player " .. player.Name)
-   end
-
-   local claimedToday = false
-   if lastClaimTime > 0 and now - lastClaimTime < DAY_LENGTH then
-	   claimedToday = true
-   end
-
-   -- Streak never resets automatically
-   local streakReset = false
-
-   local lastClaimedIndex = 0
-   local nextClaimIndex = 1
-   if streak > 0 then
-	   lastClaimedIndex = ((streak - 1) % REWARD_CYCLE) + 1
-	   if not claimedToday then
-		   nextClaimIndex = ((streak) % REWARD_CYCLE) + 1
-	   else
-		   nextClaimIndex = lastClaimedIndex + 1
-		   if nextClaimIndex > REWARD_CYCLE then
-			   nextClaimIndex = 1
-		   end
-	   end
-   end
-
-   -- Only allow claiming day 1 if streak was reset
-   local canClaim = false
-   if not claimedToday then
-	   if streakReset then
-		   canClaim = (nextClaimIndex == 1)
-	   else
-		   canClaim = true
-	   end
-   end
-
-   return {
-	   Rewards = Rewards,
-	   CurrentDayIndex = nextClaimIndex,
-	   LastClaimedIndex = lastClaimedIndex,
-	   ClaimedToday = claimedToday,
-	   CanClaim = canClaim,
-	   RemainingSeconds = secondsUntilNextClaim(lastClaimTime),
-	   Streak = streak,
-   }
-end
-
-
-
-local function applyReward(player, reward)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats or player:GetAttribute("DataReady") ~= true then return false end
-	local cash = reward.Cash and leaderstats:FindFirstChild("Cash")
-	local xp = reward.XP and leaderstats:FindFirstChild("XP")
-	if reward.Cash and not cash then return false end
-	if reward.XP and not xp then return false end
-
-	if reward.Cash then
-		cash.Value += reward.Cash
-	end
-
-	if reward.XP then
-		xp.Value += reward.XP
-	end
-
+local function claim(player, day)
+	local now = os.clock()
+	if now < (nextClaim[player] or 0) then return false, "Please wait a moment" end
+	nextClaim[player] = now + Config.ClaimCooldown
+	if not Math.IsFinite(day) or day % 1 ~= 0 then return false, "Invalid reward" end
+	local stats, last, streak, profile = values(player)
+	if not stats then return false, "Your rewards are still loading" end
+	local current = status(player)
+	if not current.CanClaim then return false, "Already claimed" end
+	if day ~= current.CurrentDayIndex then return false, "Reward unavailable" end
+	local reward = Config.Rewards[day]
+	if not reward then return false, "Invalid reward" end
+	local cash, xp = stats:FindFirstChild("Cash"), stats:FindFirstChild("XP")
+	if (reward.Cash and not cash) or (reward.XP and not xp) then return false, "Reward unavailable" end
+	-- Validate all prerequisites before granting anything. These inventory calls
+	-- do not yield once the already-hydrated folders exist.
 	if reward.Item then
-		if reward.Item.Type == "Knife" then
-			if not InventoryHandler.AddKnife(player, reward.Item.Name) then return false end
-		elseif reward.Item.Type == "Emote" then
-			if not InventoryHandler.AddEmote(player, reward.Item.Name) then return false end
-		end
+		local item = reward.Item
+		local folder = stats:FindFirstChild(item.Type == "Knife" and "Inventory" or "Emotes")
+		if not folder then return false, "Inventory is still loading" end
+		local granted
+		if item.Type == "Knife" then granted = Inventory.AddKnife(player, item.Name)
+		elseif item.Type == "Emote" then granted = Inventory.AddEmote(player, item.Name) end
+		if not granted then return false, "Reward could not be granted" end
 	end
+	if reward.Cash then cash.Value += reward.Cash end
+	if reward.XP then xp.Value += reward.XP end
+	last.Value, streak.Value = current.ServerTime, current.Streak + 1
+	profile.Data.DailyRewards = {LastClaimTime = last.Value, Streak = streak.Value}
+	Quests.AddProgress(player, "DAILY_REWARD_CLAIMS", 1)
+	-- Reward, timestamp, inventory and quests are captured in one profile save.
+	Profiles.SaveProfile(player)
 	return true
 end
-
-local function claim(player, requestedDayIndex)
-   if typeof(requestedDayIndex) ~= "number" then
-	   return false, "Invalid request"
-   end
-
-   -- server anti-spam
-   local nowTick = tick()
-   if lastClaimTimes[player] and nowTick - lastClaimTimes[player] < CLAIM_COOLDOWN then
-	   return false, "Slow down"
-   end
-   lastClaimTimes[player] = nowTick
-
-   local now = getNow()
-   local leaderstats = player:FindFirstChild("leaderstats")
-   local drFolder = leaderstats and leaderstats:FindFirstChild("DailyRewards")
-   local lct = drFolder and drFolder:FindFirstChild("LastClaimTime")
-   local stv = drFolder and drFolder:FindFirstChild("Streak")
-   local lastClaimTime = lct and lct.Value or 0
-   local streak = stv and stv.Value or 0
-
-   -- Streak never resets automatically
-   local streakReset = false
-
-   -- Already claimed today
-   if lastClaimTime > 0 and now - lastClaimTime < DAY_LENGTH then
-	   return false, "Already claimed"
-   end
-
-   local correctIndex = 1
-   if streakReset then
-	   correctIndex = 1
-   else
-	   if lastClaimTime == 0 then
-		   correctIndex = 1
-	   elseif now - lastClaimTime >= DAY_LENGTH then
-		   correctIndex = ((streak) % REWARD_CYCLE) + 1
-	   else
-		   return false, "Not available"
-	   end
-   end
-
-   if streakReset then
-	   streak = 1
-   else
-	   streak = streak + 1
-   end
-
-   if requestedDayIndex ~= correctIndex then
-	   return false, "Not available"
-   end
-
-   local reward = Rewards[correctIndex]
-   if not reward then
-	   return false, "Invalid reward"
-   end
-
-	if not applyReward(player, reward) then
-		return false, "Reward could not be granted"
-	end
-
-   if lct then lct.Value = now end
-   if stv then stv.Value = streak end
-
-   task.spawn(function()
-	   ProfileManager.SaveProfile(player)
-   end)
-
-   return true
-end
-
-local dailyRemoteCooldowns: {[number]: number} = {}
-local DAILY_REMOTE_COOLDOWN = 1.5
-
-ClaimDailyRewardRemote.OnServerEvent:Connect(function(player, action, dayIndex)
-	local now = os.clock()
-	if dailyRemoteCooldowns[player.UserId] and (now - dailyRemoteCooldowns[player.UserId]) < DAILY_REMOTE_COOLDOWN then return end
-	dailyRemoteCooldowns[player.UserId] = now
-
+request.OnServerEvent:Connect(function(player, action, day)
 	if action == "GetStatus" then
-		DailyRewardClientRemote:FireClient(player, getStatus(player))
-		return
-	end
-
-	if action == "Claim" then
-		local ok, msg = claim(player, dayIndex)
-
-		if ok then
-			QuestsHandler.AddProgress(player, "DAILY_REWARD_CLAIMS", 1)
-			NotificationHandler.SendNotification(player, "Daily reward claimed!", 4, "Success")
-		else
-			NotificationHandler.SendNotification(player, msg, 3, "Error")
-		end
-
-		DailyRewardClientRemote:FireClient(player, getStatus(player))
-	end
+		local now = os.clock()
+		if now < (nextStatus[player] or 0) then return end
+		nextStatus[player] = now + Config.StatusCooldown
+	elseif action == "Claim" then
+		if os.clock() < (nextClaim[player] or 0) then return end
+		local ok, message = claim(player, day)
+		Notifications.SendNotification(player, ok and "Daily reward claimed!" or message, 3, ok and "Success" or "Error")
+	else return end
+	response:FireClient(player, status(player))
 end)
-
-Players.PlayerRemoving:Connect(function(player)
-	lastClaimTimes[player] = nil
-	dailyRemoteCooldowns[player.UserId] = nil
-end)
-
-return {
-	GetStatus = getStatus,
-	Claim = claim,
-}
+Players.PlayerRemoving:Connect(function(player) nextClaim[player], nextStatus[player] = nil, nil end)
+return {GetStatus = status, Claim = claim}

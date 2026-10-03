@@ -11,6 +11,8 @@ local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitF
 
 local TimeToMinutesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TimeToMinutes"))
 local GameModes = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameModes"))
+local MapConfig = require(ReplicatedStorage.Modules.MapConfig)
+local Ragdolls = require(script.Parent.Parent.CharacterDeath.RagdollService)
 
 local RecieveTools = StartGameClientFolder:WaitForChild("RecieveTools")
 local WipeTools = StartGameClientFolder:WaitForChild("WipeTools")
@@ -46,10 +48,38 @@ if not KillCamRemote then
 end
 local FFA_KILLCAM_SECONDS = 2   -- how long an FFA victim watches their killer before respawning
 MainGame.RoundStats = nil
+MainGame.RoundId = 0
 
 local eliminationOrder = {}
 local pendingKills = {}
 local deathLocks = {}
+local roundStartForceFields = {}
+
+local function ClearRoundStartProtection()
+    for forceField in pairs(roundStartForceFields) do forceField:Destroy() end
+    table.clear(roundStartForceFields)
+end
+
+local function ProtectRoundStart()
+    local seconds = MapConfig.RoundStartProtectionSeconds
+    if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 or seconds == math.huge then return end
+    for userId in pairs(MainGame.PlayersInGame) do
+        local player = Players:GetPlayerByUserId(userId)
+        local character = player and player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if not player or player.Parent ~= Players or not humanoid or humanoid.Health <= 0 then continue end
+        local forceField = Instance.new("ForceField")
+        forceField.Name, forceField.Visible, forceField.Parent = "RoundStartProtection", true, character
+        roundStartForceFields[forceField] = true
+        -- Capture this exact field, never look up a player's later character
+        -- or remove a newer round's protection from a delayed callback.
+        task.delay(seconds, function()
+            if not roundStartForceFields[forceField] then return end
+            roundStartForceFields[forceField] = nil
+            forceField:Destroy()
+        end)
+    end
+end
 
 local function CountPlayersInGame()
     local n = 0
@@ -59,10 +89,13 @@ local function CountPlayersInGame()
     return n
 end
 
-local function RespawnAtLobby(player: Player)
-    if not player or not player.Parent then return end
+local function RespawnAtLobby(player: Player, roundId: number?, previousCharacter: Model?)
+    if not player or player.Parent ~= Players then return end
+    if roundId and MainGame.RoundId ~= roundId then return end
+    if previousCharacter and player.Character ~= previousCharacter then return end
 
     player:LoadCharacter()
+    if player.Parent ~= Players or (roundId and MainGame.RoundId ~= roundId) then return end
     local character = player.Character or player.CharacterAdded:Wait()
     local hrp = character:WaitForChild("HumanoidRootPart", 5)
     local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
@@ -92,7 +125,7 @@ end
 
 function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
     local stats = MainGame.RoundStats
-    if not stats or not killer or not victimUserId then
+    if not MainGame.GameActive or not stats or not killer or not victimUserId then
         return
     end
 
@@ -104,14 +137,49 @@ function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
     end
 
     if killer.UserId ~= victimUserId and not pendingKills[victimUserId] then
-        pendingKills[victimUserId] = killer
+        local victim = Players:GetPlayerByUserId(victimUserId)
+        pendingKills[victimUserId] = {killer = killer, character = victim and victim.Character, roundId = MainGame.RoundId}
     end
+end
+
+-- Weapon handlers share one authoritative damage/credit path. A corpse,
+-- replacement character or ForceField cannot produce damage feedback/credit.
+function MainGame.DamagePlayer(killer: Player, victim: Player, humanoid: Humanoid, amount: number, impact: any?): number
+    if not MainGame.GameActive or not killer or not victim or killer == victim
+        or not MainGame.PlayersInGame[killer.UserId] or not MainGame.PlayersInGame[victim.UserId]
+        or killer:GetAttribute("DataReady") ~= true or victim:GetAttribute("DataReady") ~= true
+        or killer.Parent ~= Players or victim.Parent ~= Players
+        or type(amount) ~= "number" or amount ~= amount or amount <= 0 or amount == math.huge then return 0 end
+    local attackerHumanoid = killer.Character and killer.Character:FindFirstChildOfClass("Humanoid")
+    if not attackerHumanoid or attackerHumanoid.Health <= 0 or not humanoid
+        or humanoid.Parent ~= victim.Character or humanoid.Health <= 0
+        or victim.Character:FindFirstChildOfClass("ForceField") then return 0 end
+    local before, character = humanoid.Health, victim.Character
+    Ragdolls.Prepare(character)
+    if before <= amount then
+        MainGame.RegisterPendingKill(killer, victim.UserId)
+        if type(impact) == "table" then Ragdolls.SetImpact(character, impact.Kind, impact.Direction) end
+    end
+    humanoid:TakeDamage(amount)
+    local dealt = math.max(0, before - humanoid.Health)
+    if humanoid.Health <= 0 then
+        MainGame.OnDeath(victim, character) -- commit now, even with deferred Died signals
+    elseif before <= amount then
+        MainGame.ClearPendingKill(victim.UserId)
+        Ragdolls.ClearImpact(character)
+    end
+    return dealt
 end
 
 function MainGame.ClearPendingKill(victimUserId: number)
     if type(victimUserId) == "number" then
         pendingKills[victimUserId] = nil
     end
+end
+
+function MainGame.OnCharacterAdded(player: Player)
+    pendingKills[player.UserId] = nil
+    deathLocks[player.UserId] = nil
 end
 
 -- ==========================================
@@ -125,6 +193,9 @@ function MainGame.AddRoundKill(killer: Player)
     if not data then return end
     
     data.kills += 1
+    local leaderstats = killer:FindFirstChild("leaderstats")
+    local lifetimeKills = leaderstats and leaderstats:FindFirstChild("Kills")
+    if lifetimeKills then lifetimeKills.Value += 1 end -- survives leaving before results
     
     -- NEW: Update attribute so spectating clients see it instantly
     killer:SetAttribute("CurrentRoundKills", data.kills)
@@ -177,10 +248,6 @@ local function SaveLastRound(player: Player, opponents: number, kills: number, p
     while #data.RoundHistory > RoundHistoryMax do
         table.remove(data.RoundHistory)
     end
-        task.spawn(function()
-            task.wait(1.5)
-            RespawnAtLobby(player)
-        end)
 
     player:SetAttribute("LastRoundOpponents", opponents)
     player:SetAttribute("LastRoundKills", kills)
@@ -192,6 +259,7 @@ local function FinalizeRoundStats()
     if not stats then return end
 
     local totalPlayers = stats.startCount
+    stats.draw = MainGame.CurrentMode.EliminationEndsRound and CountPlayersInGame() == 0
     local eliminatedSet = {}
     for _, userId in ipairs(eliminationOrder) do
         eliminatedSet[userId] = true
@@ -251,7 +319,7 @@ local function ApplyRoundRewards()
             local policy = AntiFarmModule.GetRewardPolicy(player, totalPlayers, serverPlayerCount)
             QuestsHandler.AddProgress(player, "ROUNDS_PLAYED", 1)
 
-            local isWinner = data.placement == 1
+            local isWinner = data.placement == 1 and not stats.draw
             if (data.rewardXp or 0) == 0 and (data.rewardGold or 0) == 0 then
                 if isWinner then
                     data.rewardXp = GameRewardModule.XpReward(player, "win", serverPlayerCount, policy.RewardMultiplier) or 0
@@ -278,14 +346,12 @@ local function ApplyRoundRewards()
                 if wins then wins.Value += 1 end
                 if winStreak then winStreak.Value += 1 end
                 QuestsHandler.AddProgress(player, "WINS", 1)
+            elseif not isWinner then
+                local leaderstats = player:FindFirstChild("leaderstats")
+                local winStreak = leaderstats and leaderstats:FindFirstChild("WinStreak")
+                if winStreak then winStreak.Value = 0 end
             end
             QuestsHandler.AddProgress(player, "MATCH_GOLD_EARNED", data.rewardGold or 0)
-
-            local leaderstats = player:FindFirstChild("leaderstats")
-            if leaderstats then
-                local killsStat = leaderstats:FindFirstChild("Kills")
-                if killsStat then killsStat.Value += data.kills or 0 end
-            end
 
             SaveLastRound(player, totalPlayers - 1, data.kills or 0, data.placement or 0)
             ProfileManager.SaveProfile(player)
@@ -307,7 +373,7 @@ local function BuildRoundResults()
             Name = name,
             Kills = data.kills or 0,
             Placement = placement,
-            IsWinner = (placement == 1),
+            IsWinner = (placement == 1 and not stats.draw),
         })
     end
 
@@ -328,6 +394,7 @@ local function BuildRoundResults()
         Map = MainGame.CurrentMap,
         Mode = MainGame.CurrentMode.DisplayName,
         TotalPlayers = stats.startCount,
+        Draw = stats.draw == true,
         Winners = winners,
         MapImage = resultsImage,
     }
@@ -335,15 +402,31 @@ local function BuildRoundResults()
     return gameResults, playerResults
 end
 
-function MainGame.OnDeath(player: Player)
+function MainGame.OnDeath(player: Player, character: Model?)
     if not player then return end
+    character = character or player.Character
+    if character ~= player.Character then return end
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health > 0 then return end
+    Ragdolls.OnDeath(character)
 
     local userId = player.UserId
-    if not MainGame.PlayersInGame[userId] then return end
+    local roundId = MainGame.RoundId
+    if not MainGame.GameActive or not MainGame.PlayersInGame[userId] then
+        local roundData = MainGame.RoundStats and MainGame.RoundStats.players[userId]
+        if not Players.CharacterAutoLoads and (not roundData or roundData.forfeited) then
+            task.delay(Players.RespawnTime, function()
+                if not MainGame.PlayersInGame[userId] then RespawnAtLobby(player, roundId, character) end
+            end)
+        end
+        return
+    end
     if deathLocks[userId] then return end
     deathLocks[userId] = true
 
-    local killer = pendingKills[userId]
+    local pending = pendingKills[userId]
+    pendingKills[userId] = nil
+    local killer = pending and pending.roundId == roundId and pending.character == character and pending.killer or nil
     -- Who should the victim watch? Only a real, still-connected, different player.
     local killCamTarget = (killer and killer ~= player and killer.Parent == Players) and killer or nil
     local stats = MainGame.RoundStats
@@ -357,16 +440,19 @@ function MainGame.OnDeath(player: Player)
         local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
 
         MainGame.AddRoundKill(killer)
-        GameRewardModule.XpReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
-        GameRewardModule.CashReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
-        GameRewardModule.XpReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
-        GameRewardModule.CashReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
         if killerPolicy.RewardMultiplier > 0 then
             QuestsHandler.AddProgress(killer, "KILLS", 1)
         end
+        -- XP pass ownership may yield. Defer rewards until death/membership and
+        -- kill credit have been committed, so they cannot hold a round open.
+        task.defer(function()
+            GameRewardModule.XpReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
+            GameRewardModule.CashReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
+            GameRewardModule.XpReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+            GameRewardModule.CashReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+        end)
     end
 
-    pendingKills[userId] = nil
     local leaderstats = player:FindFirstChild("leaderstats")
     local deathsStat = leaderstats and leaderstats:FindFirstChild("Deaths")
     if deathsStat then
@@ -380,10 +466,13 @@ function MainGame.OnDeath(player: Player)
             KillCamRemote:FireClient(player, "Respawn", killCamTarget.UserId, FFA_KILLCAM_SECONDS)
         end
         task.delay(FFA_KILLCAM_SECONDS, function()
+            if MainGame.RoundId ~= roundId or player.Character ~= character then return end
             deathLocks[userId] = nil
             if MainGame.GameActive and MainGame.PlayersInGame[userId] and player.Parent then
                 player:LoadCharacter()
-                SpawnMapModule.RespawnPlayer(player, MainGame.CurrentMap)
+                if MainGame.RoundId == roundId and MainGame.GameActive and MainGame.PlayersInGame[userId] then
+                    if not SpawnMapModule.RespawnPlayer(player, MainGame.CurrentMap) then MainGame.LeaveRound(player) end
+                end
             end
         end)
         return
@@ -397,13 +486,12 @@ function MainGame.OnDeath(player: Player)
     -- Battle Royale: eliminated player spectates their killer (or anyone alive if no killer, e.g. zone).
     KillCamRemote:FireClient(player, "Spectate", killCamTarget and killCamTarget.UserId or 0, 0)
 
-    task.spawn(function()
-        task.wait(1.5)
-        RespawnAtLobby(player)
+    task.delay(1.5, function()
+        RespawnAtLobby(player, roundId, character)
     end)
 end
 
-function MainGame.LeaveRound(player: Player)
+function MainGame.LeaveRound(player: Player, disconnected: boolean?)
     if not player or not MainGame.GameActive or not MainGame.PlayersInGame[player.UserId] then
         return
     end
@@ -418,8 +506,17 @@ function MainGame.LeaveRound(player: Player)
     player:SetAttribute("InRound", false)
     player:SetAttribute("CurrentRoundParticipant", false)
     ZoneHandler.NotifyPlayer(player, false)
+    if disconnected then return end
 
     local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health <= 0 then
+        local roundId = MainGame.RoundId
+        task.delay(1.5, function()
+            if not MainGame.PlayersInGame[player.UserId] then RespawnAtLobby(player, roundId, character) end
+        end)
+        return
+    end
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     if hrp then
         local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
@@ -467,7 +564,52 @@ function MainGame.IsLobbyModeLocked()
     return MainGame.LobbyModeLock == true
 end
 
-function MainGame.StartGame(map, modeId: string?)
+function MainGame.CleanupRound(respawn: boolean?)
+    MainGame.GameActive = false
+    GameActiveBoolean.Value = false
+    ClearRoundStartProtection()
+    MainGame.RoundId += 1 -- invalidate every delayed callback from the previous round
+    MainGame.LobbyModeLock = false
+    ZoneHandler._zoneActive = false
+    ZoneHandler.StopZone()
+    MainGame.WipeTools()
+    SpawnMapModule.ReleasePlacements()
+    table.clear(MainGame.PlayersInGame)
+    table.clear(pendingKills)
+    table.clear(deathLocks)
+    MainGame.RoundStats = nil
+    MainGame.CurrentMap = nil
+    Players.CharacterAutoLoads = true
+    ReplicatedStorage:WaitForChild("Timer").Value = 0
+    local roundId = MainGame.RoundId
+    for _, player in ipairs(Players:GetPlayers()) do
+        player:SetAttribute("InRound", false)
+        player:SetAttribute("CurrentRoundParticipant", false)
+        player:SetAttribute("CurrentRoundKills", 0)
+        player:SetAttribute("CurrentRoundMode", nil)
+        if respawn then task.spawn(RespawnAtLobby, player, roundId) end
+    end
+end
+
+local function wantsRound(player)
+    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+    local stats = player:FindFirstChild("leaderstats")
+    local settings = stats and stats:FindFirstChild("Settings")
+    local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
+    return lobbyMode and lobbyMode.Value == false
+end
+local function eligible(player)
+    local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    return wantsRound(player) and humanoid and humanoid.Health > 0
+end
+
+local function runGame(map, modeId: string?)
+    MainGame.RoundId += 1
+    table.clear(MainGame.PlayersInGame)
+    table.clear(pendingKills)
+    table.clear(deathLocks)
+    MainGame.RoundStats = nil
+    eliminationOrder = {}
     MainGame.LobbyModeLock = true
     MainGame.CurrentMap = map
     MainGame.CurrentMode = GameModes.Get(modeId or GameModes.FFA.Id) or GameModes.FFA
@@ -517,54 +659,70 @@ function MainGame.StartGame(map, modeId: string?)
     end
     task.wait(2)
 
-    RoundCountdownRemote:FireAllClients("fight")
-    task.wait(3.5)
-
-    if CountPlayersInGame() == 0 then
-        for _, player in pairs(Players:GetPlayers()) do
-            local leaderstats = player:FindFirstChild("leaderstats")
-            local settings = leaderstats and leaderstats:FindFirstChild("Settings")
-            local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
-            if lobbyMode and lobbyMode.Value == false then
-                MainGame.PlayersInGame[player.UserId] = true
-                player:SetAttribute("CurrentRoundParticipant", true)
-                player:SetAttribute("InRound", true)
+    local roundPlayers = {}
+    for _, player in ipairs(Players:GetPlayers()) do if wantsRound(player) then table.insert(roundPlayers, player) end end
+    local placedPlayers, placedCharacters = SpawnMapModule.PlacePlayers(map, roundPlayers)
+    if placedPlayers ~= #roundPlayers then
+        warn(("MainGame: placed %d/%d round players"):format(placedPlayers, #roundPlayers))
+        for _, player in ipairs(roundPlayers) do
+            if wantsRound(player) and (not placedCharacters or placedCharacters[player.UserId] ~= player.Character) then
+                RoundHandlerModule.ChangeStatus("PLAYER COULD NOT REACH MAP")
+                return
             end
         end
     end
-
-    if CountPlayersInGame() == 0 then
-        MainGame.GameActive = false
-        GameActiveBoolean.Value = false
-        MainGame.LobbyModeLock = false
-        return
-    end
-
-    InitRoundStats()
-    local roundPlayers = {}
-    for userId in pairs(MainGame.PlayersInGame) do
-        local player = Players:GetPlayerByUserId(userId)
-        if player then
-            table.insert(roundPlayers, player)
+    for _, player in ipairs(roundPlayers) do
+        if placedCharacters and placedCharacters[player.UserId] == player.Character and eligible(player) then
+            MainGame.PlayersInGame[player.UserId] = true
+            player:SetAttribute("CurrentRoundParticipant", true)
+            player:SetAttribute("InRound", true)
         end
     end
-    local placedPlayers = SpawnMapModule.PlacePlayers(map, roundPlayers)
-    if placedPlayers ~= #roundPlayers then
-        warn(("MainGame: placed %d/%d round players"):format(placedPlayers, #roundPlayers))
+    if CountPlayersInGame() < RoundHandlerModule.MinimumPlayers then
+        RoundHandlerModule.ChangeStatus("NOT ENOUGH PLAYERS TO START")
+        return
     end
+    -- Players reach the map before the 3-2-1 countdown. Combat/music starts
+    -- only after that countdown and a final membership/health check.
+    RoundCountdownRemote:FireAllClients("fight")
+    task.wait(3.5)
+    local remainingPlayers = {}
+    for _, player in ipairs(roundPlayers) do if wantsRound(player) then table.insert(remainingPlayers, player) end end
+    local verifiedCount, verifiedCharacters = SpawnMapModule.VerifyPlayers(map, remainingPlayers)
+    if verifiedCount ~= #remainingPlayers then
+        RoundHandlerModule.ChangeStatus("PLAYER COULD NOT REACH MAP")
+        return
+    end
+    for _, player in ipairs(roundPlayers) do
+        if not eligible(player) or verifiedCharacters[player.UserId] ~= player.Character then
+            MainGame.PlayersInGame[player.UserId] = nil
+            player:SetAttribute("InRound", false)
+            player:SetAttribute("CurrentRoundParticipant", false)
+        end
+    end
+    if CountPlayersInGame() < RoundHandlerModule.MinimumPlayers then
+        RoundHandlerModule.ChangeStatus("NOT ENOUGH PLAYERS TO START")
+        return
+    end
+    InitRoundStats()
     -- Respawns are controlled by the round so FFA cannot also receive
     -- Roblox's automatic respawn before the delayed round respawn.
     Players.CharacterAutoLoads = false
-    local PlayerTotal = MainGame.RoundStats.startCount
 
+    -- Apply to every participant before unfreezing/enabling combat. No yields
+    -- separate these steps, so there is no unprotected opening damage window.
+    ProtectRoundStart()
+    SpawnMapModule.ReleasePlacements()
     MainGame.GameActive = true
     GameActiveBoolean.Value = true
     
     if MainGame.CurrentMode.ZoneRequired then
+        local roundId = MainGame.RoundId
+        if not ZoneHandler.SpawnZone() then error("Battle Royale zone could not load") end
         task.spawn(function()
-            ZoneHandler.SpawnZone()
+            if MainGame.RoundId ~= roundId or not MainGame.GameActive then return end
             task.wait(1)
-            ZoneHandler.StartZone()
+            if MainGame.RoundId == roundId and MainGame.GameActive then ZoneHandler.StartZone() end
         end)
     end
 
@@ -628,39 +786,22 @@ function MainGame.StartGame(map, modeId: string?)
         GetRoundResultsRemote:FireAllClients(gameResults, playerResults)
     end
 
-    local winnerIds = {}
-    if gameResults and gameResults.Winners then
-        for _, entry in ipairs(gameResults.Winners) do winnerIds[entry.UserId] = true end
-    end
-    for odUserId in pairs(MainGame.RoundStats and MainGame.RoundStats.players or {}) do
-        if not winnerIds[odUserId] then
-            local player = Players:GetPlayerByUserId(odUserId)
-            if player then
-                local winStreak = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("WinStreak")
-                if winStreak then winStreak.Value = 0 end
-            end
-        end
-    end
-
     task.wait(0.5)
     HealAllPlayers()
     MainGame.WipeTools()
 
-    MainGame.GameActive = false
-    GameActiveBoolean.Value = false
-    MainGame.LobbyModeLock = false
-    table.clear(MainGame.PlayersInGame)
-    table.clear(pendingKills)
-    table.clear(deathLocks)
-    MainGame.RoundStats = nil
+end
 
-    Players.CharacterAutoLoads = true
-    for _, p in pairs(Players:GetPlayers()) do
-        task.spawn(RespawnAtLobby, p)
-        p:SetAttribute("InRound", false)
-        p:SetAttribute("CurrentRoundKills", 0) -- Clear attribute for lobby
-        p:SetAttribute("CurrentRoundMode", nil)
+function MainGame.StartGame(map, modeId: string?)
+    local ok, err = xpcall(function() runGame(map, modeId) end, debug.traceback)
+    if not ok then
+        warn("MainGame: round aborted:\n" .. tostring(err))
+        RoundHandlerModule.ChangeStatus("ROUND COULD NOT CONTINUE")
     end
+    -- Includes failed map loads, insufficient players, normal completion and
+    -- runtime errors, so one bad round cannot terminate the game loop.
+    MainGame.CleanupRound(true)
+    return ok
 end
 
 -- NOTE: The "ReceiveInfoRemote" listener block was removed. 

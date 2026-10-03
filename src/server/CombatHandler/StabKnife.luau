@@ -6,30 +6,21 @@ local Players = game:GetService("Players")
 -- // MODULES
 local MainGameModule = require(script.Parent.Parent.Game.MainGame)
 local PlayerHitbox = require(script.Parent.PlayerHitbox)
+local RagdollQuery = require(ReplicatedStorage.Modules.RagdollQuery)
 local ServerStorage = game:GetService("ServerStorage")
 
 -- // ANIMS
-local CombatAnimations = ReplicatedStorage:WaitForChild("CombatAnimations") 
-local StabAnimation = CombatAnimations:WaitForChild("Stab")
+local Config = require(ReplicatedStorage.Modules.KnifeConfig).Stab
 
 -- // CONFIG
-local STAB_RANGE = 12 
-local STAB_WIDTH = 8  
-local STAB_HEIGHT = 8 
-local DAMAGE = 100
-local COOLDOWN = 0.6
+local STAB_RANGE = Config.Range
+local STAB_WIDTH = Config.Width
+local STAB_HEIGHT = Config.Height
+local DAMAGE = Config.Damage
+local COOLDOWN = Config.Cooldown
 local Cooldown = {}
 
 local DamageDealtClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("DamageDealtClient")
-
-local function playStabAnim(humanoid)
-    if not humanoid then return end
-    local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
-    local track = animator:LoadAnimation(StabAnimation)
-    track.Priority = Enum.AnimationPriority.Action4
-    track.Looped = false
-    --track:Play()
-end
 
 function KnifeModule.Stab(player: Player)
     if not player or player.ClassName ~= "Player" then return end
@@ -42,6 +33,7 @@ function KnifeModule.Stab(player: Player)
 
     if not MainGameModule.GameActive then return end
     if not MainGameModule.PlayersInGame[player.UserId] then return end
+    if player:GetAttribute("DataReady") ~= true then return end
 
     local character = player.Character
     if not character then return end
@@ -54,15 +46,13 @@ function KnifeModule.Stab(player: Player)
     local serverKnives = ServerStorage:FindFirstChild("Knives")
     if not equippedTool or not serverKnives or not serverKnives:FindFirstChild(equippedTool.Name) then return end
 
-    playStabAnim(hum)
-
     local origin = hrp.Position + hrp.CFrame.LookVector * (STAB_RANGE / 2)
     local hitboxCFrame = CFrame.lookAt(origin, origin + hrp.CFrame.LookVector)
     local hitboxSize = Vector3.new(STAB_WIDTH, STAB_HEIGHT, STAB_RANGE)
 
     local overlapParams = OverlapParams.new()
     overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-    overlapParams.FilterDescendantsInstances = { character }
+    overlapParams.FilterDescendantsInstances = RagdollQuery.Exclude({ character })
 
     local touchingParts = workspace:GetPartBoundsInBox(hitboxCFrame, hitboxSize, overlapParams)
     local damagedPlayers = {}
@@ -71,7 +61,7 @@ function KnifeModule.Stab(player: Player)
         local victimPlayer, victimHum = PlayerHitbox.GetPlayerFromHitbox(part)
         local victimId = victimPlayer and victimPlayer.UserId or nil
 
-        if not victimHum or victimHum == hum or (victimId and damagedPlayers[victimId]) then
+        if not victimPlayer or not victimHum or victimHum == hum or (victimId and damagedPlayers[victimId]) then
             continue
         end
 
@@ -79,20 +69,21 @@ function KnifeModule.Stab(player: Player)
             continue
         end
 
-        if victimHum.Health <= 0 then
+        if victimHum.Health <= 0 or victimHum.Parent:FindFirstChildOfClass("ForceField") then
             continue
         end
         
         -- // ANTI-EXPLOIT: Check if the victim is actually close to the attacker
         local victimHrp = victimHum.Parent:FindFirstChild("HumanoidRootPart")
+        if not victimHrp then continue end
         if victimHrp then
             local dist = (hrp.Position - victimHrp.Position).Magnitude
-            if dist > (STAB_RANGE + 8) then -- 8 studs of leeway for player latency/ping
+            if dist > (STAB_RANGE + Config.DistanceLeeway) then
                 continue 
             end
 			local rayParams = RaycastParams.new()
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
-			rayParams.FilterDescendantsInstances = {character, victimHum.Parent}
+			rayParams.FilterDescendantsInstances = RagdollQuery.Exclude({character, victimHum.Parent})
 			local obstruction = workspace:Raycast(hrp.Position, victimHrp.Position - hrp.Position, rayParams)
 			if obstruction then
 				continue
@@ -101,16 +92,14 @@ function KnifeModule.Stab(player: Player)
 
         if victimId then
             damagedPlayers[victimId] = true
-            if victimHum.Health <= DAMAGE then
-                MainGameModule.RegisterPendingKill(player, victimId)
-            end
         end
 
-        victimHum:TakeDamage(DAMAGE)
+        local dealt = MainGameModule.DamagePlayer(player, victimPlayer, victimHum, DAMAGE,
+            { Kind = "KnifeStab", Direction = victimHrp.Position - hrp.Position })
         
         -- Fix applied here: Pass victimHum.Parent so the client knows WHO took damage
-        if victimHum.Parent then
-            DamageDealtClient:FireClient(player, victimHum.Parent, DAMAGE)
+        if dealt > 0 and victimHum.Parent then
+            DamageDealtClient:FireClient(player, victimHum.Parent, dealt)
         end
     end
 end

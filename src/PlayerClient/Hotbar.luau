@@ -167,9 +167,8 @@ local function SetGunEquippedUI(equipped)
 	local gunSlot = HotbarFrame:WaitForChild("2")
 	local slotSelected = gunSlot:WaitForChild("SlotSelected")
 	slotSelected.Visible = equipped
-	if equipped then
-		SoundHandlerModule.PlaySound("EquipKnife")
-	end
+	-- RevolverController plays the configured equip sound on the actual Tool
+	-- transition, including equips that did not originate in this hotbar.
 
 	if equipped then
 		TweenSize(gunSlot, UDim2.new(0.081, 5, 1.054, 5))

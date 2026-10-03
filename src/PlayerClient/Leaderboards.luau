@@ -12,7 +12,33 @@ local RequestLeaderboardsRemote = LeaderboardsRemotesFolder:WaitForChild("Reques
 local GetThumbnailModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GetThumbnail"))
 local AbbreviateModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Abbreviate"))
 
-RequestLeaderboardsRemote:FireServer()
+local boardStates = {}
+local latestRevision = 0
+local thumbnailCache, thumbnailPending, thumbnailQueue = {}, {}, {}
+local activeThumbnails = 0
+local function pumpThumbnails()
+	while activeThumbnails < 4 and #thumbnailQueue > 0 do
+		local id = table.remove(thumbnailQueue, 1)
+		activeThumbnails += 1
+		task.spawn(function()
+			local ok, url = pcall(GetThumbnailModule.GetThumbnail, id)
+			if ok and type(url) == "string" then thumbnailCache[id] = url end
+			for _, entry in ipairs(thumbnailPending[id]) do
+				if entry.Parent and thumbnailCache[id] then entry.Profile.Image = thumbnailCache[id] end
+			end
+			thumbnailPending[id] = nil
+			activeThumbnails -= 1
+			pumpThumbnails()
+		end)
+	end
+end
+local function assignThumbnail(entry, id)
+	if thumbnailCache[id] then entry.Profile.Image = thumbnailCache[id]; return end
+	entry.Profile.Image = ""
+	if not thumbnailPending[id] then thumbnailPending[id] = {}; table.insert(thumbnailQueue, id) end
+	table.insert(thumbnailPending[id], entry)
+	pumpThumbnails()
+end
 
 local function applyRankLayout(entry, rank)
 	if rank == 1 then
@@ -55,48 +81,51 @@ local function applyRankLayout(entry, rank)
 	end
 end
 
-local function setCommonEntry(entry, data, rank)
-	entry.Profile.Image = GetThumbnailModule.GetThumbnail(data.UserId)
-	entry.Info.Rank.Rank.Text = "#" .. rank
-	entry.Info.Username.Username.Text = data.Name
-end
-
-local function renderLeaderboard(config, entries)
-	local UI = Workspace:WaitForChild("IntermissionMap")
+local function renderLeaderboard(config, entries, revision)
+	local state = boardStates[config.key]
+	if not state then
+		local UI = Workspace:WaitForChild("IntermissionMap")
 		:WaitForChild("Leaderboards")
 		:WaitForChild(config.boardName)
 		:WaitForChild("Bottom")
 		:WaitForChild("Leaderboard")
-	local LeaderboardScroll = UI:WaitForChild("ScrollingFrame")
+		local LeaderboardScroll = UI:WaitForChild("ScrollingFrame")
 
-	local templates = {
-		First = LeaderboardTemplate:WaitForChild(config.templates.First),
-		Second = LeaderboardTemplate:WaitForChild(config.templates.Second),
-		Third = LeaderboardTemplate:WaitForChild(config.templates.Third),
-		Other = LeaderboardTemplate:WaitForChild(config.templates.Other),
-	}
+		local templates = {
+			First = LeaderboardTemplate:WaitForChild(config.templates.First),
+			Second = LeaderboardTemplate:WaitForChild(config.templates.Second),
+			Third = LeaderboardTemplate:WaitForChild(config.templates.Third),
+			Other = LeaderboardTemplate:WaitForChild(config.templates.Other),
+		}
+		if revision ~= latestRevision then return end -- loading a streamed board can yield
 
-	LeaderboardScroll:ClearAllChildren()
-
-	for rank, data in ipairs(entries) do
-		local value = data[config.valueKey] or data.Value or 0
-		local text = AbbreviateModule.Ab(value) .. config.suffix
-
-		local template = templates.Other
-		if rank == 1 then
-			template = templates.First
-		elseif rank == 2 then
-			template = templates.Second
-		elseif rank == 3 then
-			template = templates.Third
-		end
-
-		local entry = template:Clone()
-		applyRankLayout(entry, rank)
-		setCommonEntry(entry, data, rank)
-		config.setText(entry, text)
-		entry.Parent = LeaderboardScroll
+		for _, item in ipairs(LeaderboardScroll:GetChildren()) do if item:IsA("GuiObject") then item:Destroy() end end
+		state = {scroll = LeaderboardScroll, templates = templates, rows = {}}
+		boardStates[config.key] = state
 	end
+	local seen = {}
+	for rank, data in ipairs(entries) do
+		local userId = tonumber(data.UserId)
+		if not userId or userId <= 0 or userId % 1 ~= 0 then continue end
+		local value = data[config.valueKey] or data.Value or 0
+		local id = tostring(data.UserId)
+		local kind = rank == 1 and "First" or rank == 2 and "Second" or rank == 3 and "Third" or "Other"
+		local row = state.rows[id]
+		if row and row.kind ~= kind then row.entry:Destroy(); row = nil end
+		if not row then
+			row = {entry = state.templates[kind]:Clone(), kind = kind}
+			row.entry.Parent = state.scroll
+			state.rows[id] = row
+			assignThumbnail(row.entry, userId)
+		end
+		if row.rank ~= rank then
+			applyRankLayout(row.entry, rank); row.entry.Info.Rank.Rank.Text = "#" .. rank; row.rank = rank
+		end
+		if row.name ~= data.Name then row.entry.Info.Username.Username.Text = data.Name; row.name = data.Name end
+		if row.value ~= value then config.setText(row.entry, AbbreviateModule.Ab(value) .. config.suffix); row.value = value end
+		seen[id] = true
+	end
+	for id, row in pairs(state.rows) do if not seen[id] then row.entry:Destroy(); state.rows[id] = nil end end
 end
 
 local LEADERBOARD_CONFIGS = {
@@ -148,13 +177,19 @@ local LEADERBOARD_CONFIGS = {
 }
 
 RequestLeaderboardsRemote.OnClientEvent:Connect(function(leaderboardData)
+	if type(leaderboardData) ~= "table" then return end
+	latestRevision += 1
+	local revision = latestRevision
 	for _, config in ipairs(LEADERBOARD_CONFIGS) do
 		local entries = leaderboardData[config.key]
-		if entries then
-			renderLeaderboard(config, entries)
+		if type(entries) == "table" then
+			renderLeaderboard(config, entries, revision)
 		end
 	end
 end)
+-- Subscribe before requesting; an immediate empty/new-scope response must also
+-- remove Studio/preexisting rows rather than being missed during initialization.
+RequestLeaderboardsRemote:FireServer()
 
 
 return {}

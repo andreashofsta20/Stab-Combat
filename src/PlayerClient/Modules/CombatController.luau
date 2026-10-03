@@ -3,36 +3,41 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local CollectionService = game:GetService("CollectionService")
-local Debris = game:GetService("Debris")
+local GuiService = game:GetService("GuiService")
+local Config = require(ReplicatedStorage.Modules.KnifeConfig)
+local EffectsConfig = require(ReplicatedStorage.Modules.KnifeEffectsConfig)
+local KnifeEffects = require(script.Parent.KnifeEffects)
+local KnifeVisual = require(script.Parent.KnifeVisual)
+local KnifeHint = require(script.Parent.KnifeHint)
+local KnifeViewmodel = require(script.Parent.KnifeViewmodel)
+local SprintState = require(ReplicatedStorage.Modules.SprintState)
 local SoundHandlerModule = require(script.Parent:WaitForChild("SoundHandler"))
 local ProjectileMath = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProjectileMath"))
+local WeaponRaycast = require(ReplicatedStorage.Modules.RevolverRaycast)
+local RagdollQuery = require(ReplicatedStorage.Modules.RagdollQuery)
 
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 
 local touchAimPosition: Vector2? = nil
 local mobileShiftLockEnabled = false 
 local isMobileInput = false
 
-local COOLDOWN = 0.5
-local STAB_COOLDOWN = 0.3
-local MAX_CHARGE_TIME = 1
+local COOLDOWN = Config.Throw.Cooldown
+local STAB_COOLDOWN = Config.Stab.Cooldown
+local MAX_CHARGE_TIME = Config.Throw.MaxChargeTime
 local MIN_CHARGE_RATIO = 0
 local MAX_CHARGE_RATIO = 1
 local MAX_RAYCAST_DISTANCE = ProjectileMath.MAX_DISTANCE
-local THROW_THRESHOLD = 0.2
+local THROW_THRESHOLD = Config.Throw.HoldThreshold
 
 -- VISUAL SETTINGS (Matching Server for prediction)
-local KNIFE_SPEED = ProjectileMath.MAX_SPEED
-local VISUAL_OFFSET = 0.8
-local MIN_SPEED_MULT = 0.7
-local MAX_SPEED_MULT = 1.7
-local LIFETIME = 5
+local VISUAL_OFFSET = Config.Presentation.VisualOffset
+local LIFETIME = Config.Presentation.Lifetime
 
 local ThrowKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrowKnife")
 local ThrewKnifeClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrewClient")
 local StabKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("StabKnife")
+local DamageDealtClient = ReplicatedStorage.Remotes.Knife:WaitForChild("DamageDealtClient")
 
 local MainUi = player.PlayerGui:WaitForChild("Main")
 local BottomLeftFrame = MainUi:WaitForChild("BottomLeft")
@@ -54,15 +59,19 @@ local GameActive = ReplicatedStorage:WaitForChild("GameActive")
 local CombatController = {}
 
 local initialized = false
-local lastThrow = 0
-local lastStab = 0
+local lastThrow = -math.huge
+local lastStab = -math.huge
+local lastAction = -math.huge
+local characterConnections = {}
+local handleVisibility = {}
+local animationGeneration = 0
 local activeTween
 local chargeTween
 local charging = false
 local chargeStart = 0
 local chargeSessionId = 0
 local nextShotId = 0
-local predictedShots: {[string]: {handle: BasePart, connection: RBXScriptConnection}} = {}
+local predictedShots = {}
 
 local chargeTrack = nil
 local chargeHoldTrack = nil
@@ -70,11 +79,27 @@ local throwTrack = nil
 local stabTrack = nil
 
 local currentHumanoid: Humanoid? = nil
-local defaultWalkSpeed = 16
-local sprintWalkSpeed = 24
-local sprintEnabled = false
+local equippedKnife, rootJoint, rightShoulder
+local thrownTool, stabbedTool
+
+local function refreshKnife(character)
+    local nextTool
+    if character then
+        for _, child in ipairs(character:GetChildren()) do
+            if child:IsA("Tool") and KnivesFolder:FindFirstChild(child.Name) then nextTool = child; break end
+        end
+    end
+    if equippedKnife ~= nextTool then KnifeViewmodel.Clear(); equippedKnife = nextTool end
+end
+
+local function animationFrame(joint)
+    if not joint or not joint.Parent or not joint:IsA("Motor6D") or not joint.Part0 or not joint.Part1 then return nil end
+    local basis = joint.C0.Rotation
+    return basis * joint.Transform * basis:Inverse()
+end
 
 local function isAnyFrameVisible()
+    if GuiService.MenuIsOpen or UserInputService:GetFocusedTextBox() then return true end
     for _, child in ipairs(FramesFolder:GetChildren()) do
         if child:IsA("GuiObject") and child.Visible == true then
             return true
@@ -83,198 +108,99 @@ local function isAnyFrameVisible()
     return false
 end
 
-local function addTrail(part)
-    local frontAttachment = Instance.new("Attachment", part)
-    local backAttachment = Instance.new("Attachment", part)
-
-    frontAttachment.Position = Vector3.new(0, 0, 0.5)
-    backAttachment.Position = Vector3.new(0, 0, -0.5)
-
-    local mainTrail = Instance.new("Trail")
-    mainTrail.Attachment0 = frontAttachment
-    mainTrail.Attachment1 = backAttachment
-    mainTrail.Lifetime = 0.3
-    mainTrail.MinLength = 0
-    mainTrail.FaceCamera = true
-    mainTrail.LightEmission = 1
-    mainTrail.LightInfluence = 0
-
-    mainTrail.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.3, Color3.fromRGB(0, 162, 255)),
-        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 64, 64)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
-    }
-
-    mainTrail.Transparency = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.5, 0.3),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-
-    mainTrail.WidthScale = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.8),
-        NumberSequenceKeypoint.new(0.5, 0.4),
-        NumberSequenceKeypoint.new(1, 0.1)
-    }
-
-    mainTrail.Parent = part
-
-    local secondaryTrail = Instance.new("Trail")
-    secondaryTrail.Attachment0 = frontAttachment
-    secondaryTrail.Attachment1 = backAttachment
-    secondaryTrail.Lifetime = 0.15
-    secondaryTrail.MinLength = 0
-    secondaryTrail.FaceCamera = true
-    secondaryTrail.LightEmission = 0.8
-    secondaryTrail.LightInfluence = 0.2
-
-    secondaryTrail.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 128, 0))
-    }
-
-    secondaryTrail.Transparency = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.2),
-        NumberSequenceKeypoint.new(0.8, 0.7),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-
-    secondaryTrail.WidthScale = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.4),
-        NumberSequenceKeypoint.new(0.5, 0.2),
-        NumberSequenceKeypoint.new(1, 0.05)
-    }
-
-    secondaryTrail.Parent = part
-
-    local particles = Instance.new("Attachment", part)
-    particles.Position = Vector3.new(0, 0, -0.3)
-
-    local sparks = Instance.new("ParticleEmitter")
-    sparks.Parent = particles
-    sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    sparks.Lifetime = NumberRange.new(0.1, 0.3)
-    sparks.Rate = 100
-    sparks.SpreadAngle = Vector2.new(45, 45)
-    sparks.Speed = NumberRange.new(2, 8)
-    sparks.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 200, 0)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0))
-    }
-    sparks.Transparency = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.8, 0.5),
-        NumberSequenceKeypoint.new(1, 1)
-    }
-    sparks.Size = NumberSequence.new{
-        NumberSequenceKeypoint.new(0, 0.1),
-        NumberSequenceKeypoint.new(0.5, 0.05),
-        NumberSequenceKeypoint.new(1, 0.01)
-    }
-    sparks.LightEmission = 1
-    sparks.LightInfluence = 0
-
-    task.spawn(function()
-        task.wait(0.5)
-        sparks.Enabled = false
-        Debris:AddItem(sparks, 2)
-    end)
-
-    return frontAttachment, backAttachment
+local function removePrediction(id)
+    local prediction = predictedShots[id]
+    if not prediction then return end
+    if prediction.connection then prediction.connection:Disconnect() end
+    if prediction.visual then prediction.visual.model:Destroy() end
+    predictedShots[id] = nil
 end
 
-local function createKnifeVisual(origin: Vector3, direction: Vector3, charge: number, shotId: string, knifeName: string?, destination: Vector3?)
-    local knivesFolder = ReplicatedStorage:FindFirstChild("Knives")
-    local leaderstats = player:FindFirstChild("leaderstats")
-    local equippedKnifeValue = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
-    local equippedKnife = knifeName or (equippedKnifeValue and equippedKnifeValue.Value)
-    local template = equippedKnife and knivesFolder and knivesFolder:FindFirstChild(equippedKnife)
-    local source = template and template:FindFirstChild("Handle")
-    if not source or not source:IsA("BasePart") then return end
-
-    local visualOrigin = origin + direction * VISUAL_OFFSET
-    local handle = source:Clone()
-    handle.CanCollide = false
-    handle.CanQuery = false
-    handle.Massless = true
-    handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + direction)
-    handle.Parent = workspace
-    addTrail(handle)
-
-    local target = destination or (visualOrigin + direction * ProjectileMath.MAX_DISTANCE)
-    local distance = (target - visualOrigin).Magnitude
-    local speed = destination and math.max(distance / 0.08, ProjectileMath.GetSpeed(charge)) or ProjectileMath.GetSpeed(charge)
-    local startTime = os.clock()
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        local elapsed = os.clock() - startTime
-        local progress = math.clamp(speed * elapsed / distance, 0, 1)
-        local currentPosition = visualOrigin + direction * math.min(distance, speed * elapsed)
-        handle.CFrame = CFrame.lookAt(currentPosition, currentPosition + direction)
-        if progress >= 1 then
-            connection:Disconnect()
-            predictedShots[shotId] = nil
-            Debris:AddItem(handle, 2)
-        end
+local function retirePrediction(prediction)
+    prediction.retireToken = (prediction.retireToken or 0) + 1
+    local token = prediction.retireToken
+    local seconds = (prediction.normal ~= nil or not prediction.confirmed)
+        and Config.Presentation.StuckSeconds or Config.Presentation.MissSeconds
+    task.delay(seconds, function()
+        if predictedShots[prediction.id] == prediction and prediction.retireToken == token then removePrediction(prediction.id) end
     end)
-
-    Debris:AddItem(handle, LIFETIME)
-    predictedShots[shotId] = {handle = handle, connection = connection}
 end
 
-local function stickKnife(knife, hitPart, pos, normal)
-    knife.Anchored = true
-    knife.CFrame = CFrame.new(pos, pos + normal) * CFrame.Angles(math.rad(90), 0, 0)
-
-    if hitPart and hitPart:IsA("BasePart") then
-        local model = hitPart:FindFirstAncestorOfClass("Model")
-        if model and model:FindFirstChildOfClass("Humanoid") then
-            return
-        else
-            knife.Anchored = true
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = knife
-            weld.Part1 = hitPart
-            weld.Parent = knife
+local function finishImpact(prediction)
+    if prediction.normal then
+        KnifeVisual.Stick(prediction.visual, prediction.destination, prediction.direction, prediction.normal)
+        if not prediction.impacted then
+            prediction.impacted = true
+            if not prediction.suppressVFX then KnifeEffects.Impact(prediction.destination, prediction.normal, prediction.effects) end
         end
+    else
+        KnifeVisual.Fly(prediction.visual, prediction.destination, prediction.direction)
     end
 end
 
+local function createKnifeVisual(origin, direction, charge, shotId, knifeName, destination, normal, sourceTool, confirmed, suppressVFX)
+    local camera = workspace.CurrentCamera
+    if camera and (origin - camera.CFrame.Position).Magnitude > EffectsConfig.MaxEffectDistance
+        and destination and (destination - camera.CFrame.Position).Magnitude > EffectsConfig.MaxEffectDistance then return end
+    -- Repeated observer packets must replace their visual without orphaning it.
+    if predictedShots[shotId] then removePrediction(shotId) end
+    local count, oldestId, oldestTime = 0, nil, math.huge
+    for id, prediction in pairs(predictedShots) do
+        count += 1
+        if prediction.started < oldestTime then oldestId, oldestTime = id, prediction.started end
+    end
+    if count >= Config.Presentation.MaxVisuals and oldestId then removePrediction(oldestId) end
+    local stats = player:FindFirstChild("leaderstats")
+    local value = stats and stats:FindFirstChild("EquippedKnife")
+    local template = sourceTool or KnivesFolder:FindFirstChild(knifeName or (value and value.Value) or "")
+    if not template then return end
+    local effects = EffectsConfig.Get(template.Name)
+    local visual = KnifeVisual.Create(template, effects)
+    if not visual then warn("[Knife] No projectile geometry for " .. template.Name); return end
+    KnifeVisual.Fly(visual, origin, direction)
+    local stopEffects = suppressVFX and function() end or KnifeEffects.Attach(visual.trailAnchor, effects)
+    visual.model.Parent = workspace
+    local prediction = {
+        id = shotId, visual = visual, started = os.clock(), origin = origin, direction = direction,
+        destination = destination or ProjectileMath.GetPosition(origin, direction, ProjectileMath.MAX_FLIGHT_TIME, charge),
+        speed = ProjectileMath.GetSpeed(charge), normal = normal,
+        effects = effects, stopEffects = stopEffects, confirmed = confirmed == true or normal ~= nil,
+        suppressVFX = suppressVFX == true,
+    }
+    predictedShots[shotId] = prediction
+    prediction.connection = RunService.Heartbeat:Connect(function()
+        if not visual.model.Parent or os.clock() - prediction.started > LIFETIME then removePrediction(shotId); return end
+        local distance = math.max(0, (prediction.destination - origin):Dot(direction))
+        local travelled = math.min(distance, VISUAL_OFFSET + prediction.speed * (os.clock() - prediction.started))
+        KnifeVisual.Fly(visual, origin + direction * travelled, direction)
+        if travelled >= distance then
+            prediction.connection:Disconnect()
+            prediction.connection = nil
+            prediction.arrived = true
+            stopEffects()
+            finishImpact(prediction)
+            retirePrediction(prediction)
+        end
+    end)
+    return prediction
+end
+
+function CombatController.GetAimScreenPosition()
+    local cam = workspace.CurrentCamera
+    if not cam then return UserInputService:GetMouseLocation() end
+    if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or mobileShiftLockEnabled then return cam.ViewportSize / 2 end
+    if isMobileInput then return touchAimPosition or cam.ViewportSize / 2 end
+    return UserInputService:GetMouseLocation()
+end
 local function getAimRay()
     local cam = workspace.CurrentCamera
     if not cam then return nil end
-
-    local viewport = cam.ViewportSize
-    local shouldLockToCenter = UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
-
-    if shouldLockToCenter or mobileShiftLockEnabled then
-        return cam:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
-    end
-
-    if isMobileInput then
-        if touchAimPosition then
-            return cam:ScreenPointToRay(touchAimPosition.X, touchAimPosition.Y)
-        else
-            return cam:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
-        end
-    else
-        local mouse = player:GetMouse()
-        return mouse.UnitRay
-    end
+    local position = CombatController.GetAimScreenPosition()
+    return cam:ViewportPointToRay(position.X, position.Y)
 end
 
 local function hasKnifeEquipped()
-    local character = player.Character
-    if not character then return false end
-    for _, child in ipairs(character:GetChildren()) do
-        if child:IsA("Tool") and KnivesFolder:FindFirstChild(child.Name) then
-            return true
-        end
-    end
-    return false
+    return player.Character ~= nil and equippedKnife ~= nil and equippedKnife.Parent == player.Character
 end
 
 local function isCharging()
@@ -291,28 +217,33 @@ local function stopAllAnimations()
     end
 end
 
-local function loadAnimationTracks()
-    local character = player.Character
-    if not character then return end
-
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-
-    local animator = humanoid:FindFirstChildOfClass("Animator")
-    if not animator then
-        animator = Instance.new("Animator")
-        animator.Parent = humanoid
+local function loadAnimationTracks(character, generation)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if not humanoid or player.Character ~= character or generation ~= animationGeneration then return end
+    local animator
+    repeat
+        animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator", 2)
+    until animator or player.Character ~= character or generation ~= animationGeneration or humanoid.Health <= 0
+    if not animator or player.Character ~= character or generation ~= animationGeneration then return end
+    -- All character tracks use the server's replicated Animator.
+    for attempt = 1, 3 do
+        local tracks = {}
+        local ok = pcall(function()
+            for _, animation in ipairs({ChargeAnimation, ChargeLoopAnimation, ReleaseKnifeAnimation, StabAnimation}) do
+                local track = animator:LoadAnimation(animation)
+                track.Priority = Enum.AnimationPriority.Action
+                table.insert(tracks, track)
+            end
+        end)
+        if ok and player.Character == character and generation == animationGeneration then
+            chargeTrack, chargeHoldTrack, throwTrack, stabTrack = tracks[1], tracks[2], tracks[3], tracks[4]
+            return
+        end
+        for _, track in ipairs(tracks) do track:Destroy() end
+        if player.Character ~= character or generation ~= animationGeneration then return end
+        task.wait(attempt * 0.5)
     end
-
-    chargeTrack = animator:LoadAnimation(ChargeAnimation)
-    chargeHoldTrack = animator:LoadAnimation(ChargeLoopAnimation)
-    throwTrack = animator:LoadAnimation(ReleaseKnifeAnimation)
-    stabTrack = animator:LoadAnimation(StabAnimation)
-
-    chargeTrack.Priority = Enum.AnimationPriority.Action4
-    chargeHoldTrack.Priority = Enum.AnimationPriority.Action4
-    throwTrack.Priority = Enum.AnimationPriority.Action
-    stabTrack.Priority = Enum.AnimationPriority.Action
+    warn("[Knife] Combat animations unavailable for this character")
 end
 
 local function playStabAnimation()
@@ -335,7 +266,7 @@ local function playChargeAnimation()
     chargeTrack:AdjustSpeed(1)
     chargeTrack:Play()
 
-    task.delay(chargeTrack.Length, function()
+    task.delay(chargeTrack.Length > 0 and chargeTrack.Length or Config.Presentation.ChargeTransitionSeconds, function()
         if chargeSessionId ~= sessionId then return end
         if not charging then return end
 
@@ -353,7 +284,6 @@ end
 local function playThrowAnimation()
     stopAllAnimations()
     if throwTrack then throwTrack:Play() end
-    SoundHandlerModule.PlaySound("ThrowKnife")
 end
 
 local function uiAnimation()
@@ -372,12 +302,16 @@ local function uiAnimation()
         TweenInfo.new(0.25, Enum.EasingStyle.Linear),
         { Size = UDim2.new(0, 0, 1, 0) }
     )
-    activeTween = tweenOut
+    activeTween = tweenIn
     local conn1, conn2
     conn1 = tweenIn.Completed:Connect(function(state)
-        if state ~= Enum.PlaybackState.Completed then return end
-        tweenOut:Play()
         if conn1 then conn1:Disconnect() end
+        if state ~= Enum.PlaybackState.Completed then
+            if conn2 then conn2:Disconnect() end
+            return
+        end
+        activeTween = tweenOut
+        tweenOut:Play()
     end)
     conn2 = tweenOut.Completed:Connect(function(state)
         if state == Enum.PlaybackState.Completed and activeTween == tweenOut then
@@ -414,32 +348,72 @@ local function stopChargeTween()
     OnClickFrameBar.Size = UDim2.new(0, 0, 1, 0)
 end
 
-local function applySprintToHumanoid()
-    local humanoid = currentHumanoid
-    if not humanoid then return end
-
-    if sprintEnabled then
-        humanoid.WalkSpeed = sprintWalkSpeed
-    else
-        humanoid.WalkSpeed = defaultWalkSpeed
+local function clearCharacter()
+    animationGeneration += 1
+    CombatController.CancelCharge()
+    KnifeViewmodel.Clear()
+    equippedKnife, rootJoint, rightShoulder, thrownTool, stabbedTool = nil, nil, nil, nil, nil
+    KnifeHint.Update(false, isMobileInput)
+    for _, connection in ipairs(characterConnections) do connection:Disconnect() end
+    table.clear(characterConnections)
+    for _, track in pairs({chargeTrack, chargeHoldTrack, throwTrack, stabTrack}) do track:Stop(0); track:Destroy() end
+    chargeTrack, chargeHoldTrack, throwTrack, stabTrack, currentHumanoid = nil, nil, nil, nil, nil
+    for id in pairs(predictedShots) do removePrediction(id) end
+    for handle, record in pairs(handleVisibility) do
+        if handle.Parent then handle.LocalTransparencyModifier = record.original end
     end
+    table.clear(handleVisibility)
+    if activeTween then activeTween:Cancel(); activeTween = nil end
+    lastThrow, lastStab, lastAction = -math.huge, -math.huge, -math.huge
 end
-
-local function onCharacterAdded(character: Model)
-    local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+local function onCharacterAdded(character)
+    clearCharacter()
+    local generation, humanoid = animationGeneration, nil
+    repeat
+        humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 2)
+    until humanoid or player.Character ~= character or generation ~= animationGeneration
+    if not humanoid or player.Character ~= character or generation ~= animationGeneration then return end
     currentHumanoid = humanoid
-    defaultWalkSpeed = humanoid.WalkSpeed
-    sprintWalkSpeed = math.max(defaultWalkSpeed + 6, math.floor(defaultWalkSpeed * 1.5))
-    applySprintToHumanoid()
-
-    loadAnimationTracks()
+    refreshKnife(character)
+    local function bindJoints()
+        local root, torso = character:FindFirstChild("HumanoidRootPart"), character:FindFirstChild("Torso")
+        rootJoint = root and root:FindFirstChild("RootJoint")
+        rightShoulder = torso and torso:FindFirstChild("Right Shoulder")
+    end
+    bindJoints()
+    table.insert(characterConnections, character.DescendantAdded:Connect(function(item)
+        if item.Name == "RootJoint" or item.Name == "Right Shoulder" then bindJoints() end
+    end))
+    table.insert(characterConnections, humanoid.Died:Connect(function()
+        CombatController.CancelCharge()
+        KnifeViewmodel.Clear()
+        KnifeHint.Update(false, isMobileInput)
+    end))
+    table.insert(characterConnections, character.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then refreshKnife(character) end
+    end))
+    table.insert(characterConnections, character.ChildRemoved:Connect(function(child)
+        if child:IsA("Tool") then
+            refreshKnife(character)
+            CombatController.CancelCharge()
+            KnifeHint.Update(false, isMobileInput)
+            for part, record in pairs(handleVisibility) do
+                if record.tool == child then
+                    if part.Parent then part.LocalTransparencyModifier = record.original end
+                    handleVisibility[part] = nil
+                end
+            end
+        end
+    end))
+    task.spawn(loadAnimationTracks, character, animationGeneration)
 end
 
 local function throw(chargeRatio)
     if not GameActive.Value then return false end
     if isAnyFrameVisible() then return false end
-    if tick() - lastThrow < COOLDOWN then return false end
-    lastThrow = tick()
+    if not hasKnifeEquipped() or not currentHumanoid or currentHumanoid.Health <= 0 or player:GetAttribute("InRound") ~= true then return false end
+    local now = os.clock()
+    if now - lastThrow < COOLDOWN or now - lastAction < Config.ActionMinGap then return false end
 
     local clampedCharge = math.clamp(chargeRatio or 0, MIN_CHARGE_RATIO, MAX_CHARGE_RATIO)
 
@@ -456,13 +430,12 @@ local function throw(chargeRatio)
 
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    if character then
-        rayParams.FilterDescendantsInstances = { character }
-    end
+    rayParams.FilterDescendantsInstances = RagdollQuery.Exclude(character and { character } or {})
 
     -- 1. Raycast from camera to see where the player is aiming
-    local camResult = workspace:Raycast(ray.Origin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
-    local targetPos = camResult and camResult.Position or (ray.Origin + ray.Direction * MAX_RAYCAST_DISTANCE)
+    local aimOrigin = WeaponRaycast.GetAimOrigin(ray.Origin, ray.Direction, physicalOrigin)
+    local camResult = workspace:Raycast(aimOrigin, ray.Direction * MAX_RAYCAST_DISTANCE, rayParams)
+    local targetPos = camResult and camResult.Position or (aimOrigin + ray.Direction * MAX_RAYCAST_DISTANCE)
 
     local trueDirection = ProjectileMath.NormalizeDirection(targetPos - physicalOrigin)
     if not trueDirection then return false end
@@ -470,77 +443,60 @@ local function throw(chargeRatio)
     local shotId = string.format("%d_%d", player.UserId, nextShotId)
 
     playThrowAnimation()
+    local throwingTool = equippedKnife
+    local effectSettings = EffectsConfig.Get(throwingTool and throwingTool.Name or "")
+    KnifeEffects.ThrowSound(physicalOrigin, clampedCharge, effectSettings, SoundHandlerModule.Sounds.ThrowKnife)
     
     -- Instantly hide hand tool for feedback
-    local equippedTool = character and character:FindFirstChildWhichIsA("Tool")
+    local equippedTool = equippedKnife
     if equippedTool then
-        local toolHandle = equippedTool:FindFirstChild("Handle")
-        if toolHandle then
-            task.delay(0.15, function() if toolHandle then toolHandle.Transparency = 1 end end)
-            task.delay(0.65, function() if toolHandle then toolHandle.Transparency = 0 end end)
+        for _, toolHandle in ipairs(equippedTool:GetDescendants()) do
+            if not toolHandle:IsA("BasePart") then continue end
+            local record = handleVisibility[toolHandle] or {
+                original = KnifeViewmodel.GetOriginalTransparency(toolHandle), token = 0, tool = equippedTool, hidden = false,
+            }
+            handleVisibility[toolHandle] = record
+            record.token += 1
+            local token = record.token
+            task.delay(Config.Presentation.HideHandleDelay, function()
+                if handleVisibility[toolHandle] == record and record.token == token and equippedTool.Parent == player.Character then
+                    record.hidden = true
+                    toolHandle.LocalTransparencyModifier = 1
+                end
+            end)
+            task.delay(Config.Presentation.ReturnHandleDelay, function()
+                if handleVisibility[toolHandle] == record and record.token == token then
+                    -- The camera model may have first hidden this part while
+                    -- the thrown weapon was already invisible. Update its
+                    -- restore snapshot before the real handle returns.
+                    KnifeViewmodel.SetOriginalTransparency(toolHandle, record.original)
+                    if toolHandle.Parent then toolHandle.LocalTransparencyModifier = record.original end
+                    handleVisibility[toolHandle] = nil
+                end
+            end)
         end
     end
 
-    -- INSTANT ZERO-DELAY VISUAL PREDICTION
-    local KnivesFolder = ReplicatedStorage:FindFirstChild("Knives")
-    if KnivesFolder then
-        if GameActive.Value == false then return end
-        local visualOrigin = physicalOrigin + (trueDirection * VISUAL_OFFSET)
-        local leaderstats = player:FindFirstChild("leaderstats")
-        local equippedKnifeValue = leaderstats and leaderstats:FindFirstChild("EquippedKnife")
-        local EquippedKnife = equippedKnifeValue and equippedKnifeValue.Value
-
-        if EquippedKnife then
-            local Template = KnivesFolder:FindFirstChild(EquippedKnife)
-            if Template and Template:FindFirstChild("Handle") then
-                local handle = Template.Handle:Clone()
-                handle.CanCollide = false
-                handle.CanQuery = false
-                handle.Massless = true
-                handle.CFrame = CFrame.lookAt(visualOrigin, visualOrigin + trueDirection)
-                handle.Parent = workspace
-
-                addTrail(handle)
-
-                local actualDistance = ProjectileMath.MAX_DISTANCE
-                local travelTime = actualDistance / ProjectileMath.GetSpeed(clampedCharge)
-                local startTime = os.clock()
-
-                local visualTravelDirection = trueDirection
-
-                local conn
-                conn = RunService.Heartbeat:Connect(function()
-                    local elapsed = os.clock() - startTime
-                    local progress = elapsed / travelTime
-
-                    if progress >= 1 then
-                        handle.CFrame = CFrame.lookAt(physicalOrigin + trueDirection * actualDistance, physicalOrigin + trueDirection * (actualDistance + 1))
-                        Debris:AddItem(handle, 3)
-                        conn:Disconnect()
-                        predictedShots[shotId] = nil
-                        return
-                    end
-
-                    local currentPos = visualOrigin + trueDirection * (ProjectileMath.GetSpeed(clampedCharge) * elapsed)
-                    handle.CFrame = CFrame.lookAt(currentPos, currentPos + visualTravelDirection)
-                end)
-
-                Debris:AddItem(handle, LIFETIME)
-                predictedShots[shotId] = {handle = handle, connection = conn}
-            end
-        end
-    else
-        warn("CLIENT PREDICTION FAILED: Please move your 'Knives' folder to ReplicatedStorage!")
-    end
-
+    local predictedHit = workspace:Raycast(physicalOrigin, trueDirection * MAX_RAYCAST_DISTANCE, rayParams)
+    -- Predict visible cover immediately; damage and the impact burst still
+    -- require the server. Close walls no longer wait a network round trip.
+    createKnifeVisual(physicalOrigin, trueDirection, clampedCharge, shotId, equippedTool.Name,
+        predictedHit and predictedHit.Position, nil, equippedTool, false, KnifeViewmodel.IsFirstPerson(equippedTool))
+    lastThrow, lastAction = now, now
+    thrownTool = equippedTool
+    uiAnimation()
     ThrowKnifeRemote:FireServer(shotId, physicalOrigin, trueDirection, clampedCharge, os.clock())
     return true
 end
 
 local function stab()
-    if tick() - lastStab < STAB_COOLDOWN then return false end
+    if not GameActive.Value or player:GetAttribute("InRound") ~= true or isAnyFrameVisible() then return false end
+    if not currentHumanoid or currentHumanoid.Health <= 0 then return false end
+    local now = os.clock()
+    if now - lastStab < STAB_COOLDOWN or now - lastAction < Config.ActionMinGap then return false end
     if not hasKnifeEquipped() then return false end
-    lastStab = tick()
+    lastStab, lastAction = now, now
+    stabbedTool = equippedKnife
     playStabAnimation()
     StabKnifeRemote:FireServer()
     return true
@@ -549,69 +505,87 @@ end
 function CombatController.Init()
     if initialized then return end
     initialized = true
+    KnifeHint.Init()
+    KnifeViewmodel.Init()
 
-    -- Hide the server's delayed knife when it spawns so we only see our instant prediction
-    CollectionService:GetInstanceAddedSignal("ServerKnife_" .. player.UserId):Connect(function(handle)
-        handle.Transparency = 1
-        for _, desc in ipairs(handle:GetDescendants()) do
-            if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
-                desc.Enabled = false
-            elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
-                desc.Transparency = 1
-            end
-        end
-        -- Failsafe for trails that load a frame later
-        handle.DescendantAdded:Connect(function(desc)
-            if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
-                desc.Enabled = false
-            elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
-                desc.Transparency = 1
-            end
-        end)
-    end)
-    CollectionService:GetInstanceAddedSignal("ServerKnifeVisual"):Connect(function(handle)
-        handle.Transparency = 1
-        for _, desc in ipairs(handle:GetDescendants()) do
-            if desc:IsA("ParticleEmitter") or desc:IsA("Trail") then
-                desc.Enabled = false
-            elseif desc:IsA("BasePart") or desc:IsA("MeshPart") then
-                desc.Transparency = 1
-            end
-        end
-    end)
+    KnivesFolder.ChildAdded:Connect(function() refreshKnife(player.Character) end)
 
+    player.CharacterRemoving:Connect(clearCharacter)
+    UserInputService.WindowFocusReleased:Connect(CombatController.CancelCharge)
+    UserInputService.TextBoxFocused:Connect(CombatController.CancelCharge)
+    GuiService.MenuOpened:Connect(CombatController.CancelCharge)
+    GameActive.Changed:Connect(function()
+        if not GameActive.Value then CombatController.CancelCharge(); KnifeHint.Update(false, isMobileInput) end
+    end)
+    -- Reuse the existing authoritative damage notification, never predicted
+    -- geometry hits (walls/ForceFields/misses must not flash the yellow X).
+    DamageDealtClient.OnClientEvent:Connect(function(_, amount, weaponKind)
+        if weaponKind ~= "KnifeThrow" or not ProjectileMath.IsFiniteNumber(amount) or amount <= 0 then return end
+        if not GameActive.Value or player:GetAttribute("InRound") ~= true or player:GetAttribute("DataReady") ~= true
+            or not currentHumanoid or currentHumanoid.Health <= 0 or not hasKnifeEquipped() or isAnyFrameVisible() then return end
+        KnifeHint.ShowHitMarker()
+    end)
+    RunService.Heartbeat:Connect(function()
+        if charging and (isAnyFrameVisible() or not hasKnifeEquipped()) then CombatController.CancelCharge() end
+        KnifeHint.Update(GameActive.Value and player:GetAttribute("InRound") == true
+            and player:GetAttribute("DataReady") == true and hasKnifeEquipped()
+            and currentHumanoid and currentHumanoid.Health > 0 and not isAnyFrameVisible(),
+            isMobileInput, charging and math.clamp((os.clock() - chargeStart) / MAX_CHARGE_TIME, 0, 1) or nil,
+            CombatController.GetAimScreenPosition())
+    end)
+    RunService:BindToRenderStep("KnifeFirstPerson", Enum.RenderPriority.Camera.Value + 3, function(dt)
+        local tool = hasKnifeEquipped() and equippedKnife or nil
+        local now = os.clock()
+        local heldFor = charging and math.max(0, now - chargeStart) or 0
+        KnifeViewmodel.Update(tool, currentHumanoid and currentHumanoid.Health > 0
+            and not isAnyFrameVisible(), dt, animationFrame(rootJoint), animationFrame(rightShoulder), {
+                charging = charging and heldFor >= THROW_THRESHOLD,
+                charge = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1),
+                throwElapsed = tool and tool == thrownTool and now - lastThrow or nil,
+                stabElapsed = tool and tool == stabbedTool and now - lastStab or nil,
+            })
+        -- The camera model restores its original hiding mask when zooming out.
+        -- Keep the real knife hidden for its existing temporary throw window.
+        for part, record in pairs(handleVisibility) do
+            if record.hidden and part.Parent and part.LocalTransparencyModifier ~= 1 then part.LocalTransparencyModifier = 1 end
+        end
+    end)
     player.CharacterAdded:Connect(onCharacterAdded)
     if player.Character then
         onCharacterAdded(player.Character)
     end
 
     ThrewKnifeClient.OnClientEvent:Connect(function(result)
-        uiAnimation()
         if typeof(result) ~= "table" or not result.shotId then return end
         if result.visualOnly then
             if result.shooterUserId ~= player.UserId
                 and typeof(result.origin) == "Vector3"
                 and typeof(result.direction) == "Vector3"
-                and typeof(result.charge) == "number" then
-                createKnifeVisual(result.origin, result.direction.Unit, result.charge, result.shotId, result.knifeName, result.destination)
+                and typeof(result.charge) == "number"
+                and ProjectileMath.IsFiniteVector(result.destination) then
+                local shooter = Players:GetPlayerByUserId(result.shooterUserId)
+                local tool = shooter and shooter.Character and shooter.Character:FindFirstChild(result.knifeName)
+                local visualId = string.format("observer_%s_%s", result.shooterUserId, result.shotId)
+                createKnifeVisual(result.origin, result.direction.Unit, result.charge, visualId, result.knifeName, result.destination, result.normal, tool, true)
+                local camera = workspace.CurrentCamera
+                if not camera or (result.origin - camera.CFrame.Position).Magnitude <= EffectsConfig.MaxEffectDistance then
+                    KnifeEffects.ThrowSound(result.origin, result.charge, EffectsConfig.Get(result.knifeName), SoundHandlerModule.Sounds.ThrowKnife)
+                end
             end
             return
         end
         local prediction = predictedShots[result.shotId]
         if not prediction then return end
-        if prediction.connection then prediction.connection:Disconnect() end
-        predictedShots[result.shotId] = nil
-        if not result.accepted then
-            prediction.handle:Destroy()
-            return
-        end
-        local position = result.position
-        if typeof(position) == "Vector3" then
-            prediction.handle.CFrame = CFrame.lookAt(position, position + (result.normal or Vector3.zAxis))
-            if result.hit and typeof(result.normal) == "Vector3" then
-                stickKnife(prediction.handle, nil, position, result.normal)
-            else
-                Debris:AddItem(prediction.handle, 2)
+        if not result.accepted then removePrediction(result.shotId); return end
+        prediction.confirmed = true
+        -- Keep visible flight instead of teleporting to the impact on ack.
+        if ProjectileMath.IsFiniteVector(result.position) then
+            prediction.destination, prediction.normal = result.position, result.normal
+            -- A close impact can arrive before the acknowledgement on a slow
+            -- connection. Reconcile the stopped blade and emit its burst once.
+            if prediction.arrived then
+                finishImpact(prediction)
+                retirePrediction(prediction)
             end
         end
     end)
@@ -619,12 +593,13 @@ end
 
 function CombatController.BeginCharge()
     CombatController.Init()
-    if charging then return false end
+    if charging or not currentHumanoid or currentHumanoid.Health <= 0 then return false end
+    if player:GetAttribute("DataReady") ~= true then return false end
     if not hasKnifeEquipped() then return false end
     if isAnyFrameVisible() then return false end
 
     charging = true
-    chargeStart = tick()
+    chargeStart = os.clock()
     chargeSessionId += 1
     startChargeTween()
 
@@ -643,7 +618,7 @@ function CombatController.ReleaseCharge()
     if not charging then return false end
 
     charging = false
-    local heldFor = tick() - chargeStart
+    local heldFor = os.clock() - chargeStart
     chargeSessionId += 1
     stopChargeTween()
     stopAllAnimations()
@@ -668,6 +643,11 @@ function CombatController.IsCharging()
     return charging
 end
 
+function CombatController.Stab()
+    if charging then return false end
+    return stab()
+end
+
 function CombatController.SetTouchAimPosition(pos: Vector2?)
     touchAimPosition = pos
 end
@@ -680,19 +660,14 @@ function CombatController.SetInputMode(isMobile: boolean)
     isMobileInput = isMobile
 end
 
-function CombatController.SetSprintEnabled(enabled: boolean)
-    CombatController.Init()
-    sprintEnabled = enabled == true
-    applySprintToHumanoid()
-    return sprintEnabled
+function CombatController.SetSprintEnabled(enabled)
+    SprintState.SetEnabled(enabled == true)
+    return SprintState.GetEnabled()
 end
-
 function CombatController.ToggleSprint()
-    return CombatController.SetSprintEnabled(not sprintEnabled)
+    return CombatController.SetSprintEnabled(not SprintState.GetEnabled())
 end
-
 function CombatController.GetSprintEnabled()
-    return sprintEnabled
+    return SprintState.GetEnabled()
 end
-
 return CombatController

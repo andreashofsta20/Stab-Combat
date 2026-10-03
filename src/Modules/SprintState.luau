@@ -7,6 +7,10 @@ function SprintState.SetController(newController: (boolean) -> boolean?)
 	controller = newController
 end
 
+function SprintState.ClearController(expectedController)
+	if controller == expectedController then controller, sprintEnabled = nil, false end
+end
+
 function SprintState.SetEnabled(enabled: boolean): boolean
 	local desired = enabled == true
 	local actual = desired

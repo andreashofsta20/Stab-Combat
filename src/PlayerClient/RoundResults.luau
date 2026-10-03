@@ -78,9 +78,9 @@ local function applyResults(gameResults, playerResults)
             if winnerProfileImage then
                 winnerProfileImage.Image = ""
             end
-            setText(winnerUsername, "No Winner")
+            setText(winnerUsername, gameResults and gameResults.Draw and "Draw" or "No Winner")
             if mapImg then
-                mapImg.Image = "rbxassetid://75611721868704"
+                mapImg.Image = gameResults and gameResults.MapImage or "rbxassetid://75611721868704"
             end
         end
     end

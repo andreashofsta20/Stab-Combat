@@ -1,40 +1,20 @@
+local RS = game:GetService("ReplicatedStorage")
+local Loader = require(RS:WaitForChild("Modules"):WaitForChild("StartupLoader"))
+local modules = script:WaitForChild("Modules")
 local controllers = {
-	"BottomLeft",
-	"DailyRewardsHandler",
-	"Emote",
-	"FramesHandler",
-	"HandleKnifeCombat",
-	"HandleRevolverCombat",
-	"HandleFood",
-	"HandleWeaponCursor",
-	"Hotbar",
-	"InventoryGui",
-	"KeyBindClient",
-	"Leaderboards",
-	"MobileHandler",
-	"NotificationPopUp",
-	"PlayerList",
-	"QuestsHandlerClient",
-	"RecieveTools",
-	"RoundResults",
-	"SettingsClient",
-	"ShopGUI",
-	"StartVoting",
-	"TradingClient",
-	"TutorialHandler",
-	"ViewProfile",
+	"ChangeStatusMessage", "CountDownText", "FramesHandler",
+	"HandleKnifeCombat", "HandleRevolverCombat", "HandleFood", "HandleWeaponCursor",
+	"Hotbar", "MobileHandler", "RecieveTools", "RoundResults", "ZoneMessageClient",
+	"BottomLeft", "DailyRewardsHandler", "Emote", "InventoryGui", "KeyBindClient",
+	"KeybindDisplaying", "Leaderboards", "NotificationPopUp", "PlayerList",
+	"PlayerHover", "PlayerOverHead", "QuestsHandlerClient", "SettingsClient",
+	"ShopGUI", "StartVoting", "TradingClient", "TutorialHandler", "ViewProfile",
 }
-
-require(script:WaitForChild("Modules"):WaitForChild("HandleGameUI"))
-
-for _, controllerName in ipairs(controllers) do
-	local controller = script:FindFirstChild(controllerName)
-	if controller and controller:IsA("ModuleScript") then
-		task.spawn(function()
-			local ok, err = pcall(require, controller)
-			if not ok then
-				warn(("PlayerClient controller %s failed to start: %s"):format(controllerName, tostring(err)))
-			end
-		end)
-	end
+local entries = {
+	{Name = "HitFeedback", Module = modules:FindFirstChild("HitFeedback"), Init = function(module) module.Init() end},
+	{Name = "HandleGameUI", Module = modules:FindFirstChild("HandleGameUI")},
+}
+for _, name in ipairs(controllers) do
+	table.insert(entries, {Name = name, Module = script:FindFirstChild(name)})
 end
+Loader.Start(script, entries)

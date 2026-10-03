@@ -5,6 +5,7 @@ local Config = require(ReplicatedStorage.Modules.RevolverConfig)
 local Catalog = require(ReplicatedStorage.Modules.RevolversInfo)
 local Math = require(ReplicatedStorage.Modules.RevolverPoseMath)
 local Raycast = require(ReplicatedStorage.Modules.RevolverRaycast)
+local RagdollQuery = require(ReplicatedStorage.Modules.RagdollQuery)
 local Pose = {}
 local localPlayer = Players.LocalPlayer
 local states = {}
@@ -115,6 +116,7 @@ function Pose.SampleCursor(tool, ray, reloading, aiming)
 	if not transition and now - lastSample < 1 / Config.PoseReplication.SampleHz then return end
 	lastSample = now
 	setTool(state, tool)
+	bindJoints(state)
 	if not cursorParams then
 		cursorParams = RaycastParams.new()
 		cursorParams.FilterType, cursorParams.IgnoreWater = Enum.RaycastFilterType.Exclude, true
@@ -127,15 +129,19 @@ function Pose.SampleCursor(tool, ray, reloading, aiming)
 			local box = other.Character and other.Character:FindFirstChild("Hitbox")
 			if box then table.insert(ignore, box) end
 		end
-		cursorParams.FilterDescendantsInstances = ignore
+		cursorParams.FilterDescendantsInstances = RagdollQuery.Exclude(ignore)
 	end
 	local origin = ray.Origin
 	if state.head and state.head.Parent == state.character then
-		local muzzle = Raycast.GetMuzzle(tool, state.head, state.tuning, Config.Security.MaxMuzzleDistance)
-		origin = Raycast.GetAimOrigin(ray.Origin, ray.Direction, muzzle)
+		-- A stable body reference avoids a feedback loop through the posed gun.
+		origin = Raycast.GetAimOrigin(ray.Origin, ray.Direction, state.head.Position)
 	end
 	local hit = workspace:Raycast(origin, ray.Direction * state.tuning.Range, cursorParams)
-	Pose.SetLocalAim(tool, hit and hit.Position or origin + ray.Direction * state.tuning.Range, reloading, aiming)
+	local shoulder = state.joints[1]
+	local shoulderOrigin = shoulder and shoulder.torso.CFrame:PointToWorldSpace(shoulder.c0.Position)
+	local point = hit and (not shoulderOrigin or (hit.Position - shoulderOrigin).Magnitude >= state.tuning.Pose.MinAimDistance)
+		and hit.Position or origin + ray.Direction * state.tuning.Range
+	Pose.SetLocalAim(tool, point, reloading, aiming)
 end
 
 function Pose.Kick(player, character, weapon)
@@ -150,6 +156,31 @@ function Pose.ResetLocal()
 	if state then restore(state); states[localPlayer] = nil end
 	Pose.SetSession(nil)
 	lastSample, filterCharacter = 0, nil
+end
+
+function Pose.GetLocalAnimation()
+	local state = states[localPlayer]
+	if not state or not state.active or state.character ~= localPlayer.Character then return nil, nil end
+	local rootJoint = state.rootJoint
+	if not rootJoint or not rootJoint.Parent then
+		local root = state.character:FindFirstChild("HumanoidRootPart")
+		rootJoint = root and root:FindFirstChild("RootJoint")
+		state.rootJoint = rootJoint
+	end
+	local body
+	if rootJoint and rootJoint:IsA("Motor6D") and rootJoint.Part0 and rootJoint.Part1 then
+		local basis = rootJoint.C0.Rotation
+		body = basis * rootJoint.Transform * basis:Inverse()
+	end
+	local right = state.joints[1]
+	local arm
+	if right and right.joint.Parent then
+		local basis = right.c0.Rotation
+		-- PreSimulation saves this before applying the cursor/ADS pose, avoiding
+		-- a feedback loop through the already aimed shoulder.
+		arm = basis * right.base * basis:Inverse()
+	end
+	return body, arm
 end
 
 function Pose.Init(aimRemote)
@@ -182,7 +213,7 @@ function Pose.Init(aimRemote)
 		local now = time()
 		for player, state in pairs(states) do
 			local character, tuning = state.character, state.tuning
-			if player.Character ~= character or not character.Parent then
+			if player.Character ~= character or not character.Parent or character:GetAttribute("Ragdolled") == true then
 				restore(state); states[player] = nil; continue
 			end
 			if not tuning then states[player] = nil; continue end

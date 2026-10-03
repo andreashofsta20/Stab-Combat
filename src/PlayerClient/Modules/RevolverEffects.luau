@@ -15,6 +15,15 @@ local SPARK = "rbxasset://textures/particles/sparkles_main.dds"
 local FLARE = "rbxasset://textures/particles/flare_main.dds"
 local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
 
+local function colors(palette)
+	if #palette == 1 then return ColorSequence.new(Color3.fromRGB(table.unpack(palette[1]))) end
+	local points = {}
+	for index, rgb in ipairs(palette) do
+		table.insert(points, ColorSequenceKeypoint.new((index - 1) / (#palette - 1), Color3.fromRGB(table.unpack(rgb))))
+	end
+	return ColorSequence.new(points)
+end
+
 local function nearby(position)
 	local camera = workspace.CurrentCamera
 	return not camera or (position - camera.CFrame.Position).Magnitude <= Config.Presentation.MaxEffectDistance
@@ -48,11 +57,12 @@ local function attachment(parent, position)
 	return socket
 end
 
-local function playSound(id, position, settings)
+local function playSound(id, position, settings, volume)
 	if id == "" then return nil end
 	local part = anchor("RevolverSound", CFrame.new(position))
 	local sound = Instance.new("Sound")
-	sound.SoundId, sound.RollOffMaxDistance, sound.Volume, sound.Parent = id, settings.SoundRange, settings.SoundVolume, part
+	sound.SoundId, sound.RollOffMaxDistance, sound.Volume, sound.Parent = id, settings.SoundRange, volume or settings.SoundVolume, part
+	sound.PlaybackSpeed = settings.SoundPlaybackSpeed
 	sound:Play()
 	DebrisService:AddItem(part, 8)
 	return part
@@ -94,11 +104,7 @@ local function muzzleBurst(origin, destination, settings)
 	local part = anchor("RevolverMuzzleBurst", lookAlong(origin, direction))
 	local socket = attachment(part)
 	if settings.MuzzleFlashEnabled then
-		local warm = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
-			ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 218, 120)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 125, 40)),
-		})
+		local warm = colors(settings.MuzzleColors)
 		local flash = emitter(socket, FLARE, warm)
 		flash.Lifetime, flash.Speed = NumberRange.new(settings.MuzzleFlashLifetimeMs / 1000), NumberRange.new(0)
 		flash.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, settings.MuzzleFlashSize), NumberSequenceKeypoint.new(1, 0) })
@@ -111,11 +117,11 @@ local function muzzleBurst(origin, destination, settings)
 		sparks.Drag = 5
 		sparks:Emit(settings.MuzzleParticleCount)
 		local light = Instance.new("PointLight")
-		light.Color, light.Brightness, light.Range, light.Shadows, light.Parent = Color3.fromRGB(255, 211, 120), 2, 9, false, part
+		light.Color, light.Brightness, light.Range, light.Shadows, light.Parent = Color3.fromRGB(table.unpack(settings.MuzzleLightColor)), 2, 9, false, part
 		TweenService:Create(light, TweenInfo.new(settings.MuzzleFlashLifetimeMs / 1000), { Brightness = 0 }):Play()
 	end
 	if settings.SmokeEnabled then
-		local smoke = emitter(socket, SMOKE, ColorSequence.new(Color3.fromRGB(155, 148, 136)))
+		local smoke = emitter(socket, SMOKE, ColorSequence.new(Color3.fromRGB(table.unpack(settings.SmokeColor))))
 		smoke.Lifetime, smoke.Speed, smoke.SpreadAngle = NumberRange.new(0.25, 0.6), NumberRange.new(1.5, 3), Vector2.new(20, 20)
 		smoke.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.14), NumberSequenceKeypoint.new(1, 0.6) })
 		smoke.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(1, 1) })
@@ -219,7 +225,7 @@ function Effects.Impact(position, normal, settings)
 	if not settings.ImpactEnabled or typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 or not nearby(position) then return end
 	local part = anchor("RevolverImpact", lookAlong(position + normal * 0.025, normal))
 	local socket = attachment(part)
-	local sparks = emitter(socket, SPARK, ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(255, 165, 65)))
+	local sparks = emitter(socket, SPARK, colors(settings.ImpactColors))
 	sparks.Lifetime, sparks.Speed, sparks.SpreadAngle = NumberRange.new(0.08, 0.2), NumberRange.new(8, 18), Vector2.new(45, 45)
 	sparks.Size, sparks.Transparency, sparks.LightEmission = NumberSequence.new(0.09, 0), NumberSequence.new(0, 1), 1
 	sparks.Acceleration, sparks.Drag = Vector3.new(0, -12, 0), 4
@@ -227,31 +233,42 @@ function Effects.Impact(position, normal, settings)
 	DebrisService:AddItem(part, 0.5)
 end
 
-function Effects.Fire(tool, origin, destination, tuning, animateCharacter)
+function Effects.Fire(tool, origin, destination, tuning, animateCharacter, visualTool, suppressVisuals)
 	if not animateCharacter and not nearby(origin) and not nearby(destination) then return nil end
 	-- Prefer this client's posed barrel for presentation; this never changes
 	-- the server's firing origin or sends cosmetic positions back to it.
 	if tool then
+		local presented = animateCharacter and visualTool or tool
 		local head = tool.Parent and tool.Parent:FindFirstChild("Head")
-		local muzzle = tool:FindFirstChild(tuning.MuzzleAttachmentName, true)
+		local muzzle = presented:FindFirstChild(tuning.MuzzleAttachmentName, true)
 		local visual = muzzle and (muzzle:IsA("Attachment") and muzzle.WorldPosition or muzzle:IsA("BasePart") and muzzle.Position)
 		if not visual then
-			local handle = tool:FindFirstChild("Handle")
+			local handle = presented:FindFirstChild("Handle")
 			if handle and handle:IsA("BasePart") then
 				visual = handle.CFrame:PointToWorldSpace(Vector3.new(table.unpack(tuning.MuzzleOffset)))
 			end
 		end
-		if visual and head and head:IsA("BasePart") and (visual - head.Position).Magnitude <= 7 then origin = visual end
-		if muzzle then
+		if visual and (presented == visualTool or head and head:IsA("BasePart") and (visual - head.Position).Magnitude <= 7) then
+			origin = visual -- camera-model positions are cosmetic and need no body-muzzle range check
+		end
+		if not suppressVisuals and muzzle and tuning.Effects.CustomMuzzleParticlesEnabled then
 			for _, custom in ipairs(muzzle:GetDescendants()) do
 				if custom:IsA("ParticleEmitter") then custom:Emit(tuning.Effects.MuzzleParticleCount) end
 			end
 		end
 		if animateCharacter then animate(tool.Parent, tuning.Effects.FireAnimationId, "Fire") end
 	end
-	muzzleBurst(origin, destination, tuning.Effects)
 	playSound(tuning.Effects.FireSoundId, origin, tuning.Effects)
+	if suppressVisuals then return nil end
+	muzzleBurst(origin, destination, tuning.Effects)
 	return Effects.Tracer(origin, destination, tuning.Effects)
+end
+
+function Effects.Equip(tool, tuning)
+	local handle = tool:FindFirstChild("Handle")
+	local head = tool.Parent and tool.Parent:FindFirstChild("Head")
+	local part = handle or head
+	if part and part:IsA("BasePart") then playSound(tuning.Effects.EquipSoundId, part.Position, tuning.Effects, tuning.Effects.EquipSoundVolume) end
 end
 
 function Effects.Reload(tool, tuning)

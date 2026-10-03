@@ -46,13 +46,20 @@ end
 function PoseMath.SupportTransform(c0, c1, handPosition, armLength)
 	local direction = handPosition - c0.Position
 	if direction.Magnitude < 1e-5 then return CFrame.identity end
-	local up = math.abs(direction.Unit.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0)
 	-- R6 has no elbow/wrist joints. Orient the rigid arm's palm toward the
 	-- support point, accounting for the shoulder's offset from the arm centre.
 	local palm = Vector3.new(0, -armLength / 2, 0) - c1.Position
-	local roll = math.atan2(-palm.X, -palm.Y)
-	local rotation = CFrame.lookAt(Vector3.zero, direction, up).Rotation
-		* CFrame.Angles(math.pi / 2, 0, roll)
+	-- A shortest-arc rotation has no arbitrary up-vector switch near vertical.
+	-- The former lookAt basis changed at Y=0.98 and could visibly snap the arm.
+	local from, to = palm.Unit, direction.Unit
+	local axis, dot = from:Cross(to), math.clamp(from:Dot(to), -1, 1)
+	local rotation
+	if axis.Magnitude > 1e-6 then rotation = CFrame.fromAxisAngle(axis.Unit, math.acos(dot))
+	elseif dot < 0 then
+		axis = from:Cross(Vector3.new(0, 0, 1))
+		if axis.Magnitude < 1e-6 then axis = from:Cross(Vector3.new(1, 0, 0)) end
+		rotation = CFrame.fromAxisAngle(axis.Unit, math.pi)
+	else rotation = CFrame.identity end
 	return c0:Inverse() * CFrame.new(c0.Position) * rotation * c1.Rotation
 end
 
