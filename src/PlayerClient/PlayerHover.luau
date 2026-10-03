@@ -1,179 +1,157 @@
--- // SERVICES // --
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+local Config = require(RS.Modules.PlayerHoverConfig)
+local RagdollQuery = require(RS.Modules.RagdollQuery)
+local player = Players.LocalPlayer
+local gui = player:WaitForChild("PlayerGui"):WaitForChild("Main")
+local oldFrame = gui:FindFirstChild("PlayerHover")
+if oldFrame then oldFrame.Visible = false end
+local gameActive = RS:WaitForChild("GameActive")
+local params = RaycastParams.new()
+params.FilterType = Enum.RaycastFilterType.Exclude
+local filterCharacter, filterRagdolls, target, selectedHighlight
+local records, characterOwners = {}, {}
+local lastClickPlayer, lastClickTime, lastClickPosition
+local nextProfile, scanElapsed = 0, 0
 
--- // LOCALPLAYER // --
-local Player = Players.LocalPlayer
-local mouse = Player:GetMouse()
-local PlayerGui = Player.PlayerGui
-
--- // GUI // --
-local MainGUI = PlayerGui:WaitForChild("Main")
-local PlayerHoverFrame = MainGUI:WaitForChild("PlayerHover")
-PlayerHoverFrame.AnchorPoint = Vector2.new(0, 0)
-
-
--- // REMOTES // --
-local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local ProfileRemotes = RemotesFolder:WaitForChild("ProfileHandler")
-
-local RequestViewProfile = ProfileRemotes:WaitForChild("RequestViewProfile")
-
-
-local highlight = Instance.new("Highlight")
-highlight.FillTransparency = 1
-highlight.OutlineColor = Color3.new(1, 1, 1)
-highlight.OutlineTransparency = 0
-highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-highlight.Parent = PlayerGui
-
-local gameactive = false
-
-
-local AbleToClick = false
-local HoveredPlayer = nil
-local UserID = nil
-
-local adorneeConnections = {}
-
-local function clearHighlight()
-	PlayerHoverFrame.Visible = false
-	highlight.Adornee = nil
-	AbleToClick = false
-	HoveredPlayer = nil
-	UserID = nil
-	for _, conn in ipairs(adorneeConnections) do
-		conn:Disconnect()
-	end
-	adorneeConnections = {}
+-- Cache menu children; do not allocate GetChildren arrays during hover scans.
+local frames, menuFrames = gui:FindFirstChild("Frames"), {}
+local emote = gui:FindFirstChild("EmoteFrame")
+local emoteBackground = emote and emote:FindFirstChild("background")
+if frames then
+	for _, frame in ipairs(frames:GetChildren()) do if frame:IsA("GuiObject") then menuFrames[frame] = true end end
+	frames.ChildAdded:Connect(function(frame) if frame:IsA("GuiObject") then menuFrames[frame] = true end end)
+	frames.ChildRemoved:Connect(function(frame) menuFrames[frame] = nil end)
 end
-
-local function trackAdornee(model)
-	for _, conn in ipairs(adorneeConnections) do
-		conn:Disconnect()
+local function blocked()
+	if not Config.Enabled or gameActive.Value or UIS:GetFocusedTextBox() or GuiService.MenuIsOpen then return true end
+	local character = player.Character
+	if character and character:FindFirstChildOfClass("Tool") then return true end
+	for frame in pairs(menuFrames) do if frame.Visible then return true end end
+	return emoteBackground ~= nil and emoteBackground.Visible
+end
+local function clear()
+	if selectedHighlight then selectedHighlight.Enabled = false end
+	target, selectedHighlight, lastClickPlayer = nil, nil, nil
+end
+local function disconnect(connections)
+	for _, connection in ipairs(connections) do connection:Disconnect() end
+	table.clear(connections)
+end
+local function clearCharacter(other, record)
+	if target == other then clear() end
+	if record.character then characterOwners[record.character] = nil end
+	disconnect(record.characterConnections)
+	if record.highlight then record.highlight:Destroy() end
+	record.character, record.humanoid, record.highlight = nil, nil, nil
+end
+local function prepareCharacter(other, record, character)
+	clearCharacter(other, record)
+	if not character or other.Parent ~= Players then return end
+	record.character, characterOwners[character] = character, other
+	-- Prepare once on spawn. Hover only switches Enabled; it never creates,
+	-- reparents, destroys or retargets a Highlight or avatar geometry.
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "PlayerHoverHighlight_" .. other.UserId
+	highlight.FillTransparency, highlight.OutlineTransparency = 1, 0
+	highlight.OutlineColor, highlight.DepthMode = Color3.new(1, 1, 1), Enum.HighlightDepthMode.Occluded
+	highlight.Enabled, highlight.Adornee, highlight.Parent = false, character, workspace
+	record.highlight = highlight
+	local function attachHumanoid(humanoid)
+		if not humanoid or record.humanoid == humanoid then return end
+		record.humanoid = humanoid
+		table.insert(record.characterConnections, humanoid.Died:Connect(function() if target == other then clear() end end))
 	end
-	adorneeConnections = {}
-
-	local humanoid = model:FindFirstChild("Humanoid")
-	if humanoid then
-		table.insert(adorneeConnections, humanoid.Died:Connect(function()
-			clearHighlight()
-		end))
-	end
-
-	table.insert(adorneeConnections, model.AncestryChanged:Connect(function(_, parent)
-		if not parent then
-			clearHighlight()
-		end
+	attachHumanoid(character:FindFirstChildOfClass("Humanoid"))
+	table.insert(record.characterConnections, character.ChildAdded:Connect(function(child)
+		if child:IsA("Humanoid") then attachHumanoid(child) end
+	end))
+	table.insert(record.characterConnections, character.AncestryChanged:Connect(function(_, parent)
+		if not parent and target == other then clear() end
 	end))
 end
+local function trackPlayer(other)
+	if other == player or records[other] then return end
+	local record = {connections = {}, characterConnections = {}}
+	records[other] = record
+	table.insert(record.connections, other.CharacterAdded:Connect(function(character) prepareCharacter(other, record, character) end))
+	table.insert(record.connections, other.CharacterRemoving:Connect(function(character)
+		if record.character == character then clearCharacter(other, record) end
+	end))
+	if other.Character then prepareCharacter(other, record, other.Character) end
+end
+Players.PlayerAdded:Connect(trackPlayer)
+Players.PlayerRemoving:Connect(function(other)
+	local record = records[other]
+	if not record then return end
+	clearCharacter(other, record)
+	disconnect(record.connections)
+	records[other] = nil
+end)
+for _, other in ipairs(Players:GetPlayers()) do trackPlayer(other) end
 
-local function GetThumbnail(UserId: number)
-	local success, result = pcall(function()
-		return Players:GetUserThumbnailAsync(UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
-	end)
-	if success then
-		return result
-	else
+local function playerAt(position)
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
+	local ragdolls = RagdollQuery.GetFolder()
+	if filterCharacter ~= player.Character or filterRagdolls ~= ragdolls then
+		filterCharacter, filterRagdolls = player.Character, ragdolls
+		params.FilterDescendantsInstances = RagdollQuery.Exclude(filterCharacter and {filterCharacter} or {})
+	end
+	local ray = camera:ViewportPointToRay(position.X, position.Y)
+	local hit = workspace:Raycast(ray.Origin, ray.Direction * Config.MaxDistance, params)
+	local ancestor = hit and hit.Instance
+	while ancestor and ancestor ~= workspace do
+		local other = characterOwners[ancestor]
+		local record = other and records[other]
+		if record and other.Character == ancestor and record.humanoid and record.humanoid.Health > 0 then return other end
+		ancestor = ancestor.Parent
 	end
 end
-
-local function changeplayer(model)
-	local PlayerUsername = PlayerHoverFrame:WaitForChild("Username")
-	local PlayerProfileIMG = PlayerHoverFrame:WaitForChild("ProfileImage")
-
-	local playerName = model.Name
-	local userId
-	local targetPlayer = Players:FindFirstChild(playerName)
-
-	if targetPlayer then
-		userId = targetPlayer.UserId
-		PlayerUsername.Text = targetPlayer.Name
-	else
-		PlayerUsername.Text = playerName
-	end
-
-	if userId then
-		local thumb = GetThumbnail(userId)
-		if thumb then
-			PlayerProfileIMG.Image = thumb
+local function select(other)
+	if other == target then return end
+	clear()
+	local record = other and records[other]
+	if not record or not record.highlight then return end
+	target, selectedHighlight = other, record.highlight
+	selectedHighlight.Enabled = true
+end
+local function click(position)
+	if blocked() then clear(); return end
+	local other, now = playerAt(position), os.clock()
+	if not other then clear(); return end
+	select(other)
+	if lastClickPlayer == other and now - lastClickTime <= Config.DoubleClickSeconds
+		and (position - lastClickPosition).Magnitude <= Config.DoubleClickPixels then
+		lastClickPlayer = nil
+		if now >= nextProfile then
+			nextProfile = now + Config.ProfileCooldown
+			-- Hover and first click do no network/profile/portrait work.
+			local remotes = RS:FindFirstChild("Remotes")
+			local handler = remotes and remotes:FindFirstChild("ProfileHandler")
+			local request = handler and handler:FindFirstChild("RequestViewProfile")
+			if request then request:FireServer(other.UserId) end
 		end
 	else
-		PlayerProfileIMG.Image = ""
+		lastClickPlayer, lastClickTime, lastClickPosition = other, now, position
 	end
 end
-
-mouse.Move:Connect(function()
-	if workspace:FindFirstChild("Cargo Port") or workspace:FindFirstChild("Farm") or workspace:FindFirstChild("Grids") or workspace:FindFirstChild("Tropical Island") or workspace:FindFirstChild("Classic ROBLOX") then
-		clearHighlight()
-		return
-	end
-	local target = mouse.Target
-	local modelToHighlight
-	local isCharacter = false
-	
-	if ReplicatedStorage:WaitForChild("GameActive").Value == true then
-		return
-	end
-
-	if target then
-		local model = target:FindFirstAncestorOfClass("Model")
-		if model and model:FindFirstChild("Humanoid") then
-			isCharacter = true
-			modelToHighlight = model
-		end
-	end
-	if isCharacter and modelToHighlight then
-		changeplayer(modelToHighlight)
-		PlayerHoverFrame.Visible = true
-		highlight.Adornee = modelToHighlight
-		trackAdornee(modelToHighlight)
-		AbleToClick = true
-
-		local possiblePlayer = Players:FindFirstChild(modelToHighlight.Name)
-		HoveredPlayer = possiblePlayer or nil
-		UserID = HoveredPlayer and HoveredPlayer.UserId or nil
-	else
-		clearHighlight()
-	end
-
-	local mousePos = UserInputService:GetMouseLocation()
-	local viewportSize = workspace.CurrentCamera.ViewportSize
-
-	local xOffset = 30
-	local yOffset = -20
-
-	local xScale = (mousePos.X + xOffset) / viewportSize.X
-	local yScale = (mousePos.Y + yOffset) / viewportSize.Y
-
-	PlayerHoverFrame.Position = UDim2.new(xScale, 0, yScale, 0)
+UIS.InputBegan:Connect(function(input, processed)
+	if not processed and input.UserInputType == Enum.UserInputType.MouseButton1 then click(UIS:GetMouseLocation()) end
 end)
-
-
-mouse.Button1Up:Connect(function()
-	if not AbleToClick then
-		return
-	end
-	
-	if not HoveredPlayer then
---		print("none hovered player")
-		return
-	end
-
-	RequestViewProfile:FireServer(HoveredPlayer.UserId)
+UIS.TouchTapInWorld:Connect(function(position, processed) if not processed then click(position) end end)
+RunService.Heartbeat:Connect(function(dt)
+	scanElapsed += dt
+	if scanElapsed < Config.ScanInterval then return end
+	scanElapsed = 0
+	if blocked() then if target then clear() end; return end
+	if target and (target.Parent ~= Players or selectedHighlight.Adornee ~= target.Character) then clear() end
+	if UIS:GetLastInputType() ~= Enum.UserInputType.Touch then select(playerAt(UIS:GetMouseLocation())) end
 end)
-
-Player.CharacterAdded:Connect(function()
-	clearHighlight()
-end)
-
-RunService.Heartbeat:Connect(function()
-	local adornee = highlight.Adornee
-	if adornee and (not adornee.Parent or not adornee:FindFirstChild("Humanoid")) then
-		clearHighlight()
-	end
-end)
-
+gameActive.Changed:Connect(clear)
+player.CharacterRemoving:Connect(clear)
+UIS.WindowFocusReleased:Connect(clear)
 return {}

@@ -25,6 +25,7 @@ local function countKnifeSlots(items: {any})
 end
 
 function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
+	if player:GetAttribute("DataReady") ~= true then return false, "Player data is still loading" end
 	if type(items) ~= "table" then
 		return false, "Invalid trade items"
 	end
@@ -189,6 +190,10 @@ local function GiveItems(player: Player, items: {any})
 				quantity.Name = "Quantity"
 				quantity.Value = item.Quantity
 				quantity.Parent = newItem
+
+				if item.Type == "Emotes" then
+					newItem.Value = item.EmoteId or ""
+				end
 				
 				local rarity = Instance.new("StringValue")
 				rarity.Name = "Rarity"

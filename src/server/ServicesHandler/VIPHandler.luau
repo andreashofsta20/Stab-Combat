@@ -19,6 +19,7 @@ local VALID_VIP_PRODUCT_IDS = {
 }
 
 local function pushStatusToClient(player: Player)
+	if player:GetAttribute("DataReady") ~= true then return end
 	local hasVIP, expiresAt = VIPService.GetVIPInfoByUserId(player.UserId)
 	player:SetAttribute("HasVIP", hasVIP)
 	player:SetAttribute("VIPExpiresAt", expiresAt)
@@ -65,9 +66,18 @@ VIPStatusRemote.OnServerEvent:Connect(function(player: Player, requestType: stri
 	pushStatusToClient(player)
 end)
 
-Players.PlayerAdded:Connect(function(player)
-	VIPService.RefreshPlayer(player)
-	pushStatusToClient(player)
+local readyConnections = {}
+local function observePlayer(player)
+	if readyConnections[player] then return end
+	readyConnections[player] = player:GetAttributeChangedSignal("DataReady"):Connect(function()
+		if player.Parent == Players then pushStatusToClient(player) end
+	end)
+	if player:GetAttribute("DataReady") == true then task.spawn(pushStatusToClient, player) end
+end
+Players.PlayerAdded:Connect(observePlayer)
+for _, player in ipairs(Players:GetPlayers()) do observePlayer(player) end
+Players.PlayerRemoving:Connect(function(player)
+	if readyConnections[player] then readyConnections[player]:Disconnect(); readyConnections[player] = nil end
 end)
 
 MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)

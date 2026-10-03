@@ -1,5 +1,9 @@
 -- // SERVICES // --
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local ToolPhysics = require(ReplicatedStorage.Modules.RevolverToolPhysics).New(require(ReplicatedStorage.Modules.KnivesInfo))
+for _, player in ipairs(Players:GetPlayers()) do ToolPhysics.BindPlayer(player) end
+Players.PlayerAdded:Connect(ToolPhysics.BindPlayer)
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local KnivesRemotes = RemotesFolder:WaitForChild("Knife")
@@ -10,14 +14,19 @@ local StabKnifeRemote = KnivesRemotes:WaitForChild("StabKnife")
 -- // MODULES // --
 local ThrowKnifeModule = require(script.Parent:WaitForChild("ThrowKnife"))
 local StabKnifeModule = require(script.Parent:WaitForChild("StabKnife"))
-local KNIFE_ACTION_MIN_GAP = 0.4
+local Config = require(ReplicatedStorage.Modules.KnifeConfig)
+local FoodState = require(script.Parent.FoodState)
+local KNIFE_ACTION_MIN_GAP = Config.ActionMinGap
 local lastKnifeActionAt: {[number]: number} = {}
+local buckets = {}
 
-local function canProcessAction(player: Player): boolean
+local function canProcessAction(player: Player)
     local now = os.clock()
+    buckets[player] = buckets[player] or { tokens = Config.RequestBurst, time = now }
+    if not FoodState.AllowRequest(buckets[player], now, Config.RequestBurst, Config.RequestsPerSecond) then return false, false end
     local prev = lastKnifeActionAt[player.UserId]
     if prev and (now - prev) < KNIFE_ACTION_MIN_GAP then
-        return false
+        return false, true
     end
     lastKnifeActionAt[player.UserId] = now
     return true
@@ -36,7 +45,9 @@ ThrowKnifeRemote.OnServerEvent:Connect(function(player: Player, shotId: string, 
     -- The timestamp is advisory only; never use it to rewind or grant distance.
     if clientTimestamp ~= nil and not ProjectileMath.IsFiniteNumber(clientTimestamp) then return end
     if ProjectileMath.NormalizeDirection(direction) == nil then return end
-    if not canProcessAction(player) then
+    local allowed, acknowledge = canProcessAction(player)
+    if not allowed then
+        if acknowledge then KnivesRemotes.ThrewClient:FireClient(player, {shotId = shotId, accepted = false}) end
         return
     end
     ThrowKnifeModule.Throw(player, shotId, origin, direction, chargeRatio)
@@ -50,8 +61,10 @@ StabKnifeRemote.OnServerEvent:Connect(function(player : Player)
     StabKnifeModule.Stab(player)
 end)
 
-game:GetService("Players").PlayerRemoving:Connect(function(player)
+Players.PlayerRemoving:Connect(function(player)
+    ToolPhysics.RemovePlayer(player)
     lastKnifeActionAt[player.UserId] = nil
+    buckets[player] = nil
 end)
 
 return {}

@@ -9,7 +9,8 @@
   - Onboarding polish (tutorial prompt + clear controls)
 
 ## Important issues to verify before beta
-- Ensure the `ReplicatedStorage/KeyBinds/DefaultKeybinds` module exists in the Rojo tree (case-sensitive; required by server scripts but not in this repo).
+- `src/KeyBinds/DefaultKeybinds.luau` is present and mapped by Rojo. Keep that path case-correct when editing keybinds.
+- Follow [GAME_SETUP_AND_REVIEW.md](GAME_SETUP_AND_REVIEW.md) for the current setup checklist and unresolved trade/quest persistence issues.
 - Reduce debug log spam from client scripts before release.
 - Confirm DataStore saves succeed under load (watch for `Failed to save data` warnings and throttling).
 

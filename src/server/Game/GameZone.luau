@@ -1,4 +1,6 @@
 local ZoneHandler = {}
+local generation = 0
+local shrinkTween
 
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
@@ -13,8 +15,13 @@ function ZoneHandler.NotifyPlayer(player : Player, visible : boolean)
 end
 
 function ZoneHandler.SpawnZone()
-	local ZoneMesh = ServerStorage:FindFirstChild("Zone"):Clone()
+    ZoneHandler.StopZone()
+    local template = ServerStorage:FindFirstChild("Zone")
+    if not template or not template:IsA("BasePart") then warn("GameZone: missing Zone BasePart template"); return false end
+    local ZoneMesh = template:Clone()
+    if not ZoneMesh then return false end
 	ZoneMesh.Parent = workspace
+    return true
 end
 
 function ZoneHandler.StartZone()
@@ -43,6 +50,11 @@ function ZoneHandler.StartZone()
 	local finalZoneDamageRamp = 1.2
 	local finalZoneDamageCap = 1000
 	ZoneHandler._zoneActive = true
+    local session, roundId = generation, MainGame.RoundId
+    local function live()
+        return ZoneHandler._zoneActive and generation == session and Zone.Parent == workspace
+            and MainGame.RoundId == roundId and MainGame.GameActive
+    end
 
 	local function isInsideZone(player)
 		local char = player.Character
@@ -59,13 +71,14 @@ function ZoneHandler.StartZone()
 	end
 
 	task.spawn(function()
-		while ZoneHandler._zoneActive and (Zone.Size.X > minSize.X or Zone.Size.Z > minSize.Z) do
+        while live() and (Zone.Size.X > minSize.X or Zone.Size.Z > minSize.Z) do
 			local targetX = math.max(Zone.Size.X - shrinkStep.X, minSize.X)
 			local targetZ = math.max(Zone.Size.Z - shrinkStep.Z, minSize.Z)
 			local targetSize = Vector3.new(targetX, Zone.Size.Y, targetZ)
 
 			local tweenInfo = TweenInfo.new(shrinkInterval, Enum.EasingStyle.Linear)
 			local tween = TweenService:Create(Zone, tweenInfo, {Size = targetSize})
+            shrinkTween = tween
 			tween:Play()
 			tween.Completed:Wait()
 		end
@@ -73,7 +86,7 @@ function ZoneHandler.StartZone()
 
 	task.spawn(function()
 		local finalPhase = false
-		while ZoneHandler._zoneActive do
+        while live() do
 			for _, player in ipairs(Players:GetPlayers()) do
 				if not MainGame.PlayersInGame[player.UserId] then continue end
 
@@ -89,7 +102,10 @@ function ZoneHandler.StartZone()
 
 					if player.Character and player.Character:FindFirstChild("Humanoid") then
 						local damage = finalPhase and finalZoneDamage or 10
-						player.Character.Humanoid:TakeDamage(damage)
+                        local character, humanoid = player.Character, player.Character.Humanoid
+                        MainGame.ClearPendingKill(player.UserId)
+                        humanoid:TakeDamage(damage)
+                        if humanoid.Health <= 0 then MainGame.OnDeath(player, character) end
 					end
 				end
 			end
@@ -108,7 +124,9 @@ function ZoneHandler.StartZone()
 end
 
 function ZoneHandler.StopZone()
+    generation += 1
 	ZoneHandler._zoneActive = false
+    if shrinkTween then shrinkTween:Cancel(); shrinkTween = nil end
 	local Zone = workspace:FindFirstChild("Zone")
 	if Zone then
 		Zone:Destroy()

@@ -53,6 +53,7 @@ function TradeRequestsHandler.FireResult(player: Player, action: string, success
 end
 
 function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
+	if player:GetAttribute("DataReady") ~= true then return end
     if type(action) ~= "string" then
         return
     end

@@ -80,6 +80,7 @@ end
 -- // REMOTE CONNECTION // --
 AppliedSettingRemote.OnServerEvent:Connect(function(player: Player, settingname: string)
     if not player then return end
+    if player:GetAttribute("DataReady") ~= true then return end
     if type(settingname) ~= "string" then return end
     if not ALLOWED_SETTINGS[settingname] then return end
     local now = os.clock()

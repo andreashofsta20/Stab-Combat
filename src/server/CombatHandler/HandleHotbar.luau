@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local FoodService = require(script.Parent.FoodService)
 
 
 -- // REMOTES // --
@@ -30,8 +31,8 @@ local function UnequipOtherTools(player : Player)
 	if not character then return end
 	for i , v in pairs(character:GetChildren()) do
 		if v:IsA("Tool") then
-			local action = RevolversFolder:FindFirstChild(v.Name) and "Gun" or "Knife"
-			v:Destroy()
+			local action = v:GetAttribute("FoodItem") == "Burger" and "Food" or (RevolversFolder:FindFirstChild(v.Name) and "Gun" or "Knife")
+			if not FoodService.Store(player, v) then v:Destroy() end
 			NotifyClient(player, action, false)
 		end
 	end
@@ -52,6 +53,10 @@ local function EquipKnife(player : Player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
 	local EquippedKnife = leaderstats:FindFirstChild("EquippedKnife")
+	local inventory = leaderstats:FindFirstChild("Inventory")
+	local owned = EquippedKnife and inventory and inventory:FindFirstChild(EquippedKnife.Value)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if not quantity or not quantity:IsA("IntValue") or quantity.Value <= 0 then return end
 	
 	if leaderstats and EquippedKnife then
 		local Knife = KnivesFolder:FindFirstChild(EquippedKnife.Value)
@@ -71,6 +76,9 @@ local function EquipGun(player : Player)
 	if not leaderstats then return end
 	local EquippedGun = leaderstats:FindFirstChild("EquippedGun")
 	local revolverInventory = leaderstats:FindFirstChild("RevolverInventory")
+	local owned = EquippedGun and revolverInventory and revolverInventory:FindFirstChild(EquippedGun.Value)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if not quantity or not quantity:IsA("IntValue") or quantity.Value <= 0 then return end
 
 	if EquippedGun and revolverInventory and EquippedGun.Value ~= ""
 		and revolverInventory:FindFirstChild(EquippedGun.Value) then
@@ -106,10 +114,27 @@ local function CheckIfEquipped(player : Player)
 end
 
 EquipRemote.OnServerEvent:Connect(function(player, category)
-	if typeof(category) ~= "string" then return end
+	if category ~= "Knife" and category ~= "Revolver" and category ~= "Food" then return end
+	if player:GetAttribute("DataReady") ~= true then return end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
 	local now = os.clock()
 	if equipCooldowns[player.UserId] and (now - equipCooldowns[player.UserId]) < EQUIP_COOLDOWN then return end
 	equipCooldowns[player.UserId] = now
+	if category == "Food" then
+		local tool = FoodService.GetTool(player)
+		if not tool then return end
+		if tool.Parent == character then
+			FoodService.Store(player, tool)
+			NotifyClient(player, "Food", false)
+		else
+			UnequipOtherTools(player)
+			humanoid:EquipTool(tool)
+			NotifyClient(player, "Food", true)
+		end
+		return
+	end
 	
 	
 

@@ -1,431 +1,205 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RS = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
-local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
-local QuestsRemotesFolder = RemotesFolder:WaitForChild("Quests")
-local UpdateQuestsRemote = QuestsRemotesFolder:WaitForChild("RequestQuests")
-local ClaimQuestRemote = QuestsRemotesFolder:WaitForChild("ClaimQuestReward")
-local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
-
-local QUESTS_DATASTORE = DataStoreService:GetDataStore("DailyQuestsProgress_v1.0")
-
-local DAILY_QUEST_POOL = {
-    {
-        Id = "WIN_2_ROUNDS",
-        Title = "Win 2 Rounds",
-        Target = 2,
-        RewardGold = 150,
-        Type = "WINS",
-        ProgressLabel = "WINS",
-    },
-    {
-        Id = "PLAY_20_MIN",
-        Title = "Play 20 Minutes",
-        Target = 20 * 60,
-        RewardGold = 200,
-        Type = "PLAY_TIME_SECONDS",
-        ProgressLabel = "MIN",
-    },
-    {
-        Id = "KILL_5_PLAYERS",
-        Title = "Kill 5 Players",
-        Target = 5,
-        RewardGold = 200,
-        Type = "KILLS",
-        ProgressLabel = "KILLS",
-    },
-    {
-        Id = "PLAY_3_ROUNDS",
-        Title = "Play 3 Rounds",
-        Target = 3,
-        RewardGold = 175,
-        Type = "ROUNDS_PLAYED",
-        ProgressLabel = "ROUNDS",
-    },
-    {
-        Id = "TOP3_2_TIMES",
-        Title = "Finish Top 3 Twice",
-        Target = 2,
-        RewardGold = 225,
-        Type = "TOP3_FINISHES",
-        ProgressLabel = "TOP 3",
-    },
-    {
-        Id = "EARN_500_MATCH_GOLD",
-        Title = "Earn 500 Match Gold",
-        Target = 500,
-        RewardGold = 250,
-        Type = "MATCH_GOLD_EARNED",
-        ProgressLabel = "GOLD",
-    },
-    {
-        Id = "CLAIM_1_DAILY_REWARD",
-        Title = "Claim 1 Daily Reward",
-        Target = 1,
-        RewardGold = 150,
-        Type = "DAILY_REWARD_CLAIMS",
-        ProgressLabel = "CLAIMS",
-    },
-}
-
-local ACTIVE_QUESTS_PER_DAY = 3
-local PLAYTIME_TICK_SECONDS = 5
-local AUTOSAVE_SECONDS = 120
-local playerQuestState: {[number]: any} = {}
-local pendingSaveJobs: {[number]: boolean} = {}
-
+local Profiles = require(script.Parent.Parent.DataStore.ProfileManager)
+local Notifications = require(script.Parent.Parent.Game.SendNotification)
+local Config = require(RS.Modules.QuestsConfig)
+local Math = require(RS.Modules.RewardMath)
+-- Read-only migration source. All new quest writes go to the active profile.
+local legacyStore = DataStoreService:GetDataStore("DailyQuestsProgress_v1.0")
+local remotes = RS:WaitForChild("Remotes"):WaitForChild("Quests")
+local update, claimRemote = remotes:WaitForChild("RequestQuests"), remotes:WaitForChild("ClaimQuestReward")
 local Quests = {}
+local states, loading, pendingProgress, queuedPush = {}, {}, {}, {}
+local watchers, nextStatus, nextClaim, playtime = {}, {}, {}, {}
+local cachedDay, cachedDefinitions
 
-local function getUtcDayKey(nowTimestamp: number?): string
-    local now = nowTimestamp or os.time()
-    local dateTable = os.date("!*t", now)
-    return string.format("%04d-%02d-%02d", dateTable.year, dateTable.month, dateTable.day)
+local function dayKey()
+	return os.date("!%Y-%m-%d", os.time())
 end
-
-local function getDaySeed(dayKey: string): number
-    local numeric = tonumber(dayKey:gsub("-", "")) or 1
-    return (numeric % 2147483647)
+local function definitions(day)
+	if day == cachedDay then return cachedDefinitions end
+	local rng = Random.new((tonumber(day:gsub("-", "")) or 1) % 2147483647)
+	local pool = table.clone(Config.Pool)
+	for i = #pool, 2, -1 do
+		local j = rng:NextInteger(1, i)
+		pool[i], pool[j] = pool[j], pool[i]
+	end
+	local selected = {}
+	for i = 1, math.min(Config.ActivePerDay, #pool) do selected[i] = pool[i] end
+	cachedDay, cachedDefinitions = day, selected
+	return selected
 end
-
-local function deterministicShuffle(input, rng)
-    local output = table.clone(input)
-    for i = #output, 2, -1 do
-        local j = rng:NextInteger(1, i)
-        output[i], output[j] = output[j], output[i]
-    end
-    return output
+local function activeProfile(player)
+	local profile = Profiles.GetProfile(player)
+	return player.Parent == Players and player:GetAttribute("DataReady") == true and profile and profile:IsActive() and profile or nil
 end
-
-local function getGlobalDailyQuestDefinitions(dayKey: string)
-    local rng = Random.new(getDaySeed(dayKey))
-    local shuffled = deterministicShuffle(DAILY_QUEST_POOL, rng)
-
-    local selected = {}
-    for i = 1, math.min(ACTIVE_QUESTS_PER_DAY, #shuffled) do
-        table.insert(selected, shuffled[i])
-    end
-    return selected
+local function ensureToday(player)
+	local state, profile = states[player], activeProfile(player)
+	if not state or not profile or profile.Data.DailyQuests ~= state then return nil, {} end
+	local day = dayKey()
+	if state.DayKey ~= day then state.DayKey, state.Progress, state.Claimed = day, {}, {} end
+	return state, definitions(day)
 end
-
-local function deepCopyStateTable(tbl)
-    if type(tbl) ~= "table" then
-        return {}
-    end
-    local out = {}
-    for k, v in pairs(tbl) do
-        if type(v) == "table" then
-            local inner = {}
-            for ik, iv in pairs(v) do
-                inner[ik] = iv
-            end
-            out[k] = inner
-        else
-            out[k] = v
-        end
-    end
-    return out
+local function payload(player)
+	local state, daily = ensureToday(player)
+	local result = {DayKey = dayKey(), ServerTime = os.time(), ResetAt = Math.NextUtcReset(os.time()), Quests = {}}
+	if not state then result.Loading = true; return result end
+	for _, quest in ipairs(daily) do
+		local progress = math.min(quest.Target, Math.NonnegativeInteger(state.Progress[quest.Id]))
+		local claimed, completed = state.Claimed[quest.Id] == true, progress >= quest.Target
+		local shown, target = progress, quest.Target
+		if quest.Type == "PLAY_TIME_SECONDS" then shown, target = math.floor(shown / 60), math.floor(target / 60) end
+		table.insert(result.Quests, {
+			Id = quest.Id, Title = quest.Title, RewardGold = quest.RewardGold,
+			Progress = progress, Target = quest.Target, Claimed = claimed, Completed = completed,
+			Status = claimed and "CLAIMED" or (completed and "CLAIM" or string.format("%d / %d %s", shown, target, quest.ProgressLabel)),
+		})
+	end
+	return result
 end
-
-local function ensurePlayerStateForToday(player: Player)
-    local userId = player.UserId
-    local dayKey = getUtcDayKey()
-    local state = playerQuestState[userId]
-    if not state then
-        state = {
-            DayKey = dayKey,
-            Progress = {},
-            Claimed = {},
-            Dirty = true,
-        }
-        playerQuestState[userId] = state
-    end
-
-    if state.DayKey ~= dayKey then
-        state.DayKey = dayKey
-        state.Progress = {}
-        state.Claimed = {}
-        state.Dirty = true
-    end
-
-    local dailyDefinitions = getGlobalDailyQuestDefinitions(state.DayKey)
-    for _, quest in ipairs(dailyDefinitions) do
-        if state.Progress[quest.Id] == nil then
-            state.Progress[quest.Id] = 0
-        end
-        if state.Claimed[quest.Id] == nil then
-            state.Claimed[quest.Id] = false
-        end
-    end
-
-    return state, dailyDefinitions
+local function push(player)
+	if player.Parent == Players then update:FireClient(player, payload(player)) end
 end
-
-local function getLeaderstatsCash(player: Player)
-    local leaderstats = player:FindFirstChild("leaderstats")
-    return leaderstats and leaderstats:FindFirstChild("Cash")
+local function queuePush(player)
+	if queuedPush[player] then return end
+	local token = {}
+	queuedPush[player] = token
+	task.delay(Config.PushDelaySeconds, function()
+		if queuedPush[player] ~= token then return end
+		queuedPush[player] = nil
+		push(player)
+	end)
 end
-
-local function buildQuestPayload(player: Player)
-    local state, dailyDefinitions = ensurePlayerStateForToday(player)
-    local payload = {
-        DayKey = state.DayKey,
-        ServerTime = os.time(),
-        Quests = {},
-    }
-
-    for _, quest in ipairs(dailyDefinitions) do
-        local progress = tonumber(state.Progress[quest.Id]) or 0
-        local target = tonumber(quest.Target) or 1
-        local clampedProgress = math.clamp(progress, 0, target)
-        local completed = clampedProgress >= target
-        local claimed = state.Claimed[quest.Id] == true
-        local status
-        if claimed then
-            status = "CLAIMED"
-        elseif completed then
-            status = "CLAIM"
-        else
-            local shownProgress = clampedProgress
-            local shownTarget = target
-            if quest.Type == "PLAY_TIME_SECONDS" then
-                shownProgress = math.floor(clampedProgress / 60)
-                shownTarget = math.floor(target / 60)
-            end
-            status = string.format("%d / %d %s", shownProgress, shownTarget, quest.ProgressLabel)
-        end
-
-        table.insert(payload.Quests, {
-            Id = quest.Id,
-            Title = quest.Title,
-            RewardGold = quest.RewardGold,
-            Progress = clampedProgress,
-            Target = target,
-            Claimed = claimed,
-            Completed = completed,
-            Status = status,
-        })
-    end
-
-    return payload
+function Quests.AddProgress(player, questType, amount)
+	if type(questType) ~= "string" or not Math.IsFinite(amount) or amount <= 0 or not activeProfile(player) then return end
+	local state, daily = ensureToday(player)
+	if not state then
+		local pending = pendingProgress[player]
+		if not pending or pending.DayKey ~= dayKey() then pending = {DayKey = dayKey(), Amounts = {}}; pendingProgress[player] = pending end
+		pending.Amounts[questType] = math.min(1000000, (pending.Amounts[questType] or 0) + amount)
+		return
+	end
+	local changed = false
+	for _, quest in ipairs(daily) do
+		if quest.Type == questType then
+			local current = state.Progress[quest.Id]
+			current = Math.IsFinite(current) and math.max(0, current) or 0
+			local value = math.min(quest.Target, current + amount)
+			if value ~= current then state.Progress[quest.Id], changed = value, true end
+		end
+	end
+	if changed then queuePush(player) end
 end
-
-local function pushQuestUpdate(player: Player)
-    if not player or not player.Parent then
-        return
-    end
-    UpdateQuestsRemote:FireClient(player, buildQuestPayload(player))
+local function load(player)
+	if loading[player] or states[player] then return end
+	local profile = activeProfile(player)
+	if not profile then return end
+	loading[player] = true
+	local existing = profile.Data.DailyQuests
+	local ok, data = true, existing
+	if type(existing) ~= "table" then ok = false
+	elseif existing.MigrationComplete ~= true then
+		ok, data = pcall(function() return legacyStore:GetAsync(tostring(player.UserId)) end)
+	end
+	loading[player] = nil
+	if activeProfile(player) ~= profile then return end
+	if not ok or (data ~= nil and (type(data) ~= "table"
+		or (data.Progress ~= nil and type(data.Progress) ~= "table")
+		or (data.Claimed ~= nil and type(data.Claimed) ~= "table"))) then
+		warn("[Quests] Quest migration unavailable for", player.Name)
+		push(player)
+		task.delay(Config.LegacyRetrySeconds, function() if activeProfile(player) == profile then load(player) end end)
+		return
+	end
+	local migrated = existing.MigrationComplete == true
+	local state = migrated and existing or {
+		Version = 1, MigrationComplete = true,
+		DayKey = type(data) == "table" and data.DayKey or dayKey(),
+		Progress = {}, Claimed = {},
+	}
+	if not migrated and type(data) == "table" then
+		for id, value in pairs(data.Progress or {}) do
+			if type(id) == "string" then state.Progress[id] = Math.NonnegativeInteger(value) end
+		end
+		for id, value in pairs(data.Claimed or {}) do
+			if type(id) == "string" then state.Claimed[id] = value == true end
+		end
+	end
+	state.Progress, state.Claimed = state.Progress or {}, state.Claimed or {}
+	profile.Data.DailyQuests, states[player] = state, state
+	ensureToday(player)
+	local pending = pendingProgress[player]
+	pendingProgress[player] = nil
+	if pending and pending.DayKey == dayKey() then
+		for kind, amount in pairs(pending.Amounts) do Quests.AddProgress(player, kind, amount) end
+	end
+	if not migrated then Profiles.SaveProfile(player) end
+	push(player)
 end
-
-local function loadPlayerState(player: Player)
-    local state = {
-        DayKey = getUtcDayKey(),
-        Progress = {},
-        Claimed = {},
-        Dirty = false,
-    }
-
-    local ok, data = pcall(function()
-        return QUESTS_DATASTORE:GetAsync(tostring(player.UserId))
-    end)
-
-    if ok and type(data) == "table" then
-        state.DayKey = type(data.DayKey) == "string" and data.DayKey or state.DayKey
-        state.Progress = deepCopyStateTable(data.Progress)
-        state.Claimed = deepCopyStateTable(data.Claimed)
-    end
-
-    playerQuestState[player.UserId] = state
-    ensurePlayerStateForToday(player)
+local function claim(player, id)
+	if type(id) ~= "string" or #id > 64 then return false, "Invalid quest" end
+	local state, daily = ensureToday(player)
+	if not state then return false, "Your quests are still loading" end
+	for _, quest in ipairs(daily) do
+		if quest.Id == id then
+			if state.Claimed[id] then return false, "Already claimed" end
+			if Math.NonnegativeInteger(state.Progress[id]) < quest.Target then return false, "Quest not complete" end
+			local stats = player:FindFirstChild("leaderstats")
+			local cash = stats and stats:FindFirstChild("Cash")
+			if not cash then return false, "Reward unavailable" end
+			-- No yield between flag, balance mutation and capturing one profile save.
+			state.Claimed[id] = true
+			cash.Value += quest.RewardGold
+			Profiles.SaveProfile(player)
+			return true
+		end
+	end
+	return false, "Quest unavailable"
 end
-
-local function savePlayerState(player: Player, force: boolean?)
-    local state = playerQuestState[player.UserId]
-    if not state then
-        return
-    end
-
-    if not state.Dirty and not force then
-        return
-    end
-
-    state.Dirty = false
-    local snapshot = {
-        DayKey = state.DayKey,
-        Progress = deepCopyStateTable(state.Progress),
-        Claimed = deepCopyStateTable(state.Claimed),
-        UpdatedAt = os.time(),
-    }
-
-    local ok, err = pcall(function()
-        QUESTS_DATASTORE:UpdateAsync(tostring(player.UserId), function()
-            return snapshot
-        end)
-    end)
-
-    if not ok then
-        state.Dirty = true
-        warn("[Quests] Failed to save quests for", player.Name, err)
-    end
-end
-
-local function queueSave(player: Player, delaySeconds: number?)
-    if not player or not player.Parent then
-        return
-    end
-
-    local userId = player.UserId
-    if pendingSaveJobs[userId] then
-        return
-    end
-
-    pendingSaveJobs[userId] = true
-    task.delay(delaySeconds or 5, function()
-        pendingSaveJobs[userId] = nil
-        if player and player.Parent then
-            savePlayerState(player)
-        end
-    end)
-end
-
-local function incrementQuestProgress(player: Player, questType: string, amount: number)
-    if not player or not player.Parent then
-        return
-    end
-    if type(amount) ~= "number" or amount <= 0 then
-        return
-    end
-
-    local state, dailyDefinitions = ensurePlayerStateForToday(player)
-    local changed = false
-
-    for _, quest in ipairs(dailyDefinitions) do
-        if quest.Type == questType then
-            local current = tonumber(state.Progress[quest.Id]) or 0
-            local target = tonumber(quest.Target) or current
-            local nextValue = math.min(target, current + amount)
-            if nextValue ~= current then
-                state.Progress[quest.Id] = nextValue
-                changed = true
-            end
-        end
-    end
-
-    if changed then
-        state.Dirty = true
-        pushQuestUpdate(player)
-        if questType == "PLAY_TIME_SECONDS" then
-            queueSave(player, 30)
-        else
-            queueSave(player, 3)
-        end
-    end
-end
-
-function Quests.AddProgress(player: Player, questType: string, amount: number)
-    incrementQuestProgress(player, questType, amount)
-end
-
-local function claimQuest(player: Player, questId: string)
-    if type(questId) ~= "string" then
-        return false, "Invalid quest"
-    end
-
-    local state, dailyDefinitions = ensurePlayerStateForToday(player)
-    local questDef = nil
-    for _, quest in ipairs(dailyDefinitions) do
-        if quest.Id == questId then
-            questDef = quest
-            break
-        end
-    end
-
-    if not questDef then
-        return false, "Quest unavailable"
-    end
-
-    if state.Claimed[questId] == true then
-        return false, "Already claimed"
-    end
-
-    local progress = tonumber(state.Progress[questId]) or 0
-    if progress < (questDef.Target or 0) then
-        return false, "Quest not complete"
-    end
-
-    local cash = getLeaderstatsCash(player)
-    if not cash then
-        return false, "Cash stat missing"
-    end
-
-    cash.Value += questDef.RewardGold
-    state.Claimed[questId] = true
-    state.Dirty = true
-    return true
-end
-
-local questRemoteCooldowns: {[number]: number} = {}
-local QUEST_REMOTE_COOLDOWN = 1
-
-UpdateQuestsRemote.OnServerEvent:Connect(function(player: Player)
-    local now = os.clock()
-    if questRemoteCooldowns[player.UserId] and (now - questRemoteCooldowns[player.UserId]) < QUEST_REMOTE_COOLDOWN then return end
-    questRemoteCooldowns[player.UserId] = now
-    pushQuestUpdate(player)
+update.OnServerEvent:Connect(function(player)
+	local now = os.clock()
+	if now < (nextStatus[player] or 0) then return end
+	nextStatus[player] = now + Config.StatusCooldown
+	push(player)
 end)
-
-ClaimQuestRemote.OnServerEvent:Connect(function(player: Player, questId: string)
-    if type(questId) ~= "string" then return end
-    local now = os.clock()
-    if questRemoteCooldowns[player.UserId] and (now - questRemoteCooldowns[player.UserId]) < QUEST_REMOTE_COOLDOWN then return end
-    questRemoteCooldowns[player.UserId] = now
-    local ok, msg = claimQuest(player, questId)
-    if ok then
-        savePlayerState(player, true)
-        NotificationHandler.SendNotification(player, "Quest reward claimed!", 3, "Success")
-    else
-        NotificationHandler.SendNotification(player, msg or "Could not claim quest", 3, "Error")
-    end
-    pushQuestUpdate(player)
+claimRemote.OnServerEvent:Connect(function(player, id)
+	if not activeProfile(player) or type(id) ~= "string" or #id > 64 then return end
+	local now = os.clock()
+	if now < (nextClaim[player] or 0) then return end
+	nextClaim[player] = now + Config.ClaimCooldown
+	local ok, message = claim(player, id)
+	Notifications.SendNotification(player, ok and "Quest reward claimed!" or message, 3, ok and "Success" or "Error")
+	push(player)
 end)
-
-Players.PlayerAdded:Connect(function(player)
-    loadPlayerState(player)
-    pushQuestUpdate(player)
-end)
-
-for _, player in ipairs(Players:GetPlayers()) do
-    loadPlayerState(player)
-    pushQuestUpdate(player)
+local function observe(player)
+	playtime[player] = os.clock()
+	watchers[player] = player:GetAttributeChangedSignal("DataReady"):Connect(function()
+		playtime[player] = os.clock()
+		if activeProfile(player) then load(player) end
+	end)
+	if activeProfile(player) then load(player) end
 end
-
+Players.PlayerAdded:Connect(observe)
+for _, player in ipairs(Players:GetPlayers()) do task.spawn(observe, player) end
 Players.PlayerRemoving:Connect(function(player)
-    savePlayerState(player, true)
-    pendingSaveJobs[player.UserId] = nil
-    playerQuestState[player.UserId] = nil
-    questRemoteCooldowns[player.UserId] = nil
+	if watchers[player] then watchers[player]:Disconnect() end
+	states[player], loading[player], pendingProgress[player], queuedPush[player] = nil, nil, nil, nil
+	watchers[player], nextStatus[player], nextClaim[player], playtime[player] = nil, nil, nil, nil
+	-- ProfileManager owns autosave and session shutdown; never write a second store.
 end)
-
 task.spawn(function()
-    while true do
-        task.wait(PLAYTIME_TICK_SECONDS)
-        for _, player in ipairs(Players:GetPlayers()) do
-            incrementQuestProgress(player, "PLAY_TIME_SECONDS", PLAYTIME_TICK_SECONDS)
-        end
-    end
+	while true do
+		task.wait(Config.PlaytimeTickSeconds)
+		local now = os.clock()
+		for _, player in ipairs(Players:GetPlayers()) do
+			local elapsed = math.max(0, now - (playtime[player] or now))
+			playtime[player] = now
+			local oldDay = states[player] and states[player].DayKey
+			Quests.AddProgress(player, "PLAY_TIME_SECONDS", elapsed)
+			if oldDay and oldDay ~= dayKey() then queuePush(player) end
+		end
+	end
 end)
-
-task.spawn(function()
-    while true do
-        task.wait(AUTOSAVE_SECONDS)
-        for _, player in ipairs(Players:GetPlayers()) do
-            savePlayerState(player)
-        end
-    end
-end)
-
-game:BindToClose(function()
-    for _, player in ipairs(Players:GetPlayers()) do
-        savePlayerState(player)
-    end
-end)
+Quests.GetStatus, Quests.Claim = payload, claim
 return Quests

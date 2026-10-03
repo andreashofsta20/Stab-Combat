@@ -1,7 +1,6 @@
 
 
 local Players = game:GetService("Players")
-local PlayerCount = Players:GetPlayers()
 
 
 local SpawnMapModule = require(script.Parent.SpawnMap)
@@ -9,13 +8,15 @@ local RoundHandlerModule = require(script.Parent.RoundHandler)
 local VotingHandlerModule = require(script.Parent.VotingHandler)
 local StartServer = require(script.Parent.StartServer)
 local MainGameModule = require(script.Parent.MainGame)
-local NotificationHandler = require(script.Parent.SendNotification)
 
 
 
 local function CanStart()
 	local count = 0
 	for _, player in pairs(Players:GetPlayers()) do
+		if player:GetAttribute("DataReady") ~= true then
+			continue
+		end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local settings = leaderstats:FindFirstChild("Settings")
@@ -33,9 +34,16 @@ end
 
 
 RoundHandlerModule.ChangeStatus("WAITING FOR SERVER")
-task.wait(2)
 
-while true do
+local started = false
+local function runLoop()
+	if started then
+		return
+	end
+	started = true
+	StartServer.AwaitReady()
+
+	while true do
 	
 	while not RoundHandlerModule.Intermission() do
 		task.wait(0.3)
@@ -47,6 +55,13 @@ while true do
 	end
 
 	RoundHandlerModule.StartVoting()
+	if #RoundHandlerModule.VoteOptions == 0 then
+		RoundHandlerModule.TimeToVote = false
+		VotingHandlerModule.WipeAll()
+		RoundHandlerModule.ChangeStatus("NO MAPS AVAILABLE")
+		task.wait(2)
+		continue
+	end
 
 
 	local optionId = VotingHandlerModule.StopVoting()
@@ -78,7 +93,6 @@ while true do
 
 
 
-	SpawnMapModule.RemoveOtherMapsThen(option.Map)
 	RoundHandlerModule.ChangeStatus("")
 	
 	MainGameModule.StartGame(option.Map, option.Mode)
@@ -86,13 +100,20 @@ while true do
 
 
 --	RoundHandlerModule.ChangeStatus("Removing map")
-	SpawnMapModule.RemoveAllMaps()
+		SpawnMapModule.ShowLobbyMap()
 
 
 
 
-	--SpawnMapModule.RemoveAllMaps()
+		--SpawnMapModule.RemoveAllMaps()
+	end
+end
+
+local function Start()
+	task.spawn(runLoop)
 end
 
 
-return {}
+return {
+	Start = Start,
+}

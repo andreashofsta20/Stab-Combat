@@ -5,7 +5,9 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local KnivesInfoModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local RevolversInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
-local RevolversFolder = ServerStorage:WaitForChild("Revolvers")
+local StartupLoader = require(ReplicatedStorage.Modules.StartupLoader)
+local RevolversFolder = StartupLoader.RequireChild(ServerStorage, "Revolvers")
+assert(RevolversFolder:IsA("Folder") or RevolversFolder:IsA("Model"), "ServerStorage.Revolvers must be a Folder or Model")
 
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -61,16 +63,9 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 
 	if not knifeName then return end
 
-	local rarity = nil
-	local image = nil
-
-	for i, v in pairs(KnivesInfoModule) do
-		if i == knifeName then
-			rarity = v.Rarity
-			image = v.Image
-			break 
-		end
-	end
+	local info = KnivesInfoModule[knifeName]
+	local rarity = info and info.Rarity
+	local image = info and info.Image
 
 	if not rarity then
 		warn("Rarity not found for knife: " .. knifeName)
@@ -90,12 +85,12 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 		if not tradeableFlag then
 			tradeableFlag = Instance.new("BoolValue")
 			tradeableFlag.Name = "Tradeable"
-			tradeableFlag.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+			tradeableFlag.Value = if tradeable ~= nil then tradeable else not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
 			tradeableFlag.Parent = existing
 		elseif tradeable ~= nil then
 			tradeableFlag.Value = tradeable
 		end
-		return
+		return existing
 	end
 
 	local Knife = Instance.new("StringValue")
@@ -119,7 +114,7 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 
 	local Tradeable = Instance.new("BoolValue")
 	Tradeable.Name = "Tradeable"
-	Tradeable.Value = tradeable ~= nil and tradeable or not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
+	Tradeable.Value = if tradeable ~= nil then tradeable else not DEFAULT_UNTRADEABLE_KNIVES[knifeName]
 	Tradeable.Parent = Knife
 
 
@@ -155,7 +150,7 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 			q.Value = 2
 			q.Parent = existing
 		end
-		return
+		return existing
 	end
 
 
@@ -180,6 +175,8 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 		image.Value = info.Image
 		image.Parent = emote
 	end
+
+	return emote
 end
 
 
@@ -223,7 +220,7 @@ end
 
 
 function InventoryHandler.AddKnife(player : Player, knifeName : string, tradeable: boolean?)
-	CreateItem(player, knifeName, tradeable)
+	return CreateItem(player, knifeName, tradeable)
 end
 
 function InventoryHandler.AddRevolver(player: Player, revolverName: string, quantity: number?, tradeable: boolean?)
@@ -344,6 +341,7 @@ end
 
 EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : string)
 	if not player then return end
+	if player:GetAttribute("DataReady") ~= true then return end
 	if type(KnifeName) ~= "string" then return end
 	if #KnifeName < 1 or #KnifeName > 64 then return end
 	if not canEquipNow(knifeEquipCooldowns, player) then return end
@@ -365,13 +363,16 @@ EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : str
 		return
 	end
 
-	if inventoryFolder:FindFirstChild(KnifeName) then
+	local owned = inventoryFolder:FindFirstChild(KnifeName)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if quantity and quantity:IsA("IntValue") and quantity.Value > 0 then
 		EquippedKnife.Value = KnifeName
 	end
 end)
 
 EquipRevolverRemote.OnServerEvent:Connect(function(player: Player, revolverName: string)
 	if not player then return end
+	if player:GetAttribute("DataReady") ~= true then return end
 	if type(revolverName) ~= "string" then return end
 	if #revolverName < 1 or #revolverName > 64 then return end
 	if not canEquipNow(revolverEquipCooldowns, player) then return end
@@ -396,7 +397,9 @@ EquipRevolverRemote.OnServerEvent:Connect(function(player: Player, revolverName:
 		return
 	end
 
-	if inventoryFolder:FindFirstChild(revolverName) then
+	local owned = inventoryFolder:FindFirstChild(revolverName)
+	local quantity = owned and owned:FindFirstChild("Quantity")
+	if quantity and quantity:IsA("IntValue") and quantity.Value > 0 then
 		equippedGun.Value = revolverName
 	end
 end)

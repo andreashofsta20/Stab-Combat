@@ -89,7 +89,7 @@ end)
 
 local function Apply(settingName : string)
 	if settingName == "KeybindEdit" then
-		if UserInputService.TouchEnabled then
+		if not UserInputService.KeyboardEnabled then
 			return
 		end
 		OpenFrameModule.OpenFrame(tostring(settingName))
@@ -102,7 +102,7 @@ end
 local function SetUpContainer()
 	for _, v in pairs(SettingsContainer:GetChildren()) do
 		if v:IsA("Frame") then
-			if v.Name == "KeybindEdit" and UserInputService.TouchEnabled then
+			if v.Name == "KeybindEdit" and not UserInputService.KeyboardEnabled then
 				v.Visible = false
 				continue
 			end

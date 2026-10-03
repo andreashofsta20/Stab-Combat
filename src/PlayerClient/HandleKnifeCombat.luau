@@ -1,89 +1,34 @@
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local KeybindValidation = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
+local UIS = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local RS = game:GetService("ReplicatedStorage")
+local player = game:GetService("Players").LocalPlayer
+local Validation = require(RS.Modules.KeybindValidation)
+local Combat = require(script.Parent.Modules.CombatController)
+local binds = player:WaitForChild("leaderstats"):WaitForChild("KeyBinds")
+local throwBind, stabBind = binds:WaitForChild("ThrowKnife"), binds:WaitForChild("Stab")
+local heldInput
+Combat.Init()
 
-local player = Players.LocalPlayer
-local CombatController = require(script.Parent:WaitForChild("Modules"):WaitForChild("CombatController"))
-
-local leaderstats = player:WaitForChild("leaderstats")
-local KeyBindFolder = leaderstats:WaitForChild("KeyBinds")
-
-local CurrentKeyBind = nil
-
-local function isThrowInput(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		return true
-	end
-	if typeof(CurrentKeyBind) == "EnumItem" and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == CurrentKeyBind then
-		return true
-	end
-	if CurrentKeyBind == "MouseButton2" and input.UserInputType == Enum.UserInputType.MouseButton2 then
-		return true
-	end
-	return false
+local function cancel()
+	heldInput = nil
+	Combat.CancelCharge()
 end
-
-local function parseInput(inputString)
-	if not inputString or inputString == "" then return nil end
-
-	local key = KeybindValidation.ToEnum(inputString)
-	if key then
-		return key
-	elseif inputString == "MouseButton1" then
-		return "MouseButton1"
-	elseif inputString == "MouseButton2" then
-		return "MouseButton2"
-	end
-	return nil
-end
-
-local function initializeKnifeKeybinds()
-	local throwKeyBind = KeyBindFolder:WaitForChild("ThrowKnife")
-	KeyBindFolder:WaitForChild("Stab")
-
-	if throwKeyBind.Value == "" or throwKeyBind.Value == nil then
-		task.wait(0.1)
-	end
-
-	CurrentKeyBind = parseInput(throwKeyBind.Value) or Enum.KeyCode.E
-
-	CombatController.Init()
-
---	print("Initialized knife keybinds:")
---	print("Throw:", CurrentKeyBind)
-end
-
-initializeKnifeKeybinds()
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	if isThrowInput(input) then
-		CombatController.BeginCharge()
+UIS.InputBegan:Connect(function(input, processed)
+	if processed or heldInput or UIS:GetFocusedTextBox() or GuiService.MenuIsOpen then return end
+	if Validation.Matches(throwBind.Value, input) or Validation.Matches(stabBind.Value, input) then
+		if Combat.BeginCharge() then heldInput = input end
 	end
 end)
-
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if isThrowInput(input) then
-		CombatController.ReleaseCharge()
-	end
+-- Always consume the matching release, including releases processed by a menu.
+UIS.InputEnded:Connect(function(input)
+	if input ~= heldInput then return end
+	heldInput = nil
+	if input.UserInputState == Enum.UserInputState.Cancel then Combat.CancelCharge() else Combat.ReleaseCharge() end
 end)
-
-KeyBindFolder:WaitForChild("ThrowKnife").Changed:Connect(function()
-	local newValue = KeyBindFolder.ThrowKnife.Value
-	local newInput = parseInput(newValue)
-	if newInput then
-		CurrentKeyBind = newInput
-	--	print("Updated ThrowKnife bind to", tostring(newInput))
-	else
-		warn("Invalid ThrowKnife bind:", newValue)
-	end
-end)
-
-KeyBindFolder:WaitForChild("Stab").Changed:Connect(function()
-	-- Stab bind remains data-driven for UI consistency; combat action is hold/tap unified via Throw input.
-end)
-
+UIS.WindowFocusReleased:Connect(cancel)
+UIS.TextBoxFocused:Connect(cancel)
+GuiService.MenuOpened:Connect(cancel)
+throwBind.Changed:Connect(cancel)
+stabBind.Changed:Connect(cancel)
+player.CharacterRemoving:Connect(cancel)
 return {}

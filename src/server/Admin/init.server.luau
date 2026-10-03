@@ -1,8 +1,4 @@
-for i , v in pairs(script:GetChildren()) do
-    if v:IsA("ModuleScript") then
-        require(v)
-    end
-end
+require(script.Parent.StartupService).LoadGroup(script)
 
 
 

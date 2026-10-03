@@ -9,16 +9,16 @@ local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local ProfileStore = require(ServerScriptService:WaitForChild("Packages"):WaitForChild("ProfileStore"))
+local StartupLoader = require(game:GetService("ReplicatedStorage").Modules.StartupLoader)
+local Packages = StartupLoader.RequireChild(ServerScriptService, "Packages", "Folder")
+local ProfileStore = require(StartupLoader.RequireChild(Packages, "ProfileStore", "ModuleScript"))
 
 local ProfileManager = {}
 local KeybindValidation = require(game:GetService("ReplicatedStorage"):WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 
-local STORE_NAME = "PlayerData_v1.0.1_MainData"
-local OLD_STORE_NAME = "PlayerData_v1.0.1_OldData"
-
-local TutorialRemotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Tutorial")
-local StartTutorialRemote = TutorialRemotes:WaitForChild("StartTutorial")
+local DataConfig = require(game:GetService("ReplicatedStorage").Modules.DataConfig)
+local STORE_NAME = DataConfig.ProfileStoreName
+local OLD_STORE_NAME = DataConfig.LegacyStoreName
 
 local PROFILE_TEMPLATE = {
 	Name = "",
@@ -45,10 +45,15 @@ local PROFILE_TEMPLATE = {
 		LastClaimTime = 0,
 		Streak = 0,
 	},
+	-- Imported once from DailyQuestsProgress_v1.0 by QuestsHandler. Claims and
+	-- Cash then share this profile's session lock and atomic DataStore record.
+	DailyQuests = { MigrationComplete = false },
 	VIP = {
 		HasVIP = false,
 		ExpiresAt = 0,
 	},
+	ProcessedPurchases = {},
+	MigrationComplete = false,
 	FirstTimePlaying = false,
 }
 
@@ -59,6 +64,9 @@ local Profiles: {[Player]: any} = {}
 -- Serialize all Value objects in leaderstats into Profile.Data.
 -- Called automatically before every ProfileStore save via Profile.OnSave.
 local function syncValueObjectsToProfile(player: Player, profile: any)
+	-- Value objects exist before hydration finishes. Never save their temporary
+	-- defaults over a loaded inventory/cash balance during that window.
+	if player:GetAttribute("DataReady") ~= true then return end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
 	if not profile:IsActive() then return end
@@ -106,7 +114,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 				Quantity = quantity and quantity.Value or 1,
 				Rarity = rarity and rarity.Value or "Common",
 				Image = image and image.Value or "1",
-				Tradeable = tradeable and tradeable.Value or (knife.Name ~= "Shadow Dagger"),
+				Tradeable = if tradeable then tradeable.Value else knife.Name ~= "Shadow Dagger",
 			})
 		end
 	end
@@ -296,15 +304,21 @@ function ProfileManager.LoadProfile(player: Player): any?
 	profile:AddUserId(player.UserId) -- GDPR compliance
 	profile:Reconcile() -- Fill in any missing template fields
 
-	-- One-time migration from old raw DataStore
-	if profile.SessionLoadCount == 1 then
+	-- Retry migration until the legacy read succeeds. A successful nil read is complete.
+	if profile.Data.MigrationComplete ~= true then
 		local oldStore = DataStoreService:GetDataStore(OLD_STORE_NAME)
 		local success, oldData = pcall(function()
 			return oldStore:GetAsync(tostring(player.UserId))
 		end)
-		if success and type(oldData) == "table" then
+		if not success then
+			profile:EndSession()
+			player:Kick("Failed to migrate your data. Please rejoin.")
+			return nil
+		end
+		if type(oldData) == "table" then
 			migrateOldData(profile, oldData)
 		end
+		profile.Data.MigrationComplete = true
 	end
 
 	-- Before every save, sync Value objects → Profile.Data
@@ -315,6 +329,8 @@ function ProfileManager.LoadProfile(player: Player): any?
 	-- If another server steals the session, kick the player
 	profile.OnSessionEnd:Connect(function()
 		Profiles[player] = nil
+		player:SetAttribute("DataReady", false)
+		player:SetAttribute("DataLoadState", "Failed")
 		if player.Parent == Players then
 			player:Kick("Your data has been loaded on another server. Please rejoin.")
 		end
@@ -339,6 +355,28 @@ function ProfileManager.SaveProfile(player: Player)
 		syncValueObjectsToProfile(player, profile)
 		profile:Save()
 	end
+end
+
+-- Profile:Save() queues asynchronous work; pcall(Save) is not a durable receipt
+-- acknowledgement. Confirm the receipt marker in the successfully saved data.
+function ProfileManager.ConfirmPurchase(player: Player, purchaseId: string, timeoutSeconds: number?): boolean
+	local profile = Profiles[player]
+	if not profile or not profile:IsActive() or player:GetAttribute("DataReady") ~= true then return false end
+	local function savedReceipt()
+		local saved = profile.LastSavedData
+		return saved and saved.ProcessedPurchases and saved.ProcessedPurchases[purchaseId] == true
+	end
+	if savedReceipt() then return true end
+	if not profile.Data.ProcessedPurchases or profile.Data.ProcessedPurchases[purchaseId] ~= true then return false end
+	syncValueObjectsToProfile(player, profile)
+	profile:Save()
+	local deadline = os.clock() + (timeoutSeconds or 20)
+	repeat
+		if savedReceipt() then return true end
+		if Profiles[player] ~= profile or not profile:IsActive() then return false end
+		task.wait(0.1)
+	until os.clock() >= deadline
+	return savedReceipt() == true
 end
 
 -- End session cleanly (call on PlayerRemoving)
@@ -374,15 +412,5 @@ function ProfileManager.GetStore()
 	return PlayerStore
 end
 
-
-StartTutorialRemote.OnServerEvent:Connect(function(player)
-    local profile = Profiles[player]
-	print(profile)
-	print(profile.Data.FirstTimePlaying)
-    if profile and profile.Data.FirstTimePlaying == false then
-        profile.Data.FirstTimePlaying = true
-        StartTutorialRemote:FireClient(player)
-    end
-end)
 
 return ProfileManager

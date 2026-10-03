@@ -8,17 +8,21 @@ local RequestLeaderboardsRemote = LeaderboardsRemotesFolder:WaitForChild("Reques
 local Leaderboards = {}
 
 local CalculateLevelModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CalculateLevel"))
--- Require ProfileManager to get the 100% accurate save data directly from the source
-local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
 
-local LevelsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Levels_Datastore1.0")
-local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_Datastore1.0")
-local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_Datastore1.0")
+local DataConfig = require(ReplicatedStorage.Modules.DataConfig)
+local scope = DataConfig.GetLeaderboardScope()
+local LevelsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Levels_Datastore1.0", scope)
+local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_Datastore1.0", scope)
+local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_Datastore1.0", scope)
 
 local NAME_CACHE = {}
 local UPDATE_COOLDOWN_SECONDS = 60
 local DEFAULT_TOP_COUNT = 50
 local liveUpdateDebounces: {[number]: boolean} = {}
+local lastWrittenStats = {}
+local requestCooldowns = {}
+local playerConnections = {}
+local boundPlayers = {}
 
 -- Store the latest fetched leaderboards to prevent throttling and instant-load for clients
 local CachedLeaderboards = {
@@ -43,50 +47,40 @@ local function getPlayerName(userId: number)
 end
 
 local function updateOrderedStores(player: Player)
+    if player:GetAttribute("DataReady") ~= true then return end
     local userId = player.UserId
-
-    -- Fetch exact data directly from the save profile, ignoring UI delays
-    local profileData = ProfileManager.GetProfileData(player)
-    local kills, cash, xp = 0, 0, 0
-    
-    if profileData then
-        kills = profileData.Kills or 0
-        cash = profileData.Cash or 0
-        xp = profileData.XP or 0
-    else
-        -- Fallback to leaderstats if profile isn't fully loaded yet
-        local leaderstats = player:FindFirstChild("leaderstats")
-        if leaderstats then
-            kills = leaderstats:FindFirstChild("Kills") and leaderstats.Kills.Value or 0
-            cash = leaderstats:FindFirstChild("Cash") and leaderstats.Cash.Value or 0
-            xp = leaderstats:FindFirstChild("XP") and leaderstats.XP.Value or 0
-        else
-            return -- No data available at all yet
+    -- These server values are current; Profile.Data is refreshed at save time.
+    local stats = player:FindFirstChild("leaderstats")
+    local kills, cash, xp = stats and stats:FindFirstChild("Kills"), stats and stats:FindFirstChild("Cash"), stats and stats:FindFirstChild("XP")
+    if not kills or not cash or not xp then return end
+    local values = { Kills = kills.Value, Gold = cash.Value, Levels = CalculateLevelModule.GetLevel(xp.Value) }
+    local previous = lastWrittenStats[userId] or {}
+    lastWrittenStats[userId] = previous
+    for name, store in pairs({ Kills = KillsStore, Gold = GoldStore, Levels = LevelsStore }) do
+        local value = values[name]
+        if previous[name] ~= value then
+            local ok = pcall(function() store:SetAsync(tostring(userId), value) end)
+            if ok then previous[name] = value end -- failed writes retry next cycle
         end
     end
-
-    local level = CalculateLevelModule.GetLevel(xp)
-
-    -- Push to OrderedDataStores safely
-    pcall(function() KillsStore:SetAsync(userId, kills) end)
-    pcall(function() GoldStore:SetAsync(userId, cash) end)
-    pcall(function() LevelsStore:SetAsync(userId, level) end)
 end
 
 local function getLeaderboardData(orderedStore: OrderedDataStore, count: number)
     local success, pages = pcall(function()
         return orderedStore:GetSortedAsync(false, count)
     end)
-    if not success or not pages then return {} end
+    if not success or not pages then return nil end
 
     local currentPage = pages:GetCurrentPage()
     local results = {}
     
-    for rank, entry in ipairs(currentPage) do
+    for _, entry in ipairs(currentPage) do
+        local userId = tonumber(entry.key)
+        if not userId or userId <= 0 or userId % 1 ~= 0 then continue end
         table.insert(results, {
-            Rank = rank,
-            UserId = entry.key,
-            Name = getPlayerName(entry.key),
+            Rank = #results + 1,
+            UserId = userId,
+            Name = getPlayerName(userId),
             Value = entry.value,
         })
     end
@@ -95,6 +89,7 @@ local function getLeaderboardData(orderedStore: OrderedDataStore, count: number)
 end
 
 local function updateCachedPlayer(player: Player)
+    if player:GetAttribute("DataReady") ~= true then return end
     local leaderstats = player:FindFirstChild("leaderstats")
     if not leaderstats then return end
 
@@ -113,6 +108,7 @@ local function updateCachedPlayer(player: Player)
         local found = false
         for _, entry in ipairs(entries) do
             if tonumber(entry.UserId) == userId then
+                entry.Name = player.Name
                 entry.Value = value
                 entry[key == "Levels" and "Level" or key == "Gold" and "Cash" or "Kills"] = value
                 found = true
@@ -140,12 +136,15 @@ local function updateCachedPlayer(player: Player)
 end
 
 local function bindLiveUpdates(player: Player)
+	if boundPlayers[player] or player:GetAttribute("DataReady") ~= true then return end
     local leaderstats = player:FindFirstChild("leaderstats")
     if not leaderstats then return end
+    boundPlayers[player] = true
     for _, statName in ipairs({"Kills", "Cash", "XP"}) do
         local stat = leaderstats:FindFirstChild(statName)
         if stat and (stat:IsA("IntValue") or stat:IsA("NumberValue")) then
-            stat.Changed:Connect(function()
+            table.insert(playerConnections[player], stat.Changed:Connect(function()
+                if player:GetAttribute("DataReady") ~= true then return end
                 updateCachedPlayer(player)
                 if not liveUpdateDebounces[player.UserId] then
                     liveUpdateDebounces[player.UserId] = true
@@ -154,7 +153,7 @@ local function bindLiveUpdates(player: Player)
                         liveUpdateDebounces[player.UserId] = nil
                     end)
                 end
-            end)
+            end))
         end
     end
 end
@@ -176,31 +175,48 @@ end
 Players.PlayerRemoving:Connect(function(player)
     updateOrderedStores(player)
     liveUpdateDebounces[player.UserId] = nil
+    lastWrittenStats[player.UserId], requestCooldowns[player.UserId] = nil, nil
+    for _, connection in ipairs(playerConnections[player] or {}) do connection:Disconnect() end
+    playerConnections[player], boundPlayers[player] = nil, nil
 end)
 
-Players.PlayerAdded:Connect(function(player)
-    task.defer(function()
+local function onPlayer(player)
+    if playerConnections[player] then return end
+    playerConnections[player] = {}
+    local function ready()
+        if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return end
         bindLiveUpdates(player)
-    end)
-end)
+        Leaderboards.UpdatePlayer(player)
+    end
+    table.insert(playerConnections[player], player:GetAttributeChangedSignal("DataReady"):Connect(ready))
+    task.defer(ready)
+end
+Players.PlayerAdded:Connect(onPlayer)
 
 for _, player in ipairs(Players:GetPlayers()) do
-    task.defer(function()
-        bindLiveUpdates(player)
-    end)
+    onPlayer(player)
 end
 
 -- When a client loads in or hits refresh, instantly give them the cache
 RequestLeaderboardsRemote.OnServerEvent:Connect(function(player)
+    local now = os.clock()
+    if requestCooldowns[player.UserId] and now - requestCooldowns[player.UserId] < 1 then return end
+    requestCooldowns[player.UserId] = now
     RequestLeaderboardsRemote:FireClient(player, CachedLeaderboards)
 end)
 
+local function refreshCache()
+    for name, store in pairs({Levels = LevelsStore, Kills = KillsStore, Gold = GoldStore}) do
+        local rows = getLeaderboardData(store, DEFAULT_TOP_COUNT)
+        if rows then CachedLeaderboards[name] = rows end
+    end
+    -- Reads can yield while stats change. Merge the current hydrated players
+    -- after fetching so delayed store responses cannot restore old live values.
+    for _, player in ipairs(Players:GetPlayers()) do updateCachedPlayer(player) end
+    Leaderboards.Broadcast()
+end
 task.spawn(function()
-    CachedLeaderboards = {
-        Levels = getLeaderboardData(LevelsStore, DEFAULT_TOP_COUNT),
-        Kills = getLeaderboardData(KillsStore, DEFAULT_TOP_COUNT),
-        Gold = getLeaderboardData(GoldStore, DEFAULT_TOP_COUNT),
-    }
+    refreshCache()
 
     while true do
         for _, player in ipairs(Players:GetPlayers()) do
@@ -212,13 +228,7 @@ task.spawn(function()
 
         task.wait(5)
 
-        CachedLeaderboards = {
-            Levels = getLeaderboardData(LevelsStore, DEFAULT_TOP_COUNT),
-            Kills = getLeaderboardData(KillsStore, DEFAULT_TOP_COUNT),
-            Gold = getLeaderboardData(GoldStore, DEFAULT_TOP_COUNT),
-        }
-
-        Leaderboards.Broadcast()
+        refreshCache()
 
         task.wait(UPDATE_COOLDOWN_SECONDS - 5)
     end

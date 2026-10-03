@@ -10,6 +10,7 @@ local AbbreviateModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitF
 local RarityColorModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local NotificationHandler = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("SendNotification"))
 local InventoryHandler = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("InventoryHandler"))
+local ProfileManager = require(script.Parent.Parent.DataStore.ProfileManager)
 local GameRewardModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("GameReward"))
 
 local GetRarity = require(script.Parent.GetRarityWeight)
@@ -37,6 +38,8 @@ local CASE_OPEN_MIN_GAP = 0.35
 
 OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string)
 	if not player then return end
+	local profile = ProfileManager.GetProfile(player)
+	if player:GetAttribute("DataReady") ~= true or not profile or not profile:IsActive() then return end
 	if type(CaseName) ~= "string" then return end
 	if #CaseName < 1 or #CaseName > 64 then return end
 
@@ -51,15 +54,15 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		return NotificationHandler.SendNotification(player, "Debounce", 3, "Error")
 	end
 	
-	if not CaseInfoModule[CaseName] then
+	local CaseInfo = CaseInfoModule[CaseName]
+	if type(CaseInfo) ~= "table" or type(CaseInfo.Price) ~= "number" or CaseInfo.Price <= 0 then
 		NotificationHandler.SendNotification(player, "Couldn't find case info", 3, "Error")
 		return
 	end
-	
-	
-	if not CaseName then return end
-	
-	local CaseInfo = CaseInfoModule[CaseName]
+
+	-- Lock BEFORE any yielding call (UserOwnsGamePassAsync) so two quick
+	-- requests can never run overlapping openings.
+	OnSpinningAnimation[player.UserId] = true
 	local cashValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Cash")
 	local deducted = false
 
@@ -92,11 +95,15 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 
 	
+	if not player.Parent or not profile:IsActive() or ProfileManager.GetProfile(player) ~= profile then
+		clearDebounce()
+		return
+	end
+
 	if cashValue then
 		if cashValue.Value >= CaseInfo.Price then
 			cashValue.Value -= CaseInfo.Price
 			deducted = true
-			OnSpinningAnimation[player.UserId] = true
 		else
 			fail("You can't afford this case")
 			return
@@ -121,8 +128,11 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 	local SkinsPlayerCanRecieve = {}
 	
+	local isRevolverCase = CaseInfo.ItemType == "Revolver"
+
 	for knifeName, skinData in pairs(CaseInfo.Skins) do
-		if skinData.Rarity == chosenRarity then
+		local blocked = isRevolverCase and (skinData.Rarity == "Godly" or knifeName == "White&Black Revolver")
+		if not blocked and skinData.Rarity == chosenRarity then
 			table.insert(SkinsPlayerCanRecieve, {
 				Knife = knifeName;
 				Data = skinData;
@@ -138,15 +148,30 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	
 	local chosenSkin = SkinsPlayerCanRecieve[math.random(1, #SkinsPlayerCanRecieve)]
 
+	-- Hard guarantee: Godly revolvers are Robux-only.
+	if isRevolverCase and chosenSkin.Data.Rarity == "Godly" then
+		fail("Something wrong happend")
+		return
+	end
+
 	
 
 	
 	
 	-- Grant the item IMMEDIATELY (before animation) to prevent loss on disconnect/crash
+	local granted
 	if CaseInfo.EmoteCase == true then
-		InventoryHandler.AddEmote(player, tostring(chosenSkin.Knife))
+		granted = InventoryHandler.AddEmote(player, tostring(chosenSkin.Knife))
+	elseif isRevolverCase then
+		granted = InventoryHandler.AddRevolver(player, tostring(chosenSkin.Knife), 1)
 	else
-		InventoryHandler.AddKnife(player, tostring(chosenSkin.Knife))
+		granted = InventoryHandler.AddKnife(player, tostring(chosenSkin.Knife))
+	end
+
+	if not granted then
+		-- Item could not be created (missing model/info/inventory): refund, don't eat the gold.
+		fail("Couldn't give you the item, you were refunded")
+		return
 	end
 	GameRewardModule.XpReward(player, "case_open")
 

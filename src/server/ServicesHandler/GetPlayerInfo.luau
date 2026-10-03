@@ -5,16 +5,23 @@ local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):Wa
 
 function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}
-	local foundPlayer = nil
+	local foundPlayer = Players:GetPlayerByUserId(UserId)
 
 	-- Try to get saved data (for RoundHistory, offline fallback, etc.)
 	local dataFromStore = nil
-	local profileObj = ProfileManager.GetAsync(UserId)
-	if profileObj then
-		dataFromStore = profileObj.Data
+	if foundPlayer then
+		if foundPlayer:GetAttribute("DataReady") ~= true then return { UserId = UserId, Name = foundPlayer.Name, Loading = true } end
+		-- Local profiles already contain round history. Viewing a local player
+		-- must not spend DataStore budget or wait for a stale saved snapshot.
+		dataFromStore = ProfileManager.GetProfileData(foundPlayer)
 	else
-		-- Fallback: player may not have migrated yet
-		dataFromStore = ProfileManager.GetOldDataAsync(UserId)
+		local ok, profileObj = pcall(ProfileManager.GetAsync, UserId)
+		if ok and profileObj then
+			dataFromStore = profileObj.Data
+		else
+			-- Fallback: player may not have migrated yet.
+			dataFromStore = ProfileManager.GetOldDataAsync(UserId)
+		end
 	end
 
 	for _, player in pairs(Players:GetPlayers()) do
@@ -90,7 +97,9 @@ function GetPlayerInfo.Inventory(UserId : number)
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.UserId == UserId then
-			local inventory = player:FindFirstChild("leaderstats"):FindFirstChild("Inventory")
+			if player:GetAttribute("DataReady") ~= true then return InventoryInfo end
+			local stats = player:FindFirstChild("leaderstats")
+			local inventory = stats and stats:FindFirstChild("Inventory")
 			if inventory then
 				for _, item in ipairs(inventory:GetChildren()) do
 					if item:IsA("StringValue") then
@@ -103,7 +112,7 @@ function GetPlayerInfo.Inventory(UserId : number)
 							Quantity = quantity and quantity.Value or 0,
 							Rarity = rarity and rarity.Value or "Unknown",
 							Image = image and image.Value or "",
-							Tradeable = tradeable and tradeable:IsA("BoolValue") and tradeable.Value or true,
+							Tradeable = if tradeable and tradeable:IsA("BoolValue") then tradeable.Value else true,
 						}
 					end
 				end

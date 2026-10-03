@@ -38,6 +38,43 @@ local EquippedClient = HotBarRemots:WaitForChild("EquippedClient")
 local KnivesModule = require(RS:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local GunsModule = require(RS:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
 local KeybindValidation = require(RS:WaitForChild("Modules"):WaitForChild("KeybindValidation"))
+local FoodConfig = require(RS.Modules.FoodConfig)
+local GameActive = RS:WaitForChild("GameActive")
+local FoodSlot = HotbarFrame:FindFirstChild("3")
+if not FoodSlot then
+	FoodSlot = HotbarFrame:WaitForChild("2"):Clone()
+	FoodSlot.Name, FoodSlot.LayoutOrder = "3", 3
+	if not HotbarFrame:FindFirstChildOfClass("UIListLayout") and not HotbarFrame:FindFirstChildOfClass("UIGridLayout") then
+		local first, second = HotbarFrame["1"].Position, HotbarFrame["2"].Position
+		FoodSlot.Position = UDim2.new(2 * second.X.Scale - first.X.Scale, 2 * second.X.Offset - first.X.Offset, second.Y.Scale, second.Y.Offset)
+	end
+	for _, label in ipairs(FoodSlot:GetDescendants()) do
+		if label:IsA("TextLabel") and label.Text == "2" then label.Text = "3" end
+	end
+	FoodSlot.Parent = HotbarFrame
+end
+local foodCount = Instance.new("TextLabel")
+foodCount.Name, foodCount.BackgroundTransparency = "FoodCount", 1
+foodCount.Size, foodCount.Position = UDim2.fromScale(1, 0.3), UDim2.fromScale(0, 0.7)
+foodCount.Font, foodCount.TextSize, foodCount.TextColor3 = Enum.Font.GothamBold, 14, Color3.new(1, 1, 1)
+foodCount.TextStrokeTransparency, foodCount.Parent = 0.4, FoodSlot
+local characterConnections = {}
+
+local function RefreshFoodSlot()
+	local uses = Player:GetAttribute("FoodUses") or 0
+	FoodSlot.Visible = GameActive.Value and Player:GetAttribute("InRound") == true and uses > 0
+	foodCount.Text = string.format("%d/%d", uses, FoodConfig.Capacity)
+	local assets = RS:FindFirstChild("Food")
+	local template = assets and assets:FindFirstChild(FoodConfig.ToolName)
+	local image = FoodSlot:FindFirstChild("SlotImage")
+	if image then image.Image = "rbxassetid://111896278734464" end
+end
+
+local function SetFoodEquippedUI(equipped)
+	local selected = FoodSlot:FindFirstChild("SlotSelected")
+	if selected then selected.Visible = equipped end
+	FoodSlot.BackgroundColor3 = equipped and Color3.fromHex("#121518") or Color3.fromRGB(27, 31, 35)
+end
 
 
 
@@ -130,9 +167,8 @@ local function SetGunEquippedUI(equipped)
 	local gunSlot = HotbarFrame:WaitForChild("2")
 	local slotSelected = gunSlot:WaitForChild("SlotSelected")
 	slotSelected.Visible = equipped
-	if equipped then
-		SoundHandlerModule.PlaySound("EquipKnife")
-	end
+	-- RevolverController plays the configured equip sound on the actual Tool
+	-- transition, including equips that did not originate in this hotbar.
 
 	if equipped then
 		TweenSize(gunSlot, UDim2.new(0.081, 5, 1.054, 5))
@@ -162,6 +198,7 @@ local function EquipTool(SlotEquipped)
 		ServerRemote:FireServer("Revolver")
 		return
 	end
+	if SlotEquipped == 3 and FoodSlot.Visible then ServerRemote:FireServer("Food") end
 	
 --	print(SlotEquipped)
 
@@ -170,6 +207,7 @@ end
 
 
 UserInputService.InputBegan:Connect(function(key, GameProceed)
+	if GameProceed or UserInputService:GetFocusedTextBox() then return end
 	local now = os.clock()
 	if now - lastEquipInput < EQUIP_INPUT_COOLDOWN then return end
 
@@ -226,7 +264,7 @@ local function RefreshHotBar()
 
 	local revolvers = RS:FindFirstChild("Revolvers")
 	local gun = revolvers and revolvers:FindFirstChild(EquippedGun.Value)
-	if gun and gun:IsA("Tool") then
+	if GunInfo and gun and gun:IsA("Tool") then
 		HotbarFrame:WaitForChild("2").SlotImage.Image = GunInfo.Image
 	end
 	
@@ -240,6 +278,8 @@ EquippedClient.OnClientEvent:Connect(function(action, EquippedOrNot)
 		SetKnifeEquippedUI(EquippedOrNot)
 	elseif action == "Gun" then
 		SetGunEquippedUI(EquippedOrNot)
+	elseif action == "Food" then
+		SetFoodEquippedUI(EquippedOrNot)
 	else
 		return
 	end
@@ -247,28 +287,35 @@ end)
 
 -- Reset UI on respawn and when tools are removed without a remote event
 local function HookCharacter(char)
+	for _, connection in ipairs(characterConnections) do connection:Disconnect() end
+	table.clear(characterConnections)
 	Character = char
 	SetKnifeEquippedUI(false)
 	SetGunEquippedUI(false)
+	SetFoodEquippedUI(false)
 
-	Character.ChildRemoved:Connect(function(child)
+	table.insert(characterConnections, Character.ChildRemoved:Connect(function(child)
 		if child:IsA("Tool") then
-			if RS:FindFirstChild("Revolvers") and RS.Revolvers:FindFirstChild(child.Name) then
+			if child:GetAttribute("FoodItem") == FoodConfig.ToolName then
+				SetFoodEquippedUI(false)
+			elseif GunsModule[child.Name] then
 				SetGunEquippedUI(false)
 			else
 				SetKnifeEquippedUI(false)
 			end
 		end
-	end)
-	Character.ChildAdded:Connect(function(child)
+	end))
+	table.insert(characterConnections, Character.ChildAdded:Connect(function(child)
 		if child:IsA("Tool") then
-			if RS:FindFirstChild("Revolvers") and RS.Revolvers:FindFirstChild(child.Name) then
+			if child:GetAttribute("FoodItem") == FoodConfig.ToolName then
+				SetFoodEquippedUI(true)
+			elseif GunsModule[child.Name] then
 				SetGunEquippedUI(true)
 			else
 				SetKnifeEquippedUI(true)
 			end
 		end
-	end)
+	end))
 end
 
 Player.CharacterAdded:Connect(HookCharacter)
@@ -325,6 +372,10 @@ end)
 
 
 RefreshHotBar()
+RefreshFoodSlot()
+GameActive.Changed:Connect(RefreshFoodSlot)
+Player:GetAttributeChangedSignal("FoodUses"):Connect(RefreshFoodSlot)
+Player:GetAttributeChangedSignal("InRound"):Connect(RefreshFoodSlot)
 
 
 

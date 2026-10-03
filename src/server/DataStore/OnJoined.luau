@@ -5,8 +5,12 @@ local PlayerResettedRemote = RS:WaitForChild("Remotes"):WaitForChild("StartGameC
 
 
 
-local MainGameModule = require(script.Parent.Parent:WaitForChild("Game"):WaitForChild("MainGame"))
-local test = require(script.Parent:WaitForChild("InventoryHandler"))
+local MainGameModule
+local function getMainGame()
+	if not MainGameModule then MainGameModule = require(script.Parent.Parent.Game.MainGame) end
+	return MainGameModule
+end
+local function getInventory() return require(script.Parent.InventoryHandler) end
 local VIPService = require(script.Parent.Parent:WaitForChild("ServicesHandler"):WaitForChild("VIPService"))
 local ProfileManager = require(script.Parent:WaitForChild("ProfileManager"))
 local Leaderboards = require(script.Parent:WaitForChild("LeaderboardsHandler"))
@@ -16,18 +20,31 @@ local KeybindValidation = require(RS:WaitForChild("KeyBinds"):WaitForChild("Keyb
 local RevolversInfo = require(RS:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
 
 local DEFAULT_REVOLVER = "White&Black Revolver"
+local initializedPlayers = {}
 
 -- Backward-compatible wrapper so other modules can still call OnJoined.SavePlayerData(player)
 local function savePlayerData(player)
 	ProfileManager.SaveProfile(player)
 end
 
-Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function()
+local function initializePlayer(player)
+	if player.Parent ~= Players or initializedPlayers[player] then return end
+	initializedPlayers[player] = true -- claim before profile/character setup can yield
+	player:SetAttribute("DataReady", false)
+	player:SetAttribute("DataLoadState", "Loading")
+	local lastCharacter
+	local function onCharacter(character)
+		if player.Character ~= character or lastCharacter == character then return end
+		lastCharacter = character
+		local MainGameModule = getMainGame()
+		if player.Character ~= character or player.Parent ~= Players then return end
+		MainGameModule.OnCharacterAdded(player)
 		task.delay(1, function()
-			local character = player.Character
-			local forceField = character and character:FindFirstChildOfClass("ForceField")
-			if forceField then
+			if player.Character ~= character then return end
+			-- Remove only Roblox's default spawn field, preserving owned fields
+			-- such as the 1.5-second RoundStartProtection after the fight countdown.
+			local forceField = character and character:FindFirstChild("ForceField")
+			if forceField and forceField:IsA("ForceField") then
 				forceField:Destroy()
 			end
 		end)
@@ -36,12 +53,16 @@ Players.PlayerAdded:Connect(function(player)
 			PlayerResettedRemote:FireClient(player)
 		else
 		end
-		local character = player.Character
 		local humanoid = character:WaitForChild("Humanoid")
+		if player.Character ~= character or player.Parent ~= Players then return end
 		humanoid.Died:Connect(function()
-			MainGameModule.OnDeath(player)
+			if player.Character == character then MainGameModule.OnDeath(player, character) end
 		end)
-	end)
+	end
+	player.CharacterAdded:Connect(onCharacter)
+	-- Dependency loading/map replacement can yield before this module starts.
+	-- Existing characters need the same death/reset hooks as future spawns.
+	if player.Character then task.spawn(onCharacter, player.Character) end
 	
 
 
@@ -178,6 +199,12 @@ Players.PlayerAdded:Connect(function(player)
 			VIPService.SetCachedExpiry(player.UserId, vipExpiresAt)
 		else
 			VIPService.RefreshPlayer(player)
+		end
+		-- A legacy VIP lookup may yield while the player leaves or loses the
+		-- profile session. Never publish partially hydrated data as ready.
+		if player.Parent ~= Players or not profile:IsActive() then
+			player:SetAttribute("DataLoadState", "Failed")
+			return
 		end
 		
 		
@@ -345,9 +372,6 @@ Players.PlayerAdded:Connect(function(player)
 					rarity.Parent = emote
 
 				end
-
-				-- Push freshly loaded stats to leaderboards immediately (avoids initial zero write)
-				Leaderboards.UpdatePlayer(player)
 			end
 		end
 
@@ -390,18 +414,43 @@ Players.PlayerAdded:Connect(function(player)
 		-- If this is the first session ever (new player with migrated-or-default data),
 		-- give the starter knife if inventory is empty
 		if #data.Inventory == 0 then
-			test.AddKnife(player, "Shadow Dagger", false)
+			getInventory().AddKnife(player, "Shadow Dagger", false)
 		end
+
+		player:SetAttribute("DataReady", true)
+		player:SetAttribute("DataLoadState", "Ready")
+		-- Automatic spawning is disabled during rounds; late joiners still need
+		-- their lobby character, without becoming round participants.
+		if not player.Character and not Players.CharacterAutoLoads then player:LoadCharacter() end
+		Leaderboards.UpdatePlayer(player)
 	else
 		-- Profile failed to load (player was kicked by ProfileManager)
+		player:SetAttribute("DataLoadState", "Failed")
 		return
 	end
-end)
+end
+
+-- Subscribe first, then backfill. The guard above makes an overlap between
+-- this snapshot and PlayerAdded initialize each player/profile exactly once.
+local function initializeSafely(player)
+	local ok, err = xpcall(initializePlayer, debug.traceback, player)
+	if not ok then
+		warn(("[Startup] Player data setup failed for %s: %s"):format(player.Name, tostring(err)))
+		player:SetAttribute("DataReady", false)
+		player:SetAttribute("DataLoadState", "Failed")
+		ProfileManager.EndSession(player)
+		if player.Parent == Players then player:Kick("Your data could not be loaded safely. Please rejoin.") end
+	end
+end
+Players.PlayerAdded:Connect(initializeSafely)
 
 Players.PlayerRemoving:Connect(function(player)
 	ProfileManager.EndSession(player)
-	MainGameModule.PlayersInGame[player.UserId] = nil
+	initializedPlayers[player] = nil
+	-- Session release must not wait for the map/game dependency either.
+	if MainGameModule then MainGameModule.LeaveRound(player, true) end
 end)
+for _, player in ipairs(Players:GetPlayers()) do task.spawn(initializeSafely, player) end
 
 return {
 	SavePlayerData = savePlayerData
