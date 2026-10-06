@@ -68,6 +68,12 @@ return {
 	};
 
 
+	["Void Strike"] = {
+		MeshId = "rbxassetid://111142693643686";
+		Image = "rbxassetid://130675931767296"; 
+		Rarity = "Godly"
+	};
+
 
 
 

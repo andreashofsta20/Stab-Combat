@@ -13,15 +13,26 @@ local OutgoingRequests = {} -- [senderUserId] = targetUserId (PREVENTS SPAMMING 
 local RequestCooldowns = {} -- [userId] = lastRequestTime
 local REQUEST_COOLDOWN = 15 -- 15 second cooldown for sending trades
 local CancelCallbacks = {}
+local initialized = false
+local function canTrade(player)
+    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+    local stats = player:FindFirstChild("leaderstats")
+    local settings = stats and stats:FindFirstChild("Settings")
+    local enabled = settings and settings:FindFirstChild("Trades")
+    return not enabled or enabled.Value ~= false
+end
 
 function TradeManager.RegisterCancelCallback(callback: (any, string?) -> ())
     table.insert(CancelCallbacks, callback)
 end
 
 function TradeManager.Init()
+    if initialized then return end
+    initialized = true
     -- Handle player leaving mid-trade or mid-request
     Players.PlayerRemoving:Connect(function(player)
         TradeManager.CancelTradeForPlayer(player)
+        RequestCooldowns[player.UserId] = nil
     end)
     
     -- Timeout checker
@@ -34,7 +45,10 @@ function TradeManager.Init()
 end
 
 function TradeManager.CheckTimeouts()
+    local checked = {}
     for userId, session in pairs(ActiveTrades) do
+        if checked[session] then continue end
+        checked[session] = true
         if session:IsTimedOut() then
             warn("Trade timed out:", session.TradeId)
             TradeManager.CancelTrade(session, "TIMEOUT")
@@ -51,6 +65,7 @@ function TradeManager.CanSendRequest(player: Player)
 end
 
 function TradeManager.SendRequest(sender: Player, target: Player)
+    if not canTrade(sender) or not canTrade(target) then return false, "Player is unavailable for trading" end
     -- Validate
     if sender == target then
         return false, "Cannot trade with yourself"
@@ -128,7 +143,7 @@ function TradeManager.AcceptRequest(target: Player)
     local sender = request.sender
     
     -- Check sender still in game
-    if not sender or not sender.Parent then
+    if not sender or not canTrade(sender) or not canTrade(target) or os.clock() - request.timestamp >= 15 then
         TradeManager.ClearPendingRequest(target.UserId)
         return false, "Request expired"
     end
@@ -263,16 +278,16 @@ function TradeManager.ExecuteTrade(session: any)
 end
 
 function TradeManager.CancelTrade(session: any, reason: string?)
-    if not session then return end
+    if not session or session.State == "CANCELLED" or session.State == "COMPLETED" then return end
 
-    for _, callback in ipairs(CancelCallbacks) do
-        task.spawn(callback, session, reason)
-    end
-    
     session:Cancel()
     
     ActiveTrades[session.Player1.UserId] = nil
     ActiveTrades[session.Player2.UserId] = nil
+
+    for _, callback in ipairs(CancelCallbacks) do
+        task.spawn(callback, session, reason)
+    end
 end
 
 function TradeManager.CancelTradeForPlayer(player: Player)

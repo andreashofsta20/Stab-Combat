@@ -72,6 +72,7 @@ local function sound(part, id, settings, pitch, fallback)
 	audio.Looped, audio.Volume, audio.RollOffMaxDistance = false, settings.SoundVolume, settings.SoundRange
 	audio.PlaybackSpeed, audio.Parent = pitch, part
 	audio:Play()
+	return audio
 end
 
 function Effects.ThrowSound(position, charge, settings, fallback)
@@ -84,9 +85,10 @@ end
 
 function Effects.Impact(position, normal, settings)
 	if typeof(normal) ~= "Vector3" or normal.Magnitude < 0.5 then return end
-	if not settings.ImpactEnabled and settings.ImpactSoundId == "" then return end
+	local emitParticles = settings.ImpactEnabled and settings.ImpactSparkCount > 0
+	if not emitParticles and settings.ImpactSoundId == "" then return end
 	local part = anchor(position + normal * 0.025)
-	if settings.ImpactEnabled then
+	if emitParticles then
 		local up = math.abs(normal.Y) > 0.98 and Vector3.new(1, 0, 0) or Vector3.new(0, 1, 0)
 		part.CFrame = CFrame.lookAt(position + normal * 0.025, position + normal, up)
 		local socket = Instance.new("Attachment")
@@ -95,8 +97,10 @@ function Effects.Impact(position, normal, settings)
 		emitter.EmissionDirection, emitter.Rate, emitter.Enabled = Enum.NormalId.Front, 0, false
 		emitter:Emit(settings.ImpactSparkCount)
 	end
-	sound(part, settings.ImpactSoundId, settings, 1)
-	Debris:AddItem(part, 5)
+	local audio = sound(part, settings.ImpactSoundId, settings, 1)
+	-- A burst ends within 0.18 seconds. Retain its anchor longer only if it
+	-- owns audio, instead of accumulating five seconds of invisible effects.
+	Debris:AddItem(part, audio and 5 or 0.25)
 end
 
 return Effects

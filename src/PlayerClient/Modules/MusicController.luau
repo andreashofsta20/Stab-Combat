@@ -5,10 +5,28 @@ local TweenService = game:GetService("TweenService")
 local Config = require(RS.Modules.MusicConfig)
 local player = Players.LocalPlayer
 local GameActive = RS:WaitForChild("GameActive")
-local Settings = player:WaitForChild("leaderstats"):WaitForChild("Settings")
 local Controller = {}
 local initialized = false
 local tracks = {}
+local Settings
+
+local function waitForSettings()
+	while player.Parent == Players
+		and player:GetAttribute("DataReady") ~= true
+		and player:GetAttribute("DataLoadState") ~= "Failed" do
+		player.AttributeChanged:Wait()
+	end
+	if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then
+		warn("[MusicController] Player data was not ready; music controller disabled")
+		return nil
+	end
+	local leaderstats = player:WaitForChild("leaderstats", 10)
+	local settings = leaderstats and leaderstats:WaitForChild("Settings", 10)
+	if not settings then
+		warn("[MusicController] Missing leaderstats.Settings; music controller disabled")
+	end
+	return settings
+end
 
 local function setPlaying(entry, shouldPlay)
 	if entry.wanted == shouldPlay then return end
@@ -56,6 +74,8 @@ end
 
 function Controller.Init()
 	if initialized then return end
+	Settings = waitForSettings()
+	if not Settings then return end
 	initialized = true
 	local setting = Settings:FindFirstChild("Music")
 	if setting then setting:GetPropertyChangedSignal("Value"):Connect(update) end

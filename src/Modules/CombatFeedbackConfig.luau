@@ -1,0 +1,42 @@
+-- Reused UI instances; no RenderStepped loop, avatar API call or template clone on a hit.
+return {
+	Hit = {
+		Enabled = true,
+		Lifetime = 0.24,
+		Size = 30,
+		Color = Color3.fromRGB(245, 250, 255),
+		KillColor = Color3.fromRGB(255, 218, 116),
+	},
+	Damage = {
+		Enabled = true,
+		MaxActive = 6,
+		Color = Color3.fromRGB(245, 250, 255),
+		HeadshotColor = Color3.fromRGB(255, 78, 87),
+		TextSize = 36,
+		HeadshotTextSize = 42,
+		PopTime = 0.14,
+		PopScale = 0.8,
+		HeadshotPopScale = 0.68,
+		HeadshotTilt = 6,
+		Rise = 1.5,
+		HeadshotRise = 1.85,
+		FadeTime = 0.28,
+		Lifetime = 0.9,
+		MaxDistance = 250,
+	},
+	Kill = {
+		Enabled = true,
+		MaxActive = 3,
+		Width = 352,
+		Height = 80,
+		Gap = 10,
+		-- Lower left, clear of the sight and the centered weapon/ammo HUD.
+		Position = Vector2.new(0.18, 0.76),
+		Lifetime = 3.25,
+		EnterTime = 0.18,
+		ExitTime = 0.22,
+		Accent = Color3.fromRGB(255, 211, 99),
+		Background = Color3.fromRGB(18, 22, 30),
+		BackgroundTransparency = 0.12,
+	},
+}

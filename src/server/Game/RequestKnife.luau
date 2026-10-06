@@ -26,42 +26,7 @@ RequestKnife.OnServerEvent:Connect(function(player)
 	if lobbyMode and lobbyMode.Value then
 		return
 	end
-
-
-
-
-
-
-
-	
-	
-	task.spawn(function()
-		
-		task.wait(3)
-		if player and player.Parent then
-			local settings = player:FindFirstChild("leaderstats")
-				and player.leaderstats:FindFirstChild("Settings")
-			local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
-
-			local roundStats = MainGameModule.RoundStats
-			if not MainGameModule.GameActive or not roundStats then
-				return
-			end
-
-			if lobbyMode and lobbyMode.Value then
-				return
-			end
-
-			-- Round membership is frozen when RoundStats is initialized. Do not
-			-- allow late joins or eliminated players to re-enter.
-			if not roundStats.players[player.UserId]
-				or not MainGameModule.PlayersInGame[player.UserId] then
-				return
-			end
-		end
-	end)
-	
-	
+	-- Legacy request: round membership and equipment are server-controlled.
 end)
 
 

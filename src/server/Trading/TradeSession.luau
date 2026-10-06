@@ -163,6 +163,7 @@ function TradeSession:AddItem(player: Player, itemType: string, itemName: string
     if existingTradeItem then
         existingTradeItem.Quantity = newTotal
     else
+        if #items >= 32 then return false, "Too many offered items" end
         if self:IsItemLocked(userId, itemName) then
             return false, "Item already in trade"
         end

@@ -19,8 +19,21 @@ local DefaultKeybinds = require(RS:WaitForChild("KeyBinds"):WaitForChild("Defaul
 local KeybindValidation = require(RS:WaitForChild("KeyBinds"):WaitForChild("KeybindValidation"))
 local RevolversInfo = require(RS:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
 
-local DEFAULT_REVOLVER = "White&Black Revolver"
+local DEFAULT_KNIFE = "Bowie"
+local DEFAULT_REVOLVER = "Normal Revolver"
 local initializedPlayers = {}
+local function clearCharacter(record)
+	if record.deathConnection then record.deathConnection:Disconnect(); record.deathConnection = nil end
+	record.character = nil
+end
+local function releaseListeners(player)
+	local record = initializedPlayers[player]
+	if not record then return end
+	record.active = false
+	clearCharacter(record)
+	for _, connection in ipairs(record.connections) do connection:Disconnect() end
+	table.clear(record.connections)
+end
 
 -- Backward-compatible wrapper so other modules can still call OnJoined.SavePlayerData(player)
 local function savePlayerData(player)
@@ -29,18 +42,19 @@ end
 
 local function initializePlayer(player)
 	if player.Parent ~= Players or initializedPlayers[player] then return end
-	initializedPlayers[player] = true -- claim before profile/character setup can yield
+	local record = {active = true, connections = {}}
+	initializedPlayers[player] = record -- claim before profile/character setup can yield
 	player:SetAttribute("DataReady", false)
 	player:SetAttribute("DataLoadState", "Loading")
-	local lastCharacter
 	local function onCharacter(character)
-		if player.Character ~= character or lastCharacter == character then return end
-		lastCharacter = character
+		if not record.active or player.Character ~= character or record.character == character then return end
+		clearCharacter(record)
+		record.character = character
 		local MainGameModule = getMainGame()
-		if player.Character ~= character or player.Parent ~= Players then return end
+		if not record.active or player.Character ~= character or player.Parent ~= Players then return end
 		MainGameModule.OnCharacterAdded(player)
 		task.delay(1, function()
-			if player.Character ~= character then return end
+			if not record.active or player.Character ~= character then return end
 			-- Remove only Roblox's default spawn field, preserving owned fields
 			-- such as the 1.5-second RoundStartProtection after the fight countdown.
 			local forceField = character and character:FindFirstChild("ForceField")
@@ -53,13 +67,16 @@ local function initializePlayer(player)
 			PlayerResettedRemote:FireClient(player)
 		else
 		end
-		local humanoid = character:WaitForChild("Humanoid")
-		if player.Character ~= character or player.Parent ~= Players then return end
-		humanoid.Died:Connect(function()
+		local humanoid = character:WaitForChild("Humanoid", 10)
+		if not humanoid or not record.active or player.Character ~= character or player.Parent ~= Players then return end
+		record.deathConnection = humanoid.Died:Connect(function()
 			if player.Character == character then MainGameModule.OnDeath(player, character) end
 		end)
 	end
-	player.CharacterAdded:Connect(onCharacter)
+	table.insert(record.connections, player.CharacterAdded:Connect(onCharacter))
+	table.insert(record.connections, player.CharacterRemoving:Connect(function(character)
+		if record.character == character then clearCharacter(record) end
+	end))
 	-- Dependency loading/map replacement can yield before this module starts.
 	-- Existing characters need the same death/reset hooks as future spawns.
 	if player.Character then task.spawn(onCharacter, player.Character) end
@@ -92,7 +109,7 @@ local function initializePlayer(player)
 	XP.Parent = leaderstats
 
 	local EquippedKnife = Instance.new("StringValue")
-	EquippedKnife.Value = "Shadow Dagger"
+	EquippedKnife.Value = DEFAULT_KNIFE
 	EquippedKnife.Name = "EquippedKnife"
 	EquippedKnife.Parent = leaderstats
 
@@ -189,7 +206,7 @@ local function initializePlayer(player)
 		Cash.Value = data.Cash or 0
 		Wins.Value = data.Wins or 0
 		WinStreak.Value = data.WinStreak or 0
-		EquippedKnife.Value = data.EquippedKnife or "Shadow Dagger"
+		EquippedKnife.Value = data.EquippedKnife or DEFAULT_KNIFE
 		EquippedGun.Value = data.EquippedGun or DEFAULT_REVOLVER
 
 		local vipExpiresAt = 0
@@ -243,6 +260,17 @@ local function initializePlayer(player)
 		
 		
 		local repairedKeybinds = KeybindValidation.ValidateAndRepair(data.KeyBinds)
+		if (tonumber(data.KeybindDefaultsVersion) or 0) < 1 then
+			-- Migrate the old default once; later explicit remaps back to X stay saved.
+			if repairedKeybinds.ToogleCam == "X" then
+				local qInUse = false
+				for action, keyName in pairs(repairedKeybinds) do
+					if action ~= "ToogleCam" and keyName == "Q" then qInUse = true; break end
+				end
+				if not qInUse then repairedKeybinds.ToogleCam = "Q" end
+			end
+			data.KeybindDefaultsVersion = 1
+		end
 		for action, keyName in pairs(repairedKeybinds) do
 			local bind = KeyBinds:FindFirstChild(action)
 			if bind then
@@ -280,7 +308,7 @@ local function initializePlayer(player)
 					if knifeData.Tradeable ~= nil then
 						tradeable.Value = knifeData.Tradeable == true
 					else
-						tradeable.Value = knifeData.Name ~= "Shadow Dagger"
+						tradeable.Value = knifeData.Name ~= DEFAULT_KNIFE
 					end
 					tradeable.Parent = knife
 				end
@@ -297,7 +325,7 @@ local function initializePlayer(player)
 				rarity = "Common"
 			end
 			local image = (revolverData and revolverData.Image) or (info and info.Image) or ""
-			local tradeable = revolverName ~= DEFAULT_REVOLVER and revolverData and revolverData.Tradeable == true
+			local tradeable = revolverName ~= DEFAULT_REVOLVER and (revolverData and revolverData.Tradeable == true or false)
 
 			local revolver = Instance.new("StringValue")
 			revolver.Name = revolverName
@@ -411,10 +439,15 @@ local function initializePlayer(player)
 			player:SetAttribute("LastRoundPlacement", 0)
 		end
 
-		-- If this is the first session ever (new player with migrated-or-default data),
-		-- give the starter knife if inventory is empty
-		if #data.Inventory == 0 then
-			getInventory().AddKnife(player, "Shadow Dagger", false)
+		-- Every profile has the configured starter knife and revolver available.
+		if not PlayersInventory:FindFirstChild(DEFAULT_KNIFE) then
+			getInventory().AddKnife(player, DEFAULT_KNIFE, false)
+		end
+		if not RevolverInventory:FindFirstChild(DEFAULT_REVOLVER) then
+			getInventory().AddRevolver(player, DEFAULT_REVOLVER, 1, false)
+		end
+		if not PlayersInventory:FindFirstChild(EquippedKnife.Value) then
+			EquippedKnife.Value = DEFAULT_KNIFE
 		end
 
 		player:SetAttribute("DataReady", true)
@@ -435,6 +468,7 @@ end
 local function initializeSafely(player)
 	local ok, err = xpcall(initializePlayer, debug.traceback, player)
 	if not ok then
+		releaseListeners(player)
 		warn(("[Startup] Player data setup failed for %s: %s"):format(player.Name, tostring(err)))
 		player:SetAttribute("DataReady", false)
 		player:SetAttribute("DataLoadState", "Failed")
@@ -445,6 +479,7 @@ end
 Players.PlayerAdded:Connect(initializeSafely)
 
 Players.PlayerRemoving:Connect(function(player)
+	releaseListeners(player)
 	ProfileManager.EndSession(player)
 	initializedPlayers[player] = nil
 	-- Session release must not wait for the map/game dependency either.

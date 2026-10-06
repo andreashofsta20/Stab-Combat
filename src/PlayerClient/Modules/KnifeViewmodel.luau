@@ -4,7 +4,7 @@ local Config = require(ReplicatedStorage.Modules.KnifeConfig)
 local Motion = require(ReplicatedStorage.Modules.KnifeViewmodelMotion)
 local ToolPhysics = require(ReplicatedStorage.Modules.RevolverToolPhysics).New(require(ReplicatedStorage.Modules.KnivesInfo))
 local Presentation = require(script.Parent.WeaponViewmodel).New({
-	Name = "KnifeFirstPerson", WarningPrefix = "KnifeFirstPerson", Motion = Motion,
+	Name = "KnifeFirstPerson", WarningPrefix = "KnifeFirstPerson", Motion = Motion, InspectKind = "Knife",
 })
 local Viewmodel = {}
 local initialized = false
@@ -25,6 +25,10 @@ function Viewmodel.Update(tool, allowed, dt, bodyAnimation, armAnimation, action
 end
 
 function Viewmodel.Clear() Presentation.Clear() end
+function Viewmodel.StartInspect(tool) return Presentation.StartInspect(tool) end
+function Viewmodel.IsInspecting(tool) return Presentation.IsInspecting(tool) end
+function Viewmodel.CancelInspect(immediate) Presentation.CancelInspect(immediate) end
+function Viewmodel.InterruptInspect() Presentation.InterruptInspect() end
 function Viewmodel.IsActive(tool) return Presentation.IsActive(tool) end
 function Viewmodel.IsFirstPerson(tool) return Presentation.IsFirstPerson(tool, tuning) end
 function Viewmodel.GetVisualTool(tool) return Presentation.GetVisualTool(tool) end

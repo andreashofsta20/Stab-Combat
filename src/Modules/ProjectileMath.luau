@@ -9,6 +9,7 @@ ProjectileMath.FIXED_STEP = 1 / 60 -- Legacy API; straight sweeps no longer need
 ProjectileMath.MIN_SPEED = Config.MinSpeed
 ProjectileMath.MAX_SPEED = Config.MaxSpeed
 ProjectileMath.DAMAGE = Config.Damage
+ProjectileMath.HEADSHOT_KILLS = Config.HeadshotKills == true
 ProjectileMath.COOLDOWN = Config.Cooldown
 ProjectileMath.MAX_CHARGE = 1
 ProjectileMath.MIN_ORIGIN_DISTANCE = 0

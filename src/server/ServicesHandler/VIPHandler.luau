@@ -17,10 +17,15 @@ local VALID_VIP_PRODUCT_IDS = {
 	[ONE_WEEK_PRODUCT_ID] = true,
 	[ONE_MONTH_PRODUCT_ID] = true,
 }
+local nextPrompt, nextStatus, statusLoading = {}, {}, {}
+local PROMPT_COOLDOWN, STATUS_COOLDOWN = 0.75, 1
 
 local function pushStatusToClient(player: Player)
-	if player:GetAttribute("DataReady") ~= true then return end
-	local hasVIP, expiresAt = VIPService.GetVIPInfoByUserId(player.UserId)
+	if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true or statusLoading[player] then return end
+	statusLoading[player] = true
+	local ok, hasVIP, expiresAt = pcall(VIPService.GetVIPInfoByUserId, player.UserId)
+	statusLoading[player] = nil
+	if not ok or player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return end
 	player:SetAttribute("HasVIP", hasVIP)
 	player:SetAttribute("VIPExpiresAt", expiresAt)
 	VIPStatusRemote:FireClient(player, {
@@ -31,7 +36,9 @@ local function pushStatusToClient(player: Player)
 end
 
 BuyVIPRemote.OnServerEvent:Connect(function(player: Player, subscriptionType)
-	print("[VIP] BuyVIPRemote fired by", player.Name, "payload:", subscriptionType)
+	if player:GetAttribute("DataReady") ~= true then return end
+	if type(subscriptionType) ~= "number" and type(subscriptionType) ~= "string" then return end
+	if type(subscriptionType) == "string" and #subscriptionType > 32 then return end
 	local productId = tonumber(subscriptionType)
 	if not productId then
 		if subscriptionType == "1_WEEK" then
@@ -42,9 +49,11 @@ BuyVIPRemote.OnServerEvent:Connect(function(player: Player, subscriptionType)
 	end
 
 	if not productId or not VALID_VIP_PRODUCT_IDS[productId] then
-		warn("[VIP] Invalid VIP product payload from", player.Name, subscriptionType)
 		return
 	end
+	local now = os.clock()
+	if now < (nextPrompt[player] or 0) then return end
+	nextPrompt[player] = now + PROMPT_COOLDOWN
 
 	local success = pcall(function()
 		MarketplaceService:PromptProductPurchase(player, productId)
@@ -62,6 +71,9 @@ VIPStatusRemote.OnServerEvent:Connect(function(player: Player, requestType: stri
 	if requestType ~= "REQUEST_STATUS" then
 		return
 	end
+	local now = os.clock()
+	if now < (nextStatus[player] or 0) then return end
+	nextStatus[player] = now + STATUS_COOLDOWN
 
 	pushStatusToClient(player)
 end)
@@ -78,6 +90,7 @@ Players.PlayerAdded:Connect(observePlayer)
 for _, player in ipairs(Players:GetPlayers()) do observePlayer(player) end
 Players.PlayerRemoving:Connect(function(player)
 	if readyConnections[player] then readyConnections[player]:Disconnect(); readyConnections[player] = nil end
+	nextPrompt[player], nextStatus[player], statusLoading[player] = nil, nil, nil
 end)
 
 MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)

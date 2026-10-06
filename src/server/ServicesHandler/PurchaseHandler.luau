@@ -53,9 +53,9 @@ PurchaseGamePassRemote.OnServerEvent:Connect(function(player, msg: string)
 
 	local GamepassID
 
-	if msg == "1" then
+	if msg == "1" or msg == "1733042964" then
 		GamepassID = 1733042964
-	elseif msg == "2" then
+	elseif msg == "2" or msg == "1733058985" then
 		GamepassID = 1733058985
 	else
 		return
@@ -107,8 +107,14 @@ local function processPurchase(player, productId, goldAmount, purchaseId): boole
 	return true
 end
 
-PurchaseGoldRemote.OnServerEvent:Connect(function(player: Player, productID: number)
-	if typeof(productID) ~= "number" then
+PurchaseGoldRemote.OnServerEvent:Connect(function(player: Player, productID, rotationId, itemId)
+	-- Tagged daily-shop commands share this existing remote. Numeric gold
+	-- product IDs retain the original MarketplaceService purchase flow.
+	if productID == "REQUEST_DAILY_SHOP" or productID == "BUY_DAILY_ITEM" then
+		require(script.Parent.DailyShopHandler).HandleRemote(player, productID, rotationId, itemId)
+		return
+	end
+	if typeof(productID) ~= "number" or productID ~= productID or math.abs(productID) == math.huge then
 		return
 	end
 	productID = math.floor(productID)

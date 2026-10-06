@@ -1,6 +1,6 @@
-local LocalizationService = game:GetService("LocalizationService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
 local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local RoundResultsFolder = RemotesFolder:WaitForChild("RoundResults")
 local GetRoundResultsRemote = RoundResultsFolder:WaitForChild("GetRoundResults")
@@ -20,6 +20,35 @@ local OtherPlayersHolder = RoundResultsFrame:WaitForChild("Container"):WaitForCh
 local UITemplates = ReplicatedStorage:WaitForChild("UITemplates")
 local RoundResultsTemplates = UITemplates:WaitForChild("RoundResults")
 
+local AUTO_CLOSE_SECONDS = 5
+local displayGeneration = 0
+local closeThread
+local destroyed = false
+local connections = {}
+
+local function cancelClose()
+    displayGeneration += 1
+    if closeThread then
+        pcall(task.cancel, closeThread)
+        closeThread = nil
+    end
+end
+
+local function closeResults()
+    cancelClose()
+    if destroyed then return end
+    RoundResultsFrame.Visible = false
+    -- A menu opened while results were visible keeps its own blur.
+    for _, frame in ipairs(FramesFolder:GetChildren()) do
+        if frame:IsA("GuiObject") and frame.Visible then return end
+    end
+    local emote = UI:FindFirstChild("EmoteFrame")
+    local background = emote and emote:FindFirstChild("background")
+    if background and background.Visible then return end
+    local blur = Lighting:FindFirstChild("Blur")
+    if blur then blur.Enabled = false end
+end
+
 local function setText(label, value)
     if label then
         if value == nil then
@@ -30,7 +59,7 @@ local function setText(label, value)
     end
 end
 
-local function applyResults(gameResults, playerResults)
+local function applyResults(gameResults, playerResults, generation)
     if not RoundResultsFrame then
         return
     end
@@ -56,8 +85,16 @@ local function applyResults(gameResults, playerResults)
             if winner.UserId then
                 local player = Players:GetPlayerByUserId(winner.UserId)
                 if player and winnerProfileImage then
-                    winnerProfileImage.Image = GetThumbnail.GetThumbnail(winner.UserId) or ""
+                    winnerProfileImage.Image = ""
                     setText(winnerUsername, player.Name)
+                    -- Thumbnail retrieval yields. It must not delay the five-second
+                    -- display deadline or overwrite a later round's winner.
+                    task.spawn(function()
+                        local image = GetThumbnail.GetThumbnail(winner.UserId)
+                        if not destroyed and displayGeneration == generation and RoundResultsFrame.Visible then
+                            winnerProfileImage.Image = image or ""
+                        end
+                    end)
                 else
                     if winnerProfileImage then
                         winnerProfileImage.Image = ""
@@ -191,19 +228,29 @@ local function applyResults(gameResults, playerResults)
 
 end
 
-GetRoundResultsRemote.OnClientEvent:Connect(function(gameResults, playerResults)
-    applyResults(gameResults, playerResults)
+table.insert(connections, GetRoundResultsRemote.OnClientEvent:Connect(function(gameResults, playerResults)
+    if destroyed then return end
+    cancelClose()
+    local generation = displayGeneration
+    applyResults(gameResults, playerResults, generation)
     RoundResultsFrame.Visible = true
-end)
+    closeThread = task.delay(AUTO_CLOSE_SECONDS, function()
+        if destroyed or displayGeneration ~= generation then return end
+        closeThread = nil
+        closeResults()
+    end)
+end))
 
-
-
-
-
-
-RoundResultsFrame.Close.MouseButton1Click:Connect(function()
-	RoundResultsFrame.Visible = false
-end)
+table.insert(connections, RoundResultsFrame.Close.MouseButton1Click:Connect(closeResults))
+table.insert(connections, RoundResultsFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+    if not RoundResultsFrame.Visible then cancelClose() end
+end))
+table.insert(connections, RoundResultsFrame.Destroying:Connect(function()
+    destroyed = true
+    cancelClose()
+    for _, connection in ipairs(connections) do connection:Disconnect() end
+    table.clear(connections)
+end))
 
 
 

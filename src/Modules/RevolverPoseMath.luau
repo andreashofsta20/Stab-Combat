@@ -12,6 +12,12 @@ function PoseMath.Angles(x, y, z, settings)
 	-- point backwards; asin is continuous at the rear instead of jumping +/-pi.
 	-- This changes only the arm pose; the camera ray still decides shot aim.
 	local yaw = horizontal < 1e-6 and 0 or math.asin(math.clamp(-x / horizontal, -1, 1))
+	-- Horizontal direction becomes ill-conditioned while aiming almost straight
+	-- down/up. Fade only that narrow cone so tiny cursor movement cannot flip yaw.
+	local length = math.sqrt(horizontal * horizontal + y * y)
+	local fadeStart, fadeEnd = settings.VerticalYawFadeStart or 0.08, settings.VerticalYawFadeEnd or 0.25
+	local stability = math.clamp((horizontal / length - fadeStart) / (fadeEnd - fadeStart), 0, 1)
+	yaw *= stability * stability * (3 - 2 * stability)
 	return math.clamp(pitch, math.rad(settings.MinPitchDegrees), math.rad(settings.MaxPitchDegrees)),
 		math.clamp(yaw, -math.rad(settings.MaxYawDegrees), math.rad(settings.MaxYawDegrees))
 end

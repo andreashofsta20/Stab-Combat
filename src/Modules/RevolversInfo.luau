@@ -247,7 +247,7 @@ local RevolversInfo = {
 	["White&Black Revolver"] = {
 		Rarity = "Common",
 		Image = "rbxassetid://88474215654699",
-		tradeable = false,
+		tradeable = true,
 	},
 	["Arcane Revolver"] = {
 		Rarity = "Legendary",
@@ -285,6 +285,22 @@ local RevolversInfo = {
 	-2.95584633e-11, -0.999390602, -0.0349067077
 )
 	},
+
+	["Void Strike Revolver"] = {
+		Rarity = "Godly",
+		Image = "rbxassetid://111530997190809",
+		tradeable = true,
+		CframeBackrelativeOffset = CFrame.new(
+	-1.14834509, -1.5207468, 0.0278930664,
+	1, 3.72879725e-07, -1.06765183e-05,
+	1.06830266e-05, -0.0349067077, 0.999390662,
+	-2.95584633e-11, -0.999390602, -0.0349067077
+)
+	},
+
+
+
+
 
 
 }

@@ -14,6 +14,8 @@ local LosingHealthFrame = GUI:WaitForChild("HitFrame")
 LosingHealthFrame.Visible = false -- Ensure it starts hidden
 
 local connections = {}
+local character = script.Parent
+local alive = true
 
 local currentTween = nil
 local hitFrameThread = nil -- Stores our delayed task to hide the frame
@@ -35,11 +37,20 @@ local function cleanupConnections()
     table.clear(connections)
 end
 
+local function cleanup()
+    if not alive then return end
+    alive = false
+    cleanupConnections()
+    if currentTween then currentTween:Cancel(); currentTween = nil end
+    if hitFrameThread then pcall(task.cancel, hitFrameThread); hitFrameThread = nil end
+    if Player.Character == character then LosingHealthFrame.Visible = false end
+end
+
 local function setupHealthBar(character)
     cleanupConnections()
 
     local humanoid = character:WaitForChild("Humanoid", 5)
-    if not humanoid then
+    if not humanoid or Player.Character ~= character then
         warn("HealthBar: Couldn't find Humanoid")
         return
     end
@@ -48,6 +59,7 @@ local function setupHealthBar(character)
     lastHealth = humanoid.Health
 
     local function updateBar(snapInstantly)
+        if not alive or Player.Character ~= character then return end
         local health = humanoid.Health
         local maxHealth = humanoid.MaxHealth > 0 and humanoid.MaxHealth or 100
         local percent = math.clamp(health / maxHealth, 0, 1)
@@ -73,12 +85,13 @@ local function setupHealthBar(character)
             
             -- If they get hit again while it's visible, cancel the previous hide timer
             if hitFrameThread then
-                task.cancel(hitFrameThread)
+                pcall(task.cancel, hitFrameThread)
             end
             
             -- Hide the frame after 0.25 seconds (adjust this number to make it longer/shorter)
             hitFrameThread = task.delay(0.25, function()
-                LosingHealthFrame.Visible = false
+                hitFrameThread = nil
+                if alive and Player.Character == character then LosingHealthFrame.Visible = false end
             end)
         end
         
@@ -97,15 +110,12 @@ local function setupHealthBar(character)
     end))
 end
 
-if Player.Character then
-    setupHealthBar(Player.Character)
-end
-
-Player.CharacterAdded:Connect(
-    function(character)
-        task.wait(6) 
-        setupHealthBar(character)
-    end
-)
+-- StarterCharacterScripts creates a fresh controller for each character. Old
+-- controllers must not subscribe to future spawns or redraw the new HUD.
+setupHealthBar(character)
+table.insert(connections, Player.CharacterRemoving:Connect(function(removed)
+    if removed == character then cleanup() end
+end))
+table.insert(connections, script.Destroying:Connect(cleanup))
 
 return {}

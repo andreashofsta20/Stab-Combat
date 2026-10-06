@@ -30,6 +30,7 @@ return function(load)
 		local r = self.matrix
 		return V(r[1]*v.X+r[2]*v.Y+r[3]*v.Z,r[4]*v.X+r[5]*v.Y+r[6]*v.Z,r[7]*v.X+r[8]*v.Y+r[9]*v.Z)
 	end
+	function Frame:PointToWorldSpace(v) return self.Position + self:VectorToWorldSpace(v) end
 	function Frame:Inverse()
 		local r = self.matrix
 		local inverse = frame(Vector.zero, {r[1],r[4],r[7],r[2],r[5],r[8],r[3],r[6],r[9]})
@@ -38,8 +39,12 @@ return function(load)
 	end
 	function Frame:VectorToObjectSpace(v) return self:Inverse():VectorToWorldSpace(v) end
 	function Frame:Lerp(other, alpha)
-		local matrix = {}; for i = 1, 9 do matrix[i] = self.matrix[i] + (other.matrix[i] - self.matrix[i]) * alpha end
-		return frame(self.Position + (other.Position - self.Position) * alpha, matrix)
+		-- Native CFrame.Lerp interpolates a rotation, never nine independent
+		-- matrix entries. Preserve the rendered grip's orthonormal basis here.
+		local delta = self.Rotation:Inverse() * other.Rotation
+		local axis, angle = delta:ToAxisAngle()
+		local rotation = self.Rotation * Frame.fromAxisAngle(axis, angle * alpha)
+		return frame(self.Position + (other.Position - self.Position) * alpha, rotation.matrix)
 	end
 	fm.__index = function(cf, key)
 		if key == "Rotation" then return frame(Vector.zero, cf.matrix) end
@@ -75,6 +80,28 @@ return function(load)
 	local motion = load("KnifeMotion", {CFrame = Frame, Vector3 = Vector,
 		script = {Parent = {RevolverViewmodelMath = "SharedMotion"}}, require = function(name) assert(name == "SharedMotion"); return shared end})
 	local settings = config.FirstPerson
+	local geometry = load("Geometry", {CFrame = Frame, Vector3 = Vector,
+		game = {GetService = function() return {Modules = {RevolverConfig = "Physics"}} end},
+		script = {Parent = {WeaponViewmodelVisibility = "Visibility"}},
+		require = function(name) return name == "Physics" and {FirstPersonPhysics = {}} or {} end})
+	local function render(pose, camera, grip)
+		local handle = {Parent = true, CFrame = Frame.identity}
+		local blade = {Parent = true, CFrame = Frame.new(0, 0.8, -0.2)}
+		local copy = {}
+		local sourceRight, joint = {}, {C0 = grip or Frame.new(0,-1,0), C1 = Frame.identity}
+		joint.Part0, joint.Part1 = sourceRight, handle
+		function joint:IsA(class) return class == "JointInstance" end
+		function sourceRight:FindFirstChild(name) return name == "RightGrip" and joint or nil end
+		local visual = {right = {Size = V(1,2,1)}, left = {}, shell = {},
+			sourceRight = sourceRight, sourceHandle = handle,
+			weaponVisibility = {SetActive = function() end, Guard = function() end},
+			pieces = {{part = copy, source = blade}}}
+		camera = camera or Frame.identity
+		geometry.Place(visual, camera, pose, settings, settings.R6RotationOffset, Frame.identity, true)
+		local wrist = camera:Inverse():PointToWorldSpace(visual.right.CFrame:PointToWorldSpace(V(0,-1,0)))
+		local tip = camera:Inverse():PointToWorldSpace(copy.CFrame:PointToWorldSpace(V(0,0.4,0)))
+		return wrist, tip, camera:Inverse() * visual.right.CFrame
+	end
 	local function step(state, dt, action, body)
 		return motion.Step(state, Frame.identity, dt or 1/60, false, false, 0, settings, body, nil, action)
 	end
@@ -100,6 +127,50 @@ return function(load)
 		for _ = 1, 180 do step(state,1/60,{charging=true,charge=1}) end
 		near(state.actionFrame.Position.Y,settings.ChargeOffset[2]); near(state.actionFrame.Position.Z,settings.ChargeOffset[3])
 	end)
+	test("the rendered R6 wrist rises in camera space through crouch slide and steep camera angles", function()
+		for _, pitch in ipairs({-1.45, 0, 1.45}) do
+			for _, drop in ipairs({0, -0.4, -0.8}) do
+				local idle, charged = motion.New(), motion.New()
+				local camera = Frame.new(10, 7 + drop, -3) * Frame.Angles(pitch, 0.7, 0)
+				local posture = Frame.new(0, drop, 0) * Frame.Angles(0.25, -0.2, 0.15)
+				local a, b
+				for _ = 1, 180 do
+					a = motion.Step(idle, camera, 1/60, false, false, 0, settings, posture, nil, {})
+					b = motion.Step(charged, camera, 1/60, false, false, 0, settings, posture, nil, {charging = true, charge = 1})
+				end
+				near(b.Position.Y, settings.ArmPosition[2] + settings.ChargeOffset[2])
+				local worldIdle = (camera * a * Frame.Angles(math.pi/2, 0, 0)):PointToWorldSpace(V(0, -1, 0))
+				local worldCharged = (camera * b * Frame.Angles(math.pi/2, 0, 0)):PointToWorldSpace(V(0, -1, 0))
+				local rise = camera:Inverse():PointToWorldSpace(worldCharged).Y - camera:Inverse():PointToWorldSpace(worldIdle).Y
+				assert(rise > 1.3 and rise < 2.7, tostring(rise))
+			end
+		end
+	end)
+	test("fully charged hand stays high through the source ChargeHold animation transition", function()
+		local state = motion.New(); local charge = {charging = true, charge = 1}
+		local held
+		for _ = 1, 180 do held = step(state,1/60,charge) end
+		local wrist = (held * Frame.Angles(math.pi/2,0,0)):PointToWorldSpace(V(0,-1,0))
+		assert(wrist.Y > 0.5, "full charge must show a high overhand grip")
+		-- The real hold clip, walking bob and camera sway change beneath the pose.
+		for i = 1, 600 do
+			local result = motion.Step(state, Frame.Angles(math.sin(i)*0.7,math.cos(i)*0.7,0),1/60,false,false,16,settings,
+				Frame.new(0,-0.4,0)*Frame.Angles(-0.3,0.2,0),Frame.Angles(-0.8,0,0),charge)
+			near((result.Position-held.Position).Magnitude,0)
+			for n = 1,9 do near(result.matrix[n],held.matrix[n]) end
+		end
+		local lowered = step(state,1/60,{})
+		assert(lowered.Position.Y < held.Position.Y and lowered.Position.Y > settings.ArmPosition[2])
+		for _ = 1,180 do lowered = step(state,1/60,{}) end
+		near(lowered.Position.Y, settings.ArmPosition[2])
+	end)
+	test("entering first person already fully charged reaches the same held pose", function()
+		local state = motion.New(); local result
+		for _ = 1,180 do result = step(state,1/60,{charging=true,charge=1},Frame.new(0,-0.4,0)) end
+		near(result.Position.Y,settings.ArmPosition[2]+settings.ChargeOffset[2])
+		local fresh = motion.New(); local idle = step(fresh,1/60,{})
+		assert(idle.Position.Y < settings.ArmPosition[2]); near(fresh.chargeBlend,0)
+	end)
 	test("overcharge stays capped and cannot pull the knife outside its configured pose", function()
 		local full, over = settle({charging=true,charge=1}), settle({charging=true,charge=100})
 		near((full.actionFrame.Position-over.actionFrame.Position).Magnitude,0)
@@ -118,6 +189,199 @@ return function(load)
 		assert(state.actionFrame.Position.Z < 0)
 		for _ = 1,180 do step(state,1/60,{stabElapsed=settings.StabSeconds+1}) end
 		near(state.actionFrame.Position.Magnitude,0)
+	end)
+	test("stab prepares then drives the whole arm forward with a held grip before recovering", function()
+		local state = settle()
+		step(state, 1/60, {stabElapsed = settings.StabSeconds * settings.StabWindupFraction})
+		assert(state.actionFrame.Position.X > 0 and state.actionFrame.Position.Z > 0)
+		step(state, 1/60, {stabElapsed = settings.StabSeconds * settings.StabThrustFraction})
+		near(state.actionFrame.Position.X, settings.StabOffset[1])
+		near(state.actionFrame.Position.Z, settings.StabOffset[3])
+		assert(state.actionFrame.Position.X < -0.25 and state.actionFrame.Position.Z < -1.2)
+		local _, angle = state.actionFrame:ToAxisAngle(); assert(angle < math.rad(18))
+		local extended = state.actionFrame
+		step(state, 1/60, {stabElapsed = settings.StabSeconds * (settings.StabThrustFraction + settings.StabHoldFraction) / 2})
+		near((state.actionFrame.Position - extended.Position).Magnitude, 0)
+		for index = 1,9 do near(state.actionFrame.matrix[index], extended.matrix[index]) end
+		step(state, 1/60, {stabElapsed = settings.StabSeconds})
+		near(state.actionFrame.Position.Magnitude, 0)
+		local _, recovered = state.actionFrame:ToAxisAngle(); near(recovered, 0)
+	end)
+	test("the actual renderer moves both wrist and blade forward rather than swinging around the arm center", function()
+		for _, pitch in ipairs({-1.4,0,1.4}) do
+			for _, grip in ipairs({Frame.new(0,-1,0), Frame.new(0.1,-0.9,0.05) * Frame.Angles(0.1,0.3,-0.2)}) do
+				local state = settle()
+				local camera = Frame.new(7,3,-2) * Frame.Angles(pitch,0.7,0)
+				local prepared = motion.Step(state,camera,1/60,false,false,24,settings,
+					Frame.Angles(-0.8,0.4,0.2),Frame.Angles(1.2,-0.4,0),
+					{stabElapsed = settings.StabSeconds * settings.StabWindupFraction})
+				local extended = motion.Step(state,camera,1/60,false,false,24,settings,
+					Frame.Angles(0.8,-0.4,-0.2),Frame.Angles(-1.2,0.4,0),
+					{stabElapsed = settings.StabSeconds * settings.StabThrustFraction})
+				local preparedWrist, preparedTip, preparedArm = render(prepared,camera,grip)
+				local extendedWrist, extendedTip, extendedArm = render(extended,camera,grip)
+				local wristTravel, bladeTravel = extendedWrist-preparedWrist, extendedTip-preparedTip
+				near(wristTravel.Z, settings.StabOffset[3] - settings.StabWindupOffset[3])
+				assert(wristTravel.Z < -1.5 and math.abs(wristTravel.X) < 0.5)
+				near((wristTravel-bladeTravel).Magnitude,0)
+				for index=1,9 do near(preparedArm.matrix[index],extendedArm.matrix[index]) end
+			end
+		end
+	end)
+	test("rendered extension remains readable for multiple frames at 30 60 and 144 FPS", function()
+		for _, hz in ipairs({30,60,144}) do
+			local state = settle(nil,hz)
+			local idle = step(state,1/hz,{})
+			local idleWrist, idleTip = render(idle)
+			local heldFrames, fullFrames, furthest = 0,0,0
+			for index=0, math.ceil(settings.StabSeconds*hz) do
+				local elapsed = index/hz
+				local pose = step(state,1/hz,{stabElapsed=elapsed})
+				local wrist, tip = render(pose)
+				furthest = math.min(furthest,wrist.Z-idleWrist.Z)
+				if wrist.Z-idleWrist.Z < -1.1 and tip.Z-idleTip.Z < -1.1 then heldFrames += 1 end
+				if elapsed >= settings.StabSeconds*settings.StabThrustFraction
+					and elapsed <= settings.StabSeconds*settings.StabHoldFraction then
+					fullFrames += 1
+					near(state.actionFrame.Position.Z,settings.StabOffset[3])
+				end
+			end
+			assert(furthest < -1.25 and heldFrames/hz > 0.07 and fullFrames >= math.floor(hz*0.06),tostring(hz))
+			near(state.actionFrame.Position.Magnitude,0)
+		end
+	end)
+	test("first-person stab ignores competing character animation during the complete thrust and held extension", function()
+		for _, hz in ipairs({30,60,144}) do
+			local neutral, animated = settle(nil,hz), settle(nil,hz)
+			for _, fraction in ipairs({settings.StabWindupFraction,0.3,settings.StabThrustFraction,0.5,settings.StabHoldFraction}) do
+				local attack = {stabElapsed=settings.StabSeconds*fraction}
+				local a = motion.Step(neutral,Frame.identity,1/hz,false,false,0,settings,nil,nil,attack)
+				local b = motion.Step(animated,Frame.Angles(0.7,1.2,0),1/hz,false,false,32,settings,
+					Frame.new(0.2,-0.3,0.1)*Frame.Angles(0.8,0.5,-0.4),Frame.Angles(-1.4,0.5,0.3),attack,
+					{airborne=true})
+				near((a.Position-b.Position).Magnitude,0)
+				for index=1,9 do near(a.matrix[index],b.matrix[index]) end
+			end
+		end
+	end)
+	test("a rapid tap then held charge finishes the rendered stab before raising the hand at 30 60 and 144 FPS", function()
+		for _, hz in ipairs({30,60,144}) do
+			local plain, held = settle(nil,hz), settle(nil,hz)
+			for index=0, math.floor(settings.StabSeconds*hz) do
+				local elapsed = index/hz
+				if elapsed < settings.StabSeconds then
+					local heldFor = math.max(0,elapsed-0.025)
+					local action = {stabElapsed=elapsed,holdingCharge=elapsed>=0.025,
+						charging=heldFor>=config.Throw.HoldThreshold,charge=heldFor/config.Throw.MaxChargeTime}
+					local a = step(plain,1/hz,{stabElapsed=elapsed})
+					local b = step(held,1/hz,action)
+					local wristA,tipA = render(a); local wristB,tipB = render(b)
+					near((wristA-wristB).Magnitude,0); near((tipA-tipB).Magnitude,0)
+					near(held.chargeBlend,0)
+					assert(action.charging==(heldFor>=config.Throw.HoldThreshold))
+					near(action.charge,heldFor/config.Throw.MaxChargeTime)
+				end
+			end
+			local amount = (settings.StabSeconds-0.025)/config.Throw.MaxChargeTime
+			local visible = step(held,1/hz,{stabElapsed=settings.StabSeconds,charging=true,charge=amount})
+			assert(held.actionFrame.Position.Y > 0 and held.actionFrame.Position.Y < settings.ChargeOffset[2]*(0.35+amount*0.65))
+			assert(held.chargeBlend > 0 and held.chargeBlend < 1)
+			for _=1,hz*2 do visible = step(held,1/hz,{stabElapsed=settings.StabSeconds+1,charging=true,charge=1}) end
+			local charged = step(settle({charging=true,charge=1},hz),1/hz,{charging=true,charge=1})
+			local wristA,tipA = render(visible); local wristB,tipB = render(charged)
+			near((wristA-wristB).Magnitude,0); near((tipA-tipB).Magnitude,0)
+		end
+	end)
+	test("canceling a deferred charge cannot raise the hand after the stab has recovered", function()
+		for _, hz in ipairs({30,60,144}) do
+			local plain, canceled = settle(nil,hz), settle(nil,hz)
+			for index=0, math.ceil((settings.StabSeconds+0.3)*hz) do
+				local elapsed = index/hz
+				local a = step(plain,1/hz,{stabElapsed=elapsed})
+				local b = step(canceled,1/hz,{stabElapsed=elapsed,charging=elapsed>=0.23 and elapsed<0.3,
+					charge=math.max(0,elapsed-0.025),holdingCharge=elapsed<0.3})
+				local wristA,tipA = render(a); local wristB,tipB = render(b)
+				near((wristA-wristB).Magnitude,0); near((tipA-tipB).Magnitude,0)
+				near(canceled.chargeBlend,0)
+			end
+			near(canceled.actionFrame.Position.Magnitude,0)
+		end
+	end)
+	test("a new released throw takes sole control of the rendered hand and cannot resurrect the old stab", function()
+		for _, hz in ipairs({30,60,144}) do
+			local oldStab, onlyThrow = settle(nil,hz), settle(nil,hz)
+			for index=0, math.floor(0.2*hz) do
+				local elapsed = index/hz
+				step(oldStab,1/hz,{stabElapsed=elapsed,charging=elapsed>=0.18,charge=elapsed})
+			end
+			local lastPose
+			for index=0, math.ceil((settings.ThrowSeconds+0.3)*hz) do
+				local elapsed = index/hz
+				local a = step(onlyThrow,1/hz,{throwElapsed=elapsed})
+				local b = step(oldStab,1/hz,{stabElapsed=0.2+elapsed,throwElapsed=elapsed,charging=false,charge=0.2})
+				local wristA,tipA = render(a); local wristB,tipB = render(b)
+				near((wristA-wristB).Magnitude,0); near((tipA-tipB).Magnitude,0)
+				for matrixIndex=1,9 do near(a.matrix[matrixIndex],b.matrix[matrixIndex]) end
+				lastPose = b
+			end
+			assert(lastPose and oldStab.actionFrame.Position.Magnitude < 0.002)
+		end
+		-- Even an unusually early new throw must retire the old stab after the
+		-- throw pulse ends; gameplay admission remains the controller's concern.
+		local state = settle(); step(state,1/60,{stabElapsed=0.15})
+		step(state,1/60,{stabElapsed=0.16,throwElapsed=0})
+		step(state,1/60,{stabElapsed=0.4,throwElapsed=0.39})
+		near(state.actionFrame.Position.Magnitude,0)
+	end)
+	test("a newer stab clears an older charge or throw pose instead of stacking its rotation", function()
+		for _, previous in ipairs({{charging=true,charge=1},{throwElapsed=0.1}}) do
+			local stale, reference = settle(previous),settle()
+			for _, elapsed in ipairs({0,0.07,0.16,0.22,0.3,0.42}) do
+				local a = step(reference,1/60,{stabElapsed=elapsed})
+				local b = step(stale,1/60,{stabElapsed=elapsed,throwElapsed=0.2+elapsed})
+				local wristA,tipA = render(a); local wristB,tipB = render(b)
+				near((wristA-wristB).Magnitude,0); near((tipA-tipB).Magnitude,0)
+				near(stale.chargeBlend,0)
+			end
+		end
+	end)
+	test("stab pose follows elapsed action time equally at 30 60 and 144 FPS", function()
+		local function simulate(hz, elapsed)
+			local state = settle(nil, hz)
+			for index = 0, math.floor(elapsed * hz) do step(state, 1/hz, {stabElapsed = index / hz}) end
+			step(state, 1/hz, {stabElapsed = elapsed})
+			return state.actionFrame
+		end
+		for _, fraction in ipairs({0, 0.1, 0.18, 0.3, 0.38, 0.5, 0.56, 0.8, 1}) do
+			local reference = simulate(60, settings.StabSeconds * fraction)
+			for _, hz in ipairs({30, 144}) do
+				local pose = simulate(hz, settings.StabSeconds * fraction)
+				near((pose.Position - reference.Position).Magnitude, 0)
+				for index = 1, 9 do near(pose.matrix[index], reference.matrix[index]) end
+			end
+		end
+	end)
+	test("canceling or rebuilding a stab cannot retain an extended arm on the next equipped knife", function()
+		local state = settle()
+		step(state,1/60,{stabElapsed=settings.StabSeconds*0.5})
+		assert(state.actionFrame.Position.Z < -1.2)
+		step(state,1/60,{})
+		near(state.actionFrame.Position.Magnitude,0)
+		local rebuilt = motion.New()
+		local idle = step(rebuilt,1/60,{})
+		local restarted = step(state,1/60,{stabElapsed=0})
+		near(rebuilt.actionFrame.Position.Magnitude,0)
+		near(state.actionFrame.Position.Magnitude,0)
+		assert(idle.Position.Z > restarted.Position.Z-0.1)
+	end)
+	test("new stabs restart at neutral and malformed timings cannot poison the action pose", function()
+		local state = settle()
+		step(state, 1/60, {stabElapsed = settings.StabSeconds * settings.StabThrustFraction})
+		assert(state.actionFrame.Position.X < 0)
+		for _, elapsed in ipairs({0, -1, math.huge, 0/0}) do
+			step(state, 1/60, {stabElapsed = elapsed, throwElapsed = 0/0})
+			near(state.actionFrame.Position.Magnitude, 0)
+		end
 	end)
 	test("throw follows through without modifying the supplied camera frame", function()
 		local state = motion.New(); local camera = Frame.new(1,2,3)

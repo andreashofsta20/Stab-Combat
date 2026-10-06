@@ -11,7 +11,6 @@ local SoundHandlerModule = require(script.Parent.Modules:WaitForChild("SoundHand
 -- // PLAYER // --
 local Player = Players.LocalPlayer
 local Character = Player.Character or Player.CharacterAdded:Wait()
-local Backpack = Player.Backpack
 
 local leaderstats = Player:WaitForChild("leaderstats")
 local EquippedKnife = leaderstats:WaitForChild("EquippedKnife")
@@ -59,6 +58,7 @@ foodCount.Size, foodCount.Position = UDim2.fromScale(1, 0.3), UDim2.fromScale(0,
 foodCount.Font, foodCount.TextSize, foodCount.TextColor3 = Enum.Font.GothamBold, 14, Color3.new(1, 1, 1)
 foodCount.TextStrokeTransparency, foodCount.Parent = 0.4, FoodSlot
 local characterConnections = {}
+local lastKnifeEquipped, lastGunEquipped
 
 local function RefreshFoodSlot()
 	local uses = Player:GetAttribute("FoodUses") or 0
@@ -88,7 +88,7 @@ local Slot1Keybind
 local Slot2Keybind
 local Slot3Keybind
 local lastEquipInput = 0
-local EQUIP_INPUT_COOLDOWN = 0.05
+local EQUIP_INPUT_COOLDOWN = 0.1
 
 
 
@@ -150,6 +150,8 @@ local function SetKnifeEquippedUI(equipped)
 	local KnifeSlot = HotbarFrame:WaitForChild("1")
 	local slotSelected = KnifeSlot:WaitForChild("SlotSelected")
 	slotSelected.Visible = equipped
+	if lastKnifeEquipped == equipped then return end
+	lastKnifeEquipped = equipped
 	if equipped then
 		SoundHandlerModule.PlaySound("EquipKnife")
 	end
@@ -167,6 +169,8 @@ local function SetGunEquippedUI(equipped)
 	local gunSlot = HotbarFrame:WaitForChild("2")
 	local slotSelected = gunSlot:WaitForChild("SlotSelected")
 	slotSelected.Visible = equipped
+	if lastGunEquipped == equipped then return end
+	lastGunEquipped = equipped
 	-- RevolverController plays the configured equip sound on the actual Tool
 	-- transition, including equips that did not originate in this hotbar.
 
@@ -188,6 +192,10 @@ end
 
 
 local function EquipTool(SlotEquipped)
+	local now = os.clock()
+	if now - lastEquipInput < EQUIP_INPUT_COOLDOWN then return end
+	if SlotEquipped ~= 1 and SlotEquipped ~= 2 and (SlotEquipped ~= 3 or not FoodSlot.Visible) then return end
+	lastEquipInput = now
 	
 	if SlotEquipped == 1 then
 		EquipKnife()
@@ -208,18 +216,13 @@ end
 
 UserInputService.InputBegan:Connect(function(key, GameProceed)
 	if GameProceed or UserInputService:GetFocusedTextBox() then return end
-	local now = os.clock()
-	if now - lastEquipInput < EQUIP_INPUT_COOLDOWN then return end
 
 	if key.UserInputType == Enum.UserInputType.Keyboard then
 		if key.KeyCode == Slot1Keybind then
-			lastEquipInput = now
 			EquipTool(1)
 		elseif key.KeyCode == Slot2Keybind then
-			lastEquipInput = now
 			EquipTool(2)
 		elseif key.KeyCode == Slot3Keybind then
-			lastEquipInput = now
 			EquipTool(3)
 		end
 	end
@@ -273,20 +276,30 @@ local function RefreshHotBar()
 end
 
 
-EquippedClient.OnClientEvent:Connect(function(action, EquippedOrNot)
-	if action == "Knife" then
-		SetKnifeEquippedUI(EquippedOrNot)
-	elseif action == "Gun" then
-		SetGunEquippedUI(EquippedOrNot)
-	elseif action == "Food" then
-		SetFoodEquippedUI(EquippedOrNot)
-	else
-		return
+local function RefreshEquippedUI()
+	local knife, gun, food = false, false, false
+	local character = Player.Character
+	if character then
+		for _, child in ipairs(character:GetChildren()) do
+			if child:IsA("Tool") then
+				if child:GetAttribute("FoodItem") == FoodConfig.ToolName then food = true
+				elseif GunsModule[child.Name] then gun = true
+				elseif KnivesModule[child.Name] then knife = true end
+			end
+		end
 	end
-end)
+	SetKnifeEquippedUI(knife)
+	SetGunEquippedUI(gun)
+	SetFoodEquippedUI(food)
+end
+
+-- The real current character owns selection. Late acknowledgements must not
+-- resurrect a previous slot, and ChildAdded covers tool replication arriving later.
+EquippedClient.OnClientEvent:Connect(RefreshEquippedUI)
 
 -- Reset UI on respawn and when tools are removed without a remote event
 local function HookCharacter(char)
+	if char ~= Player.Character then return end
 	for _, connection in ipairs(characterConnections) do connection:Disconnect() end
 	table.clear(characterConnections)
 	Character = char
@@ -295,32 +308,26 @@ local function HookCharacter(char)
 	SetFoodEquippedUI(false)
 
 	table.insert(characterConnections, Character.ChildRemoved:Connect(function(child)
-		if child:IsA("Tool") then
-			if child:GetAttribute("FoodItem") == FoodConfig.ToolName then
-				SetFoodEquippedUI(false)
-			elseif GunsModule[child.Name] then
-				SetGunEquippedUI(false)
-			else
-				SetKnifeEquippedUI(false)
-			end
-		end
+		if child:IsA("Tool") then RefreshEquippedUI() end
 	end))
 	table.insert(characterConnections, Character.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then
-			if child:GetAttribute("FoodItem") == FoodConfig.ToolName then
-				SetFoodEquippedUI(true)
-			elseif GunsModule[child.Name] then
-				SetGunEquippedUI(true)
-			else
-				SetKnifeEquippedUI(true)
-			end
-		end
+		if child:IsA("Tool") then RefreshEquippedUI() end
 	end))
+	RefreshEquippedUI()
 end
 
 Player.CharacterAdded:Connect(HookCharacter)
-if Character then
-	HookCharacter(Character)
+Player.CharacterRemoving:Connect(function(char)
+	if char ~= Character then return end
+	for _, connection in ipairs(characterConnections) do connection:Disconnect() end
+	table.clear(characterConnections)
+	Character = nil
+	SetKnifeEquippedUI(false)
+	SetGunEquippedUI(false)
+	SetFoodEquippedUI(false)
+end)
+if Player.Character then
+	HookCharacter(Player.Character)
 end
 
 

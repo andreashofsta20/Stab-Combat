@@ -5,12 +5,14 @@ local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
 local Config = require(RS.Modules.MovementConfig)
+local SlideController = require(RS.Modules.SlideController)
 local CameraConfig = require(RS.Modules.FirstPersonCameraConfig)
 local State = require(RS.Modules.MovementAnimationState)
 local Validation = require(RS.Modules.KeybindValidation)
 local Sprint = require(RS.Modules.SprintState)
 local player, character = Players.LocalPlayer, script.Parent
 local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
 -- Wait for replication instead of permanently abandoning animation after 5s.
 local animator
 repeat
@@ -23,9 +25,10 @@ local mobileFrame = player:WaitForChild("PlayerGui"):WaitForChild("Main"):WaitFo
 local sprintButton = mobileFrame:WaitForChild("BasicControls"):WaitForChild("Sprint")
 local tracks, recovery, connections = {}, {}, {}
 local sprinting, crouching, sliding, keyboardHeld, mobileToggled = false, false, false, false, false
-local slideStarted, lastSlide, elapsed = 0, -math.huge, 0
+local lastSlide, elapsed = -math.huge, 0
 local alive = true
 local currentName
+local slide = SlideController.new(character, humanoid, root, Config)
 
 local function connect(signal, callback) table.insert(connections, signal:Connect(callback)) end
 local function loadTrack(name, id)
@@ -44,25 +47,31 @@ for name, id in pairs(Config.Animations) do
 	recovery[name] = {nextTry = os.clock() + Config.AssetRetrySeconds, attempts = 0}
 end
 local function moving()
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return false end
 	local velocity = root.AssemblyLinearVelocity
 	return humanoid.MoveDirection.Magnitude > 0.01 and Vector3.new(velocity.X, 0, velocity.Z).Magnitude > 0.1
 end
 local function reconcile()
 	if not alive then return end
-	local selected = State.Select(humanoid:GetState().Name, moving(), sprinting, crouching, sliding)
+	local humanoidState = humanoid:GetState().Name
+	-- Small physical step lifts can briefly report Freefall. The slide
+	-- controller owns its bounded ground grace; keep the pose blended through it.
+	if sliding and humanoidState == "Freefall" then humanoidState = "Running" end
+	local selected = State.Select(humanoidState, moving(), sprinting, crouching, sliding)
 	local posture = selected == "Slide" and "Slide"
 		or (selected == "CrouchIdle" or selected == "CrouchWalk") and "Crouch" or "Stand"
 	if character:GetAttribute(CameraConfig.PostureAttribute) ~= posture then
 		character:SetAttribute(CameraConfig.PostureAttribute, posture)
 	end
 	if selected ~= currentName then
-		for name, track in pairs(tracks) do if name ~= selected and track.IsPlaying then track:Stop(Config.FadeSeconds) end end
+		local fade = (selected == "Slide" or currentName == "Slide") and Config.SlideFadeSeconds or Config.FadeSeconds
+		for name, track in pairs(tracks) do if name ~= selected and track.IsPlaying then track:Stop(fade) end end
 		currentName = selected
 	end
 	local track = selected and tracks[selected]
-	if track and not track.IsPlaying then track:Play(Config.FadeSeconds) end
+	if track and not track.IsPlaying then
+		track:Play(selected == "Slide" and Config.SlideFadeSeconds or Config.FadeSeconds)
+		if selected == "Slide" and track.Length > 0 then track:AdjustSpeed(track.Length / Config.SlideDuration) end
+	end
 end
 local function setSpeed()
 	humanoid.WalkSpeed = crouching and Config.CrouchSpeed or (sprinting and Config.RunSpeed or Config.WalkSpeed)
@@ -84,6 +93,7 @@ local function updateSprint()
 end
 local function endSlide()
 	if not sliding then return end
+	slide:Stop()
 	sliding, lastSlide = false, os.clock()
 	setSpeed(); reconcile()
 end
@@ -119,9 +129,9 @@ end
 local function slideAction(_, inputState)
 	if inputState ~= Enum.UserInputState.Begin or blocked() then return Enum.ContextActionResult.Pass end
 	if sprinting and not crouching and not sliding and humanoid.FloorMaterial ~= Enum.Material.Air
-		and os.clock() - lastSlide >= Config.SlideCooldown then
-		sliding, slideStarted = true, os.clock()
-		humanoid.WalkSpeed = Config.SlideSpeed
+		and os.clock() - lastSlide >= Config.SlideCooldown and slide:Start() then
+		sliding = true
+		humanoid.WalkSpeed = slide.Speed
 		reconcile()
 	end
 	return Enum.ContextActionResult.Sink
@@ -141,19 +151,20 @@ end
 connect(sprintButton.Activated, function() if not blocked() then mobileToggled = not mobileToggled; updateSprint() end end)
 connect(humanoid.Running, reconcile)
 connect(humanoid.StateChanged, function()
-	if humanoid.FloorMaterial == Enum.Material.Air then endSlide() end
+	local state = humanoid:GetState().Name
+	if state ~= "Running" and state ~= "RunningNoPhysics" and state ~= "Landed" and state ~= "Freefall" then endSlide() end
 	reconcile()
 end)
 connect(UIS.WindowFocusReleased, cancelHeld)
 connect(UIS.TextBoxFocused, cancelHeld)
 connect(GuiService.MenuOpened, cancelHeld)
+connect(RunService.PreSimulation, function(dt)
+	if not alive or not sliding then return end
+	local exitSpeed = sprinting and Config.RunSpeed or Config.WalkSpeed
+	if slide:Step(dt, exitSpeed) then humanoid.WalkSpeed = slide.Speed else endSlide() end
+end)
 connect(RunService.Heartbeat, function(dt)
 	if not alive then return end
-	if sliding then
-		local ratio = math.clamp((os.clock() - slideStarted) / Config.SlideDuration, 0, 1)
-		humanoid.WalkSpeed = Config.SlideSpeed + (Config.SlideEndSpeed - Config.SlideSpeed) * ratio
-		if ratio >= 1 then endSlide() end
-	end
 	elapsed += dt
 	if elapsed < Config.RecoveryInterval then return end
 	elapsed = 0
@@ -182,6 +193,7 @@ local function cleanup()
 	for _, connection in ipairs(connections) do connection:Disconnect() end
 	table.clear(connections)
 	for _, track in pairs(tracks) do track:Stop(0); track:Destroy() end
+	slide:Destroy()
 	for name in pairs(actions) do CAS:UnbindAction(name .. "Action") end
 	Sprint.ClearController(sprintController)
 end

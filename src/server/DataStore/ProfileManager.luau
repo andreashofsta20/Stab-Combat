@@ -29,8 +29,8 @@ local PROFILE_TEMPLATE = {
 	WinStreak = 0,
 	XP = 150,
 	Cash = 250,
-	EquippedKnife = "Shadow Dagger",
-	EquippedGun = "White&Black Revolver",
+	EquippedKnife = "Bowie",
+	EquippedGun = "Normal Revolver",
 	Settings = {
 		DaySetting = true,
 		LobbySetting = false,
@@ -41,6 +41,7 @@ local PROFILE_TEMPLATE = {
 	RevolverInventory = {},
 	Emotes = {},
 	KeyBinds = {},
+	KeybindDefaultsVersion = 0, -- join migration upgrades the original camera default once
 	DailyRewards = {
 		LastClaimTime = 0,
 		Streak = 0,
@@ -48,6 +49,7 @@ local PROFILE_TEMPLATE = {
 	-- Imported once from DailyQuestsProgress_v1.0 by QuestsHandler. Claims and
 	-- Cash then share this profile's session lock and atomic DataStore record.
 	DailyQuests = { MigrationComplete = false },
+	DailyShop = {RotationId = "", Purchased = {}},
 	VIP = {
 		HasVIP = false,
 		ExpiresAt = 0,
@@ -114,7 +116,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 				Quantity = quantity and quantity.Value or 1,
 				Rarity = rarity and rarity.Value or "Common",
 				Image = image and image.Value or "1",
-				Tradeable = if tradeable then tradeable.Value else knife.Name ~= "Shadow Dagger",
+				Tradeable = if tradeable then tradeable.Value else knife.Name ~= "Bowie",
 			})
 		end
 	end
@@ -135,7 +137,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 				or revolver:GetAttribute("Image")
 				or ""
 			local tradeableValue = false
-			if revolver.Name ~= "White&Black Revolver" then
+			if revolver.Name ~= "Normal Revolver" then
 				if tradeable and tradeable:IsA("BoolValue") then
 					tradeableValue = tradeable.Value == true
 				else
@@ -305,7 +307,7 @@ function ProfileManager.LoadProfile(player: Player): any?
 	profile:Reconcile() -- Fill in any missing template fields
 
 	-- Retry migration until the legacy read succeeds. A successful nil read is complete.
-	if profile.Data.MigrationComplete ~= true then
+	if DataConfig.MigrateLegacyData and profile.Data.MigrationComplete ~= true then
 		local oldStore = DataStoreService:GetDataStore(OLD_STORE_NAME)
 		local success, oldData = pcall(function()
 			return oldStore:GetAsync(tostring(player.UserId))
@@ -318,6 +320,8 @@ function ProfileManager.LoadProfile(player: Player): any?
 		if type(oldData) == "table" then
 			migrateOldData(profile, oldData)
 		end
+		profile.Data.MigrationComplete = true
+	elseif not DataConfig.MigrateLegacyData then
 		profile.Data.MigrationComplete = true
 	end
 

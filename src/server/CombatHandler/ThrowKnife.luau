@@ -4,6 +4,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local MainGame = require(script.Parent.Parent.Game.MainGame)
 local Hitboxes = require(script.Parent.PlayerHitbox)
 local Math = require(RS.Modules.ProjectileMath)
+local Raycast = require(RS.Modules.RevolverRaycast)
 local RagdollQuery = require(RS.Modules.RagdollQuery)
 local remotes = RS:WaitForChild("Remotes"):WaitForChild("Knife")
 local resultRemote, damageRemote = remotes:WaitForChild("ThrewClient"), remotes:WaitForChild("DamageDealtClient")
@@ -45,15 +46,40 @@ function ThrowKnife.Throw(player, id, origin, direction, charge)
 	-- The old fixed-step loop never yielded and the path has no gravity. A
 	-- single swept ray covers exactly the same line at the same hit timing.
 	local destination = Math.GetPosition(origin, direction, Math.MAX_FLIGHT_TIME, charge)
+	local flightLength = (destination - origin).Magnitude
 	local hit = workspace:Raycast(origin, destination - origin, params)
 	if hit then
 		destination = hit.Position
 		local victim, victimHumanoid = Hitboxes.GetPlayerFromHitbox(hit.Instance)
 		if victim and victim ~= player and MainGame.PlayersInGame[victim.UserId]
-			and victimHumanoid and victimHumanoid.Health > 0 and not victimHumanoid.Parent:FindFirstChildOfClass("ForceField") then
-            local dealt = MainGame.DamagePlayer(player, victim, victimHumanoid, Math.DAMAGE,
-				{ Kind = "KnifeThrow", Direction = direction })
-			if dealt > 0 then damageRemote:FireClient(player, victimHumanoid.Parent, dealt, "KnifeThrow", tool.Name) end
+			and victimHumanoid and victimHumanoid.Parent == victim.Character
+			and victimHumanoid.Health > 0 and not victimHumanoid.Parent:FindFirstChildOfClass("ForceField") then
+			-- The broad Hitbox masks the actual head in the first sweep. Test the
+			-- same server ray against actual head/body geometry, excluding only
+			-- this victim for the cover check so walls and other players still stop it.
+			local headParams = RaycastParams.new()
+			headParams.FilterType = Enum.RaycastFilterType.Exclude
+			headParams.FilterDescendantsInstances = RagdollQuery.Exclude({character, victim.Character})
+			local function worldCast(from, vector) return workspace:Raycast(from, vector, headParams) end
+			local headDistance = Raycast.GetHeadshotDistance(origin, direction, flightLength,
+				Raycast.GetCharacterGeometry(victim.Character), worldCast)
+			local headshot = headDistance ~= nil
+			if headshot then destination = origin + direction * headDistance end
+			-- Match the revolver's cover rule: the forgiving proxy may not
+			-- stick through a wall and damage an otherwise hidden body.
+			local root = victim.Character:FindFirstChild("HumanoidRootPart")
+			local bodyVisible = false
+			if not headshot and root and root:IsA("BasePart") and Math.IsFiniteVector(root.Position) then
+				local centerVector = root.Position - origin
+				local cover = worldCast(origin, centerVector)
+				bodyVisible = not cover or cover.Distance >= centerVector.Magnitude - 0.02
+			end
+			if headshot or bodyVisible then
+				local damage = headshot and Math.HEADSHOT_KILLS and victimHumanoid.Health or Math.DAMAGE
+				local dealt = MainGame.DamagePlayer(player, victim, victimHumanoid, damage,
+					{ Kind = "KnifeThrow", Direction = direction })
+				if dealt > 0 then damageRemote:FireClient(player, victimHumanoid.Parent, dealt, "KnifeThrow", tool.Name, headshot) end
+			end
 		end
 	end
 	local result = {shotId = id, accepted = true, hit = hit ~= nil, position = destination, normal = hit and hit.Normal}

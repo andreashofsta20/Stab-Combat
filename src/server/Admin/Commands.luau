@@ -9,6 +9,7 @@ local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):Wa
 
 local adminLogStore = DataStoreService:GetDataStore("AdminActionLogs_v1_TESTING")
 local wipeDebounce = {}
+Players.PlayerRemoving:Connect(function(player) wipeDebounce[player.UserId] = nil end)
 local AdminClientRecieve = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Admin"):WaitForChild("AdminClientRecieve")
 
 local Commands = {}
@@ -145,15 +146,14 @@ Commands.PlayerManagement = {
                 return
             end
             if not targetUserID then return end
-
+            local player = Players:GetPlayerByUserId(targetUserID)
+            if not player then return end
             local now = os.clock()
             if wipeDebounce[targetUserID] and (now - wipeDebounce[targetUserID] < 3) then
                 return
             end
             wipeDebounce[targetUserID] = now
 
-            local player = Players:GetPlayerByUserId(targetUserID)
-            if not player then return end
 
             local leaderstats = player:FindFirstChild("leaderstats")
             if leaderstats then
@@ -180,10 +180,10 @@ Commands.PlayerManagement = {
 
                 local equippedKnife = leaderstats:FindFirstChild("EquippedKnife")
                 if equippedKnife and equippedKnife:IsA("StringValue") then
-                    equippedKnife.Value = "Shadow Dagger"
+                    equippedKnife.Value = "Bowie"
                 end
 
-                InventoryHandler.AddKnife(player, "Shadow Dagger")
+                InventoryHandler.AddKnife(player, "Bowie", false)
             end
 
             -- Save immediately via ProfileStore

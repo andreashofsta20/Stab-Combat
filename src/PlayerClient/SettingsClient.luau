@@ -2,7 +2,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 -- // LOCALPLAYER // --
@@ -11,6 +10,7 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- // MODULES // --
 local OpenFrameModule = require(script.Parent:WaitForChild("FramesHandler"))
+local LobbyLighting = require(script.Parent:WaitForChild("Modules"):WaitForChild("LobbyLighting"))
 
 -- // UI // --
 local MainGUI = PlayerGui:WaitForChild("Main")
@@ -33,20 +33,6 @@ local function WaitForSettings()
 end
 
 local SettingsFolder = WaitForSettings()
-local dayTween
-
-local function ApplyDayLighting(isDay: boolean)
-	if dayTween then
-		dayTween:Cancel()
-	end
-
-	dayTween = TweenService:Create(
-		Lighting,
-		TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
-		{ ClockTime = isDay and 14.5 or 20 }
-	)
-	dayTween:Play()
-end
 
 local function RefreshUI()
 	for _, v in pairs(SettingsContainer:GetChildren()) do
@@ -151,10 +137,15 @@ SetUpContainer()
 RefreshUI()
 local daySetting = SettingsFolder:FindFirstChild("Day")
 if daySetting and daySetting:IsA("BoolValue") then
-	daySetting:GetPropertyChangedSignal("Value"):Connect(function()
-		ApplyDayLighting(daySetting.Value)
+	local lightingController
+	local lightingDestroyed = false
+	-- Register teardown before New can yield while waiting for replicated state.
+	script.Destroying:Connect(function()
+		lightingDestroyed = true
+		if lightingController then lightingController.Destroy(); lightingController = nil end
 	end)
-	ApplyDayLighting(daySetting.Value)
+	local createdController = LobbyLighting.New(Player, daySetting)
+	if lightingDestroyed then createdController.Destroy() else lightingController = createdController end
 end
 CloseButton.MouseButton1Up:Connect(CloseFrame)
 

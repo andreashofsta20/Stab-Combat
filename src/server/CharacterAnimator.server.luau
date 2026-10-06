@@ -9,6 +9,7 @@ local function characterAdded(player, character)
 	end
 end
 local function observe(player)
+	if player.Parent ~= Players or connections[player] then return end
 	connections[player] = player.CharacterAdded:Connect(function(character) characterAdded(player, character) end)
 	if player.Character then task.spawn(characterAdded, player, player.Character) end
 end

@@ -280,13 +280,7 @@ local function buildItemButton(itemName: string, quantity: number, image: string
     end
 
     if itemClone:FindFirstChild("Tradable") then
-        if itemName == "Shadow Dagger" then
-            itemClone.Tradable.Visible = true
-            itemClone.LayoutOrder = 999
-            itemClone.Interactable = false
-        else
-            itemClone.Tradable.Visible = false
-        end
+        itemClone.Tradable.Visible = false
     end
 
     if itemClone:FindFirstChild("Rarity") and rarity then
@@ -301,6 +295,28 @@ local function buildItemButton(itemName: string, quantity: number, image: string
     end
 
     return itemClone
+end
+
+local function updateAcceptStatus(ui, localSide, otherSide)
+    local tradeComplete = currentTradeData.State == "COMPLETED"
+    local localLocked = localSide.Locked == true
+    local bothLocked = localLocked and otherSide.Locked == true
+    local localAccepted = localSide.Accepted == true
+    local waitRemaining = math.max(0, localAcceptReadyAt - tick())
+    if tradeComplete then
+        setButtonText(ui.AcceptButton, "DONE")
+    elseif not localLocked then
+        setButtonText(ui.AcceptButton, "CONFIRM")
+    elseif not bothLocked then
+        setButtonText(ui.AcceptButton, "UNCONFIRM")
+    elseif localAccepted then
+        setButtonText(ui.AcceptButton, "WAITING...")
+    elseif waitRemaining > 0 then
+        setButtonText(ui.AcceptButton, "UNCONFIRM (" .. tostring(math.ceil(waitRemaining)) .. "S)")
+    else
+        setButtonText(ui.AcceptButton, "ACCEPT")
+    end
+    if ui.AcceptButton and ui.AcceptButton:IsA("GuiButton") then ui.AcceptButton.Active = not tradeComplete end
 end
 
 local function refreshTradeUi()
@@ -390,28 +406,7 @@ local function refreshTradeUi()
     setCheckVisible(ui.LocalAccepted, localSide.Accepted == true)
     setCheckVisible(ui.OtherAccepted, otherSide.Accepted == true)
 
-    local tradeComplete = currentTradeData.State == "COMPLETED"
-    local bothLocked = localLocked and otherSide.Locked == true
-    local localAccepted = localSide.Accepted == true
-    local waitRemaining = math.max(0, localAcceptReadyAt - tick())
-
-    if tradeComplete then
-        setButtonText(ui.AcceptButton, "DONE")
-    elseif not localLocked then
-        setButtonText(ui.AcceptButton, "CONFIRM")
-    elseif not bothLocked then
-        setButtonText(ui.AcceptButton, "UNCONFIRM")
-    elseif localAccepted then
-        setButtonText(ui.AcceptButton, "WAITING...")
-    elseif bothLocked and waitRemaining > 0 then
-        setButtonText(ui.AcceptButton, "UNCONFIRM (" .. tostring(math.ceil(waitRemaining)) .. "S)")
-    else
-        setButtonText(ui.AcceptButton, "ACCEPT")
-    end
-
-    if ui.AcceptButton and ui.AcceptButton:IsA("GuiButton") then
-        ui.AcceptButton.Active = not tradeComplete
-    end
+    updateAcceptStatus(ui, localSide, otherSide)
 end
 
 local function ensureUiRefreshLoop()
@@ -433,7 +428,11 @@ local function ensureUiRefreshLoop()
                 break
             end
 
-            refreshTradeUi()
+            -- Only the acceptance countdown changes between server updates.
+            -- Keep offer/inventory buttons and their click handlers intact.
+            local ui = resolveTradeUi()
+            local localSide, otherSide = splitTradeData(currentTradeData)
+            if ui and localSide and otherSide then updateAcceptStatus(ui, localSide, otherSide) end
         end
         uiRefreshLoopActive = false
     end)
@@ -597,8 +596,9 @@ local function onTradeEvent(tradeData)
     ensureUiRefreshLoop()
 
     if tradeData.UpdateType == "TRADE_COMPLETED" then
+        local completedTrade = tradeData
         task.delay(1.25, function()
-            closeTradeUi()
+            if currentTradeData == completedTrade then closeTradeUi() end
         end)
         return
     end

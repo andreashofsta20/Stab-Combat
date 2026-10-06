@@ -1,7 +1,6 @@
 -- // SERVICES // --
 local Module = {}
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 
 
@@ -21,7 +20,10 @@ local FramesFolder = MainGUI:WaitForChild("Frames")
 -- // SOUNDS // --
 
 local SoundHandlerModule = require(script.Parent.Modules:WaitForChild("SoundHandler"))
-local SpectateHandlerModule = require(script.Parent.Modules:WaitForChild("SpectateHandler"))
+local UITransitions = require(script.Parent.Modules:WaitForChild("UITransitions"))
+UITransitions.BindMenus(FramesFolder)
+if SoundHandlerModule.BindClickSounds then SoundHandlerModule.BindClickSounds(MainGUI) end
+require(script.Parent.Modules:WaitForChild("SpectateHandler"))
 
 
 -- // MAIN FUNCTIONS // --
@@ -38,53 +40,41 @@ function Module.OpenFrame(FrameName : string)
 	end
 	
 	if FrameToOpen.Visible == true then
-		FrameToOpen.Visible = false
-		Lighting.Blur.Enabled = false
+		local transition = UITransitions.Attach(FrameToOpen)
+		if transition.Closing then transition.Open()
+		else transition.Close(function() Lighting.Blur.Enabled = false end) end
 		return
 	end
 	
 	
 	for i , v in pairs(FramesFolder:GetChildren()) do
-		if v:IsA("Frame") then
+		if v:IsA("GuiObject") then
 			v.Visible = false
 		end
 	end
 	Lighting.Blur.Enabled = true
 	
+	UITransitions.Attach(FrameToOpen)
 	FrameToOpen.Visible = true
 end
 
 
-local function HoverButton(Image : ImageButton)
-	local goal = { Size = UDim2.new(0.081, 0,135, 0) } 
-	local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local tween = TweenService:Create(Image, tweenInfo, goal)
-	tween:Play()
-end
-
-local function UnHoverButton(Image : ImageButton)
-	local goal = { Size = UDim2.new(0.071, 0,1, 0) }
-	local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local tween = TweenService:Create(Image, tweenInfo, goal)
-	tween:Play()
-end
-
 for i , v in pairs(TopButtonsFrame:GetChildren()) do
 	if v:IsA("ImageButton") then
+		local authoredSize = v.Size
 		
 		v.MouseEnter:Connect(function()
-			HoverButton(v)
+			UITransitions.Hover(v, authoredSize, true)
 			SoundHandlerModule.PlaySound("HoverTopButtons")
 		end)
 		
 		v.MouseLeave:Connect(function()
-			UnHoverButton(v)
+			UITransitions.Hover(v, authoredSize, false)
 		end)
 		
 		v.MouseButton1Up:Connect(function()
 			if v.Name == "Spectate" then
-				SpectateHandlerModule.ToggleFrame()
-				SoundHandlerModule.PlaySound("ClickTopButtons")
+				-- SpectateHandler owns this input and rebinds it when its GUI is replaced.
 				return
 			end
 			Module.OpenFrame(v.Name)

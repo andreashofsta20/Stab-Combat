@@ -8,6 +8,7 @@ $knifeModules = [ordered]@{
     SharedMotion = 'src/Modules/RevolverViewmodelMath.luau'
     KnifeMotion = 'src/Modules/KnifeViewmodelMotion.luau'
     Viewmodel = 'src/PlayerClient/Modules/KnifeViewmodel.luau'
+    Geometry = 'src/PlayerClient/Modules/WeaponViewmodelGeometry.luau'
 }
 $knifeBundle = [System.Text.StringBuilder]::new()
 [void]$knifeBundle.AppendLine('local loaders = {}')

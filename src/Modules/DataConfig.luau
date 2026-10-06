@@ -1,8 +1,9 @@
 -- Keep profile/legacy names unchanged. Each profile namespace gets its own
 -- ordered-store scope, so an old leaderboard cannot survive a profile reset.
 local Config = {
-	ProfileStoreName = "PlayerData_v1.0.1_MainData",
+	ProfileStoreName = "PlayerData_v1.0.2_MainData",
 	LegacyStoreName = "PlayerData_v1.0.1_OldData",
+	MigrateLegacyData = false,
 	LeaderboardVersion = "1", -- increment to start fresh boards within this profile namespace
 }
 function Config.GetLeaderboardScope()

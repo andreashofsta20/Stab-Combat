@@ -3,6 +3,8 @@ local generation = 0
 local shrinkTween
 
 local Players = game:GetService("Players")
+local shownWarnings = {}
+Players.PlayerRemoving:Connect(function(player) shownWarnings[player] = nil end)
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local NotifyClient = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Zone"):WaitForChild("RecieveClient")
@@ -11,6 +13,8 @@ local NotifyClient = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"
 
 
 function ZoneHandler.NotifyPlayer(player : Player, visible : boolean)
+    if shownWarnings[player] == visible then return end
+    shownWarnings[player] = visible
     NotifyClient:FireClient(player, visible)
 end
 
@@ -93,11 +97,11 @@ function ZoneHandler.StartZone()
 				local insideZone = isInsideZone(player)
 				if insideZone and not finalPhase then
 					if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main") and player.PlayerGui.Main:FindFirstChild("OutsideZone") then
-						NotifyClient:FireClient(player, false)
+						ZoneHandler.NotifyPlayer(player, false)
 					end
 				else
 					if player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Main") and player.PlayerGui.Main:FindFirstChild("OutsideZone") then
-						NotifyClient:FireClient(player, true)
+						ZoneHandler.NotifyPlayer(player, true)
 					end
 
 					if player.Character and player.Character:FindFirstChild("Humanoid") then
@@ -124,6 +128,7 @@ function ZoneHandler.StartZone()
 end
 
 function ZoneHandler.StopZone()
+    table.clear(shownWarnings)
     generation += 1
 	ZoneHandler._zoneActive = false
     if shrinkTween then shrinkTween:Cancel(); shrinkTween = nil end

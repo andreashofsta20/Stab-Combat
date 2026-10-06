@@ -22,6 +22,14 @@ local spectateFrame = playerGui:WaitForChild("Main"):WaitForChild("SpectateFrame
 local TopOtherButtons = playerGui:WaitForChild("Main"):WaitForChild("Top"):WaitForChild("Buttons")
 
 local GOLD = Color3.fromRGB(253, 194, 46)
+local rows = {FFA = {}, BR = {}}
+local playerConnections, connections = {}, {}
+local destroyed = false
+
+local function disconnect(list)
+	for _, connection in ipairs(list) do connection:Disconnect() end
+	table.clear(list)
+end
 
 local function getMode()
 	local mode = localPlayer:GetAttribute("CurrentRoundMode")
@@ -47,6 +55,10 @@ local function clearList(list)
 			child:Destroy()
 		end
 	end
+end
+
+local function clearRows(mode)
+	for player, row in pairs(rows[mode]) do row:Destroy(); rows[mode][player] = nil end
 end
 
 local function setOptionalVisible(parent, name, visible)
@@ -85,39 +97,34 @@ end
 local function refresh(mode)
 	local list = mode == "BR" and battleRoyaleList or ffaList
 	local template = mode == "BR" and battleRoyaleTemplate or ffaTemplate
-	clearList(list)
-
-	local participants = {}
+	local retained = {}
 	for _, player in ipairs(Players:GetPlayers()) do
-		if isRoundParticipant(player) then
-			table.insert(participants, player)
+		if playerConnections[player] and isRoundParticipant(player) then
+			retained[player] = true
+			local row = rows[mode][player]
+			if not row then
+				row = template:Clone()
+				rows[mode][player] = row
+				row.Parent = list
+			end
+			styleRow(row, player, mode)
 		end
 	end
-
-	table.sort(participants, function(a, b)
-		local aKills = a:GetAttribute("CurrentRoundKills") or 0
-		local bKills = b:GetAttribute("CurrentRoundKills") or 0
-		if aKills == bKills then
-			return a.Name < b.Name
-		end
-		return aKills > bKills
-	end)
-
-	for _, player in ipairs(participants) do
-		local row = template:Clone()
-		styleRow(row, player, mode)
-		row.Parent = list
+	-- LayoutOrder handles kill ordering; updates retain the same UI instances.
+	for player, row in pairs(rows[mode]) do
+		if not retained[player] then row:Destroy(); rows[mode][player] = nil end
 	end
 end
 
 local function hide()
 	battleRoyaleUI.Visible = false
 	ffaUI.Visible = false
-	clearList(battleRoyaleList)
-	clearList(ffaList)
+	clearRows("BR")
+	clearRows("FFA")
 end
 
 local function update()
+	if destroyed then return end
 	local mode = getMode()
 	local isInRound = localPlayer:GetAttribute("InRound") == true
 	TopOtherButtons.Visible = not (gameActive.Value and (isInRound or spectateFrame.Visible))
@@ -132,36 +139,53 @@ local function update()
 
 	battleRoyaleUI.Visible = mode == "BR"
 	ffaUI.Visible = mode == "FFA"
+	clearRows(mode == "BR" and "FFA" or "BR")
 	refresh(mode)
 end
 
 local function observePlayer(player)
-	player:GetAttributeChangedSignal("CurrentRoundKills"):Connect(update)
-	player:GetAttributeChangedSignal("CurrentRoundParticipant"):Connect(update)
-	player:GetAttributeChangedSignal("InRound"):Connect(update)
+	if playerConnections[player] then return end
+	playerConnections[player] = {
+		player:GetAttributeChangedSignal("CurrentRoundKills"):Connect(update),
+		player:GetAttributeChangedSignal("CurrentRoundParticipant"):Connect(update),
+		player:GetAttributeChangedSignal("InRound"):Connect(update),
+	}
 end
 
-gameActive.Changed:Connect(update)
-ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RoundCountdown").OnClientEvent:Connect(function(phase)
+table.insert(connections, gameActive.Changed:Connect(update))
+table.insert(connections, ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RoundCountdown").OnClientEvent:Connect(function(phase)
 	if phase == "roundover" then
 		TopOtherButtons.Visible = true
 		hide()
 	end
-end)
-spectateFrame:GetPropertyChangedSignal("Visible"):Connect(update)
-localPlayer:GetAttributeChangedSignal("CurrentRoundMode"):Connect(update)
-localPlayer:GetAttributeChangedSignal("InRound"):Connect(update)
+end))
+table.insert(connections, spectateFrame:GetPropertyChangedSignal("Visible"):Connect(update))
+table.insert(connections, localPlayer:GetAttributeChangedSignal("CurrentRoundMode"):Connect(update))
 
-Players.PlayerAdded:Connect(function(player)
+table.insert(connections, Players.PlayerAdded:Connect(function(player)
 	observePlayer(player)
 	update()
-end)
+end))
 
-Players.PlayerRemoving:Connect(update)
+table.insert(connections, Players.PlayerRemoving:Connect(function(player)
+	if playerConnections[player] then disconnect(playerConnections[player]); playerConnections[player] = nil end
+	update()
+end))
 for _, player in ipairs(Players:GetPlayers()) do
 	observePlayer(player)
 end
 
+function HandleGameUI.Destroy()
+	if destroyed then return end
+	destroyed = true
+	disconnect(connections)
+	for player, listeners in pairs(playerConnections) do disconnect(listeners); playerConnections[player] = nil end
+	hide()
+end
+
+table.insert(connections, inGameGui.Destroying:Connect(HandleGameUI.Destroy))
+clearList(battleRoyaleList)
+clearList(ffaList)
 hide()
 update()
 

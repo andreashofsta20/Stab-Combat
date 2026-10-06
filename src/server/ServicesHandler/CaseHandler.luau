@@ -78,7 +78,8 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 		NotificationHandler.SendNotification(player, message, 3, "Error")
 	end
 	
-	local DURATATION = 10 
+	-- Keep the result authoritative while making the reel 0.2 seconds faster.
+	local DURATATION = 9.8
 
 	local success, ownsPass = pcall(function()
 		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, 1733042964) 
@@ -131,7 +132,7 @@ OpenCaseRemote.OnServerEvent:Connect(function(player : Player, CaseName : string
 	local isRevolverCase = CaseInfo.ItemType == "Revolver"
 
 	for knifeName, skinData in pairs(CaseInfo.Skins) do
-		local blocked = isRevolverCase and (skinData.Rarity == "Godly" or knifeName == "White&Black Revolver")
+		local blocked = isRevolverCase and skinData.Rarity == "Godly"
 		if not blocked and skinData.Rarity == chosenRarity then
 			table.insert(SkinsPlayerCanRecieve, {
 				Knife = knifeName;

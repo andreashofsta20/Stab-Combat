@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local Config = require(ReplicatedStorage.Modules.RevolverConfig)
 local CursorConfig = require(ReplicatedStorage.Modules.CursorConfig)
+local KeybindValidation = require(ReplicatedStorage.Modules.KeybindValidation)
 local Catalog = require(ReplicatedStorage.Modules.RevolversInfo)
 local ToolPhysics = require(ReplicatedStorage.Modules.RevolverToolPhysics).New(Catalog)
 local Raycast = require(ReplicatedStorage.Modules.RevolverRaycast)
@@ -13,14 +14,17 @@ local Effects = require(script.Parent.RevolverEffects)
 local AimPose = require(script.Parent.RevolverAimPose)
 local AimCamera = require(script.Parent.RevolverAimCamera)
 local Viewmodel = require(script.Parent.RevolverViewmodel)
+local Feedback = require(script.Parent.HitFeedback)
 local player = Players.LocalPlayer
 local Controller = {}
 local initialized = false
 local Action, Snapshot, Shot, gameActive
 local session, revision, sequence, acknowledged = nil, -1, 0, 0
 local serverAmmo, reloadEnd, nextShot = Config.Capacity, 0, 0
+local nextEmptySound = 0
 local pending = {}
 local predictions = {}
+local presentedShots = {}
 local characterConnections = {}
 local touchShiftLock = false
 local gamepadMode = false
@@ -30,20 +34,28 @@ local reloadSequence = nil
 local reloadRequestedAt = 0
 local lastSyncAt = 0
 local oldZoom = nil
-local hitMarkerUntil = 0
 local touchAimPosition, touchAimUntil = nil, 0
-local gui, ammoLabel, crosshair, hitMarker, shootButton, reloadButton, aimButton
+local gui, ammoLabel, crosshair, shootButton, reloadButton, aimButton
 local aimRequested = false
 local aimInput
 local equippedTool, equippedTuning
+local toolScanDirty = true
 local boundCharacter
+local reloadKey, reloadDisplay = Config.ReloadKey, KeybindValidation.ToDisplay(Config.ReloadKey)
 
 local function now() return workspace:GetServerTimeNow() end
+local function finiteVector(value)
+	return typeof(value) == "Vector3" and value.X == value.X and value.Y == value.Y and value.Z == value.Z
+		and math.abs(value.X) <= Config.Security.MaxCoordinate
+		and math.abs(value.Y) <= Config.Security.MaxCoordinate and math.abs(value.Z) <= Config.Security.MaxCoordinate
+end
 local function getTool()
 	local character = player.Character
 	if not character or character ~= boundCharacter then return nil end
 	if equippedTool and equippedTool.Parent == character then return equippedTool end
 	equippedTool, equippedTuning = nil, nil
+	if not toolScanDirty then return nil end
+	toolScanDirty = false
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Tool") and Catalog[child.Name] then
 			equippedTool, equippedTuning = child, Config.Get(child.Name)
@@ -105,6 +117,7 @@ end
 function Controller.SetAiming(enabled, heldInput)
 	if not initialized then return false end
 	if not enabled then stopAim(); return true end
+	Viewmodel.InterruptInspect()
 	aimInput = heldInput
 	if not canAim() then stopAim(); return false end
 	local tool = getTool()
@@ -112,10 +125,14 @@ function Controller.SetAiming(enabled, heldInput)
 	return aimRequested
 end
 
+local function discardPrediction(id)
+	local prediction = predictions[id]
+	if prediction and prediction.part then prediction.part:Destroy() end
+	predictions[id] = nil
+end
+
 local function clearPredictions()
-	for _, prediction in pairs(predictions) do
-		if prediction.part then prediction.part:Destroy() end
-	end
+	for id in pairs(predictions) do discardPrediction(id) end
 	table.clear(predictions)
 	table.clear(pending)
 end
@@ -146,7 +163,20 @@ local function aimRay(screenPosition)
 	return camera:ViewportPointToRay(position.X, position.Y)
 end
 
-local function predict(tool, ray, tuning)
+local function worldCast(ignore)
+	local params = RaycastParams.new()
+	params.FilterType, params.FilterDescendantsInstances, params.IgnoreWater = Enum.RaycastFilterType.Exclude, RagdollQuery.Exclude(ignore), true
+	return function(origin, vector) return workspace:Raycast(origin, vector, params) end
+end
+
+local function pathStillClear(origin, destination, cast)
+	local vector = destination - origin
+	if vector.Magnitude < 0.001 then return true end
+	local cover = cast(origin, vector)
+	return not cover or cover.Distance >= vector.Magnitude - 0.02
+end
+
+local function predict(ray, tuning)
 	local character = player.Character
 	local head = character and character:FindFirstChild("Head")
 	if not head or not head:IsA("BasePart") then return nil end
@@ -157,51 +187,64 @@ local function predict(tool, ray, tuning)
 			local root = other.Character and other.Character:FindFirstChild("HumanoidRootPart")
 			local humanoid = other.Character and other.Character:FindFirstChildOfClass("Humanoid")
 			if root and root:IsA("BasePart") and humanoid and humanoid.Health > 0 then
-				table.insert(targets, { frame = root.CFrame * CFrame.new(table.unpack(tuning.HitboxOffset)) })
+				local target = Raycast.GetCharacterGeometry(other.Character)
+				target.frame = root.CFrame * CFrame.new(table.unpack(tuning.HitboxOffset))
+				table.insert(targets, target)
 			end
 		end
 	end
-	local params = RaycastParams.new()
-	params.FilterType, params.FilterDescendantsInstances, params.IgnoreWater = Enum.RaycastFilterType.Exclude, RagdollQuery.Exclude(ignore), true
-	local function cast(origin, vector) return workspace:Raycast(origin, vector, params) end
-	local muzzle = Raycast.GetMuzzle(tool, head, tuning, Config.Security.MaxMuzzleDistance)
-	local vector = muzzle - head.Position
-	local wall = cast(head.Position, vector)
-	if wall and wall.Distance < vector.Magnitude - 0.02 then muzzle = head.Position end
-	return Raycast.Resolve(ray.Origin, ray.Direction.Unit, muzzle, tuning, targets, cast, head.Position), muzzle
+	local cast = worldCast(ignore)
+	-- Match authority: recoil, bob, arm poses and skin offsets cannot move
+	-- the gameplay ray down into cover beneath an otherwise clear cursor.
+	local origin = head.Position
+	return Raycast.Resolve(ray.Origin, ray.Direction.Unit, origin, tuning, targets, cast), origin, cast
 end
 
 function Controller.Fire(screenPosition: Vector2?)
+	Viewmodel.InterruptInspect()
 	if not initialized or not canPlay() or uiBlocksCombat() then return false end
 	local tool = getTool()
 	if not tool then return false end
 	if not session then sync(); return false end
 	local time = now()
 	local ammo, count = predictionAmmo()
-	if ammo <= 0 or count >= Config.Security.MaxPendingShots or reloadEnd > 0
+	if count >= Config.Security.MaxPendingShots or reloadEnd > 0
 		or reloadPredicted or time < nextShot then return false end
+	if ammo <= 0 then
+		if time >= nextEmptySound then
+			nextEmptySound = time + equippedTuning.Effects.EmptySoundCooldownMs / 1000
+			Effects.Empty(tool, equippedTuning)
+		end
+		return false
+	end
 	local ray = aimRay(screenPosition)
 	if not ray then return false end
 	local tuning = equippedTuning
-	local result, origin = predict(tool, ray, tuning)
+	local result, origin, cast = predict(ray, tuning)
 	if not result then return false end
+	local firstPerson = Viewmodel.IsFirstPerson(tool, tuning)
+	local visualTool = Viewmodel.GetVisualTool(tool)
+	local cosmeticOrigin = Effects.GetShotOrigin(tool, origin, tuning, visualTool, firstPerson)
+	local safeOrigin = Raycast.GetVisualShotOrigin(origin, cosmeticOrigin, result.position, cast)
 	if screenPosition then touchAimPosition, touchAimUntil = screenPosition, time + 0.6 end
 	AimPose.SetLocalAim(tool, result.position, false, AimCamera.IsAiming())
 	AimPose.Kick(player, player.Character, tool.Name)
 	sequence += 1
 	nextShot = time + tuning.FireIntervalMs / 1000
 	pending[sequence] = { time = time, nextShot = nextShot }
-	local suppressVisuals = Viewmodel.IsFirstPerson(tool, tuning)
+	-- Immediate feedback keeps input responsive; only authority starts a traveling streak.
 	predictions[sequence] = {
-		part = Effects.Fire(tool, origin, result.position, tuning, true, Viewmodel.GetVisualTool(tool), suppressVisuals),
-		time = time, suppressVisuals = suppressVisuals,
+		time = time, origin = cosmeticOrigin, physicalOrigin = origin, tuning = tuning,
+		visualTool = visualTool, firstPerson = firstPerson, cast = cast,
 	}
+	Effects.Fire(tool, origin, result.position, tuning, true, visualTool, firstPerson, false, true, safeOrigin)
 	Viewmodel.Kick(tool)
 	Action:FireServer("Fire", session, sequence, ray.Origin, ray.Direction.Unit, time)
 	return true
 end
 
 function Controller.Reload()
+	Viewmodel.InterruptInspect()
 	if not initialized or not canPlay() or uiBlocksCombat() then return false end
 	local tool = getTool()
 	if not tool or not session then sync(); return false end
@@ -236,9 +279,6 @@ local function makeUI()
 	crosshair.Visible = false
 	crosshair.AnchorPoint, crosshair.Size = Vector2.new(0.5, 0.5), UDim2.fromOffset(CursorConfig.WhiteDotSize, CursorConfig.WhiteDotSize)
 	crosshair.BackgroundColor3, crosshair.BorderSizePixel, crosshair.Parent = Color3.new(1, 1, 1), 0, gui
-	hitMarker = Instance.new("TextLabel")
-	hitMarker.AnchorPoint, hitMarker.Size, hitMarker.BackgroundTransparency = Vector2.new(0.5, 0.5), UDim2.fromOffset(32, 32), 1
-	hitMarker.Text, hitMarker.TextColor3, hitMarker.TextSize, hitMarker.Parent = "X", Color3.fromRGB(255, 210, 80), 32, gui
 	local function button(text, offset)
 		local control = Instance.new("TextButton")
 		control.AnchorPoint, control.Position, control.Size = Vector2.new(1, 1), UDim2.new(1, offset, 0.63, 0), UDim2.fromOffset(80, 52)
@@ -261,10 +301,12 @@ local function onCharacter(character)
 	gui.Enabled = false
 	stopAim(true)
 	equippedTool, equippedTuning = nil, nil
+	toolScanDirty = true
 	for _, connection in ipairs(characterConnections) do connection:Disconnect() end
 	table.clear(characterConnections)
 	session, revision, sequence, acknowledged = nil, -1, 0, 0
 	serverAmmo, reloadEnd, nextShot, reloadPredicted = Config.Capacity, 0, 0, false
+	nextEmptySound = 0
 	reloadSequence = nil
 	clearPredictions()
 	Effects.Clear()
@@ -272,6 +314,7 @@ local function onCharacter(character)
 	AimPose.ResetLocal()
 	local function toolsChanged(child)
 		if not child:IsA("Tool") then return end
+		toolScanDirty = true
 		if child == equippedTool and child.Parent ~= character then
 			stopAim(true)
 			Viewmodel.Clear()
@@ -293,6 +336,13 @@ end
 function Controller.Init()
 	if initialized then return end
 	initialized = true
+	local reloadBind = player:WaitForChild("leaderstats"):WaitForChild("KeyBinds"):WaitForChild("Reload")
+	local function updateReloadKey()
+		reloadKey = KeybindValidation.NormalizeForAction("Reload", reloadBind.Value) or Config.ReloadKey
+		reloadDisplay = KeybindValidation.ToDisplay(reloadKey)
+	end
+	updateReloadKey()
+	reloadBind.Changed:Connect(updateReloadKey)
 	ToolPhysics.BindPlayer(player)
 	local remotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Revolver")
 	Action, Snapshot, Shot = remotes:WaitForChild("Action"), remotes:WaitForChild("State"), remotes:WaitForChild("Shot")
@@ -303,6 +353,7 @@ function Controller.Init()
 		if data.Character ~= player.Character then return end
 		if session ~= data.Session then
 			session, revision, sequence, acknowledged = data.Session, -1, 0, 0
+			nextEmptySound = 0
 			AimPose.SetSession(session)
 			reloadPredicted, reloadSequence = false, nil
 			clearPredictions()
@@ -313,6 +364,11 @@ function Controller.Init()
 		serverAmmo, reloadEnd = data.Ammo, data.ReloadEnd
 		nextShot = data.NextShot
 		local resolved = math.max(acknowledged, data.SyncSequence or 0)
+		local prediction = predictions[acknowledged]
+		if prediction then
+			if data.Reason == "Fired" then prediction.accepted = true
+			elseif data.Reason ~= "Sync" and not prediction.accepted then discardPrediction(acknowledged) end
+		end
 		for id, request in pairs(pending) do
 			if id <= resolved then pending[id] = nil
 			else nextShot = math.max(nextShot, request.nextShot) end
@@ -323,25 +379,46 @@ function Controller.Init()
 		if reloadEnd == 0 and not reloadPredicted then Effects.StopReload() end
 	end)
 	Shot.OnClientEvent:Connect(function(data)
-		local suppressVisuals = false
+		-- Local prediction supplies flash/recoil once; authority supplies the one streak and impact.
+		if type(data) ~= "table" or not Catalog[data.Weapon]
+			or not finiteVector(data.Origin) or not finiteVector(data.Position)
+			or type(data.ShooterId) ~= "number" or data.ShooterId ~= data.ShooterId
+			or math.abs(data.ShooterId) > 9007199254740991 or data.ShooterId % 1 ~= 0
+			or type(data.Session) ~= "string" or #data.Session == 0 or #data.Session > 64
+			or type(data.Sequence) ~= "number" or data.Sequence ~= data.Sequence
+			or data.Sequence < 0 or data.Sequence > 2147483647 or data.Sequence % 1 ~= 0 then return end
+		if data.ShooterId == player.UserId and data.Session ~= session then return end
+		if type(data.Sequence) == "number" and type(data.Session) == "string" then
+			local previous = presentedShots[data.ShooterId]
+			if previous and previous.session == data.Session and data.Sequence <= previous.sequence then return end
+			presentedShots[data.ShooterId] = {session = data.Session, sequence = data.Sequence}
+		end
 		if data.ShooterId == player.UserId then
 			if data.Session ~= session then return end
 			local prediction = predictions[data.Sequence]
-			suppressVisuals = prediction and prediction.suppressVisuals
-				or Viewmodel.IsFirstPerson(getTool(), equippedTuning)
-			if prediction and prediction.part and prediction.part.Parent then
-				Effects.CorrectTracer(prediction.part, data.Position)
+			if prediction then
+				-- Moving cover may have entered the path during the round trip.
+				-- Suppress stale flight rather than drawing through it or inventing a second hit.
+				if pathStillClear(data.Origin, data.Position, prediction.cast) then
+					local origin = Raycast.GetVisualShotOrigin(data.Origin, prediction.origin, data.Position, prediction.cast)
+					Effects.ConfirmedTracer(origin, data.Position, prediction.tuning, prediction.visualTool, prediction.firstPerson)
+				end
+				discardPrediction(data.Sequence)
 			end
-			predictions[data.Sequence] = nil
-			if data.Hit then hitMarkerUntil = now() + 0.15 end
 		else
 			local shooter = Players:GetPlayerByUserId(data.ShooterId)
 			local tool = shooter and shooter.Character and shooter.Character:FindFirstChild(data.Weapon)
 			if shooter then AimPose.Kick(shooter, shooter.Character, data.Weapon) end
-			Effects.Fire(tool, data.Origin, data.Position, Config.Get(data.Weapon), false)
+			local ignore = {}
+			for _, other in ipairs(Players:GetPlayers()) do
+				if other.Character then table.insert(ignore, other.Character) end
+			end
+			local blocked = not pathStillClear(data.Origin, data.Position, worldCast(ignore))
+			Effects.Fire(tool, data.Origin, data.Position, Config.Get(data.Weapon), false, nil, false, true, blocked)
 		end
-		if not suppressVisuals then Effects.Impact(data.Position, data.Normal, Config.Get(data.Weapon).Effects) end
+		Effects.Impact(data.Position, data.Normal, Config.Get(data.Weapon).Effects, data.Surface, data.Hit)
 	end)
+	Players.PlayerRemoving:Connect(function(leaving) presentedShots[leaving.UserId] = nil end)
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed or UserInputService:GetFocusedTextBox() then return end
 		gamepadMode = input.UserInputType.Name:match("^Gamepad") ~= nil
@@ -350,7 +427,7 @@ function Controller.Init()
 			Controller.Fire()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton2 or input.KeyCode == Enum.KeyCode.ButtonL2 then
 			Controller.SetAiming(true, input)
-		elseif input.KeyCode.Name == Config.ReloadKey or input.KeyCode.Name == Config.GamepadReloadKey then
+		elseif KeybindValidation.Matches(reloadKey, input) or input.KeyCode.Name == Config.GamepadReloadKey then
 			Controller.Reload()
 		end
 	end)
@@ -368,6 +445,7 @@ function Controller.Init()
 	player.CharacterRemoving:Connect(function(character)
 		if character ~= boundCharacter then return end
 		boundCharacter, equippedTool, equippedTuning = nil, nil, nil
+		nextEmptySound = 0
 		Viewmodel.Clear()
 		gui.Enabled, crosshair.Visible = false, false
 		stopAim(true)
@@ -403,16 +481,17 @@ function Controller.Init()
 		local bodyAnimation, armAnimation = AimPose.GetLocalAnimation()
 		Viewmodel.Update(tool, equippedTuning, visible, AimCamera.IsAiming(), combat and (reloadEnd > 0 or reloadPredicted), dt,
 			bodyAnimation, armAnimation)
+		Effects.SetFirstPerson(Viewmodel.GetVisualTool(tool), equippedTuning)
 		local ammo = predictionAmmo()
 		if visible then
 			local text = reloadEnd > 0 and string.format("RELOADING %.1fs", math.max(0, reloadEnd - time))
-				or (reloadPredicted and "RELOADING" or string.format("%d / %d  |  [%s] RELOAD", ammo, Config.Capacity, Config.ReloadKey))
+				or (reloadPredicted and "RELOADING" or string.format("%d / %d  |  [%s] RELOAD", ammo, Config.Capacity, reloadDisplay))
 			ammoLabel.Text = text
 			local camera = workspace.CurrentCamera
 			local centered = AimCamera.IsAiming() or UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or touchShiftLock or gamepadMode or touchMode
 			local pos = centered and camera and camera.ViewportSize / 2 or UserInputService:GetMouseLocation()
-			crosshair.Position, hitMarker.Position = UDim2.fromOffset(pos.X, pos.Y), UDim2.fromOffset(pos.X, pos.Y)
-			hitMarker.Visible = combat and time < hitMarkerUntil
+			crosshair.Position = UDim2.fromOffset(pos.X, pos.Y)
+			Feedback.SetAimPosition(pos)
 			shootButton.Visible, reloadButton.Visible = combat and UserInputService.TouchEnabled, combat and UserInputService.TouchEnabled
 			aimButton.Visible = UserInputService.TouchEnabled
 			aimButton.Text = AimCamera.IsAiming() and "AIM ON" or "AIM"

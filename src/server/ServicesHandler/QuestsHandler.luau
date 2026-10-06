@@ -173,6 +173,7 @@ claimRemote.OnServerEvent:Connect(function(player, id)
 	push(player)
 end)
 local function observe(player)
+	if player.Parent ~= Players or watchers[player] then return end
 	playtime[player] = os.clock()
 	watchers[player] = player:GetAttributeChangedSignal("DataReady"):Connect(function()
 		playtime[player] = os.clock()

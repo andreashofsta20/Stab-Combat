@@ -83,6 +83,10 @@ function Service.OnDeath(character)
 		return nil -- death/credit/respawn still proceed if a malformed avatar fails
 	end
 	character:SetAttribute("Ragdolled", true)
+	-- Replicate the exact clone for the victim's brief death camera. Names alone
+	-- are ambiguous when a fast respawn leaves multiple corpses for one player.
+	local reference = Instance.new("ObjectValue")
+	reference.Name, reference.Value, reference.Parent = "DeathRagdollReference", corpse, character
 	Rig.HideOriginal(character)
 	for index = #corpses, 1, -1 do if not corpses[index].Parent then table.remove(corpses, index) end end
 	while #corpses >= Config.MaxCorpses do table.remove(corpses, 1):Destroy() end
@@ -91,6 +95,7 @@ function Service.OnDeath(character)
 		local index = table.find(corpses, corpse)
 		if index then table.remove(corpses, index) end
 		corpse:Destroy() -- capture the corpse, never a player's new character
+		reference:Destroy()
 	end)
 	return corpse
 end

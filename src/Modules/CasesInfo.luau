@@ -3,16 +3,14 @@ local RevolversInfo = require(script.Parent:WaitForChild("RevolversInfo"))
 -- ============================================================
 -- Revolver case helpers
 -- Skins are built from RevolversInfo so rarity + image can never drift.
--- Godly revolvers are NEVER unboxable (Robux-only), and the untradeable
--- starter revolver is excluded. Both are filtered here AND re-checked in
--- CaseHandler on the server.
+-- Godly revolvers are NEVER unboxable (Robux-only).
 -- ============================================================
 local NOT_UNBOXABLE_RARITIES = { Godly = true }
-local NOT_UNBOXABLE_REVOLVERS = { ["White&Black Revolver"] = true }
+local NOT_UNBOXABLE_REVOLVERS = {}
 
 local function buildRevolverSkins(names)
-	if #names > 10 then
-		error("[CasesInfo] A revolver case cannot contain more than 10 items")
+	if #names > 11 then
+		error("[CasesInfo] A revolver case cannot contain more than 11 items")
 	end
 
 	local skins = {}
@@ -154,6 +152,7 @@ local Cases = {
 		EmoteCase = false;
 		Skins = buildRevolverSkins({
 			"Normal Revolver",
+			"White&Black Revolver",
 			"Aurum Revolver", "Azure Revolver", "Honeyed Revolver", "Onyx Revolver",
 			"Amber Revolver", "Berserk Revolver", "Frostbite Revolver", "Glacial Revolver",
 			"Blossom Revolver",

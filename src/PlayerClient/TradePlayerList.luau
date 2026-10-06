@@ -88,18 +88,16 @@ local function updateNoPlayersMessage()
     end
 end
 
+local function RemoveEntry(userId)
+    local entry = playerEntries[userId]
+    if not entry then return end
+    playerEntries[userId] = nil
+    for _, conn in ipairs(entry.connections or {}) do conn:Disconnect() end
+    if entry.frame then entry.frame:Destroy() end
+end
+
 local function ClearPlayerEntries()
-    for userId, entry in pairs(playerEntries) do
-        if entry.connections then
-            for _, conn in ipairs(entry.connections) do
-                conn:Disconnect()
-            end
-        end
-        if entry.frame then
-            entry.frame:Destroy()
-        end
-        playerEntries[userId] = nil
-    end
+    for userId in pairs(playerEntries) do RemoveEntry(userId) end
 end
 
 local function canReceiveTrades(player: Player)
@@ -195,18 +193,7 @@ local function AddPlayer(plr : Player)
 end
 
 local function RemovePlayer(player: Player)
-    local entry = playerEntries[player.UserId]
-    if entry then
-        if entry.connections then
-            for _, conn in ipairs(entry.connections) do
-                conn:Disconnect()
-            end
-        end
-        if entry.frame then
-            entry.frame:Destroy()
-        end
-        playerEntries[player.UserId] = nil
-    end
+    RemoveEntry(player.UserId)
     activeCooldowns[player.UserId] = nil
 end
 
@@ -226,13 +213,8 @@ local function RefreshPlayerList()
     for userId, entry in pairs(playerEntries) do
         local player = Players:GetPlayerByUserId(userId)
         if not player then
-            if entry.conn then
-                entry.conn:Disconnect()
-            end
-            if entry.frame then
-                entry.frame:Destroy()
-            end
-            playerEntries[userId] = nil
+            RemoveEntry(userId)
+            activeCooldowns[userId] = nil
         elseif entry.frame then
             updateEntryState(entry.frame, player)
         end

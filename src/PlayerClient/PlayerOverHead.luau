@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 -- // TEMPLATE // --
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -10,16 +11,22 @@ local WinStreakImages = require(Modules:WaitForChild("WinStreakImages"))
 local UITemplates = ReplicatedStorage:WaitForChild("UITemplates")
 local OverHeadTemplates = UITemplates:WaitForChild("OverheadTemplates")
 local OverHeadTemplate = OverHeadTemplates:WaitForChild("Overhead")
-local DamageTextTemplate = OverHeadTemplates:WaitForChild("DamageAmount")
+local records = {}
+local function clearCharacter(record)
+    record.character = nil
+    if record.cleanup then record.cleanup(); record.cleanup = nil end
+end
 
-local DamageDealtClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("DamageDealtClient")
+
+
 
 -- // CORE FUNCTIONS // --
 
-local function CreateOverhead(player: Player, character: Model)
+local function CreateOverhead(player: Player, character: Model, record)
     local head = character:WaitForChild("Head", 5)
     local humanoid = character:WaitForChild("Humanoid", 5)
-    if not (head and humanoid) then return end
+    if not (head and humanoid) or records[player] ~= record or record.character ~= character
+        or player.Character ~= character or player.Parent ~= Players then return end
     
     -- Cleanup old overhead if it exists
     local overheadName = "OverheadUI_" .. player.Name
@@ -29,20 +36,64 @@ local function CreateOverhead(player: Player, character: Model)
 
     local overhead = OverHeadTemplate:Clone()
     overhead.Name = overheadName
+    overhead.Enabled = true
+    -- Keep world occlusion, but make the UI independent of sun/moon direction.
+    -- World-space height keeps the label above the head when looking up/down.
+    overhead.AlwaysOnTop = false
+    overhead.LightInfluence = 0
+    overhead.Brightness = 2
+    overhead.StudsOffset = Vector3.zero
+    overhead.StudsOffsetWorldSpace = Vector3.new(0, 0.8, 0)
 
     local container = overhead:WaitForChild("Container")
     local nameLabel = container:WaitForChild("PlayerName")
     local membershipBadge = container:WaitForChild("PlayerMembership")
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    for _, label in ipairs(container:GetDescendants()) do
+        if label:IsA("TextLabel") then
+            label.TextColor3 = Color3.fromRGB(246, 248, 255)
+            label.TextTransparency = 0
+            label.TextStrokeColor3 = Color3.fromRGB(6, 8, 12)
+            label.TextStrokeTransparency = 0.12
+        end
+    end
     
     local leaderstats = player:WaitForChild("leaderstats", 5)
-    if not leaderstats then return end
+    if not leaderstats then overhead:Destroy(); return end
     
-    local settingsFolder = leaderstats:WaitForChild("Settings")
-    local lobbyModeSetting = settingsFolder:WaitForChild("LobbyMode")
-    local winStreakValue = leaderstats:WaitForChild("WinStreak")
+    local settingsFolder = leaderstats:WaitForChild("Settings", 5)
+    local lobbyModeSetting = settingsFolder and settingsFolder:WaitForChild("LobbyMode", 5)
+    local winStreakValue = leaderstats:WaitForChild("WinStreak", 5)
+    if not lobbyModeSetting or not winStreakValue or records[player] ~= record or record.character ~= character
+        or player.Character ~= character or player.Parent ~= Players then overhead:Destroy(); return end
+
+    local StreakFrame = container:WaitForChild("Streak")
+    local StreakFireImage = StreakFrame:WaitForChild("FireEmoji")
+    local StreakAmountLabel = StreakFrame:WaitForChild("StreakValue")
+    local healthBar = container:WaitForChild("Health"):WaitForChild("Container"):WaitForChild("HealthBar")
+    -- All template waits finish before this character can own any connections.
+    if records[player] ~= record or record.character ~= character
+        or player.Character ~= character or player.Parent ~= Players then overhead:Destroy(); return end
 
     -- Track connections to prevent memory leaks when player respawns
     local connections = {}
+    local currentHealthTween
+    local localVisibilityBound = false
+    local cleaned = false
+    local function cleanup()
+        if cleaned then return end
+        cleaned = true
+        for _, connection in ipairs(connections) do connection:Disconnect() end
+        table.clear(connections)
+        if localVisibilityBound then
+            localVisibilityBound = false
+            RunService:UnbindFromRenderStep("LocalPlayerOverheadVisibility")
+        end
+        if currentHealthTween then currentHealthTween:Cancel(); currentHealthTween:Destroy(); currentHealthTween = nil end
+        overhead:Destroy()
+    end
+    record.cleanup = cleanup
 
     local function updateMembershipBadge()
         membershipBadge.Visible = player:GetAttribute("HasVIP") == true
@@ -57,10 +108,6 @@ local function CreateOverhead(player: Player, character: Model)
         local baseName = isSpecial and ("[FRIEND] " .. player.Name) or player.Name
         nameLabel.Text = lobbyModeSetting.Value == true and (baseName .. " [AFK]") or baseName
     end
-
-    local StreakFrame = container:WaitForChild("Streak")
-    local StreakFireImage = StreakFrame:WaitForChild("FireEmoji")
-    local StreakAmountLabel = StreakFrame:WaitForChild("StreakValue")
 
     local function updateWinStreak()
         local streak = winStreakValue.Value
@@ -92,14 +139,12 @@ local function CreateOverhead(player: Player, character: Model)
     table.insert(connections, winStreakValue.Changed:Connect(updateWinStreak))
 
     -- Health Bar Logic
-    local healthBar = container:WaitForChild("Health"):WaitForChild("Container"):WaitForChild("HealthBar")
     container.Health.Visible = true
     healthBar.Size = UDim2.new(math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1), 0, 1, 0)
 
-    local currentHealthTween
     table.insert(connections, humanoid.HealthChanged:Connect(function(currentHealth)
         local percent = math.clamp(currentHealth / humanoid.MaxHealth, 0, 1)
-        if currentHealthTween then currentHealthTween:Cancel() end
+        if currentHealthTween then currentHealthTween:Cancel(); currentHealthTween:Destroy() end
         
         currentHealthTween = TweenService:Create(
             healthBar,
@@ -109,98 +154,67 @@ local function CreateOverhead(player: Player, character: Model)
         currentHealthTween:Play()
     end))
 
+    if records[player] ~= record or record.character ~= character
+        or player.Character ~= character or player.Parent ~= Players then cleanup(); return end
     overhead.Parent = head
+    if player == Players.LocalPlayer then
+        local hidden = false
+        local function updateLocalVisibility()
+            local camera = workspace.CurrentCamera
+            local ownsView = camera and camera.CameraType == Enum.CameraType.Custom
+                and camera.CameraSubject == humanoid and humanoid.Health > 0
+            local distance = ownsView and (camera.CFrame.Position - camera.Focus.Position).Magnitude or math.huge
+            -- Hysteresis avoids toggling the billboard at the native zoom boundary.
+            hidden = ownsView and (player.CameraMode == Enum.CameraMode.LockFirstPerson
+                or distance < (hidden and 1.1 or 0.85)) or false
+            if overhead.Enabled == hidden then overhead.Enabled = not hidden end
+        end
+        updateLocalVisibility()
+        localVisibilityBound = true
+        -- One local billboard only; other players need no per-frame Lua work.
+        RunService:BindToRenderStep("LocalPlayerOverheadVisibility", Enum.RenderPriority.Camera.Value + 5, updateLocalVisibility)
+    end
 
     -- Cleanup when character dies/leaves
-    overhead.AncestryChanged:Connect(function(_, parent)
+    table.insert(connections, overhead.AncestryChanged:Connect(function(_, parent)
         if not parent then
-            for _, conn in ipairs(connections) do
-                conn:Disconnect()
-            end
-            if currentHealthTween then currentHealthTween:Cancel() end
+            cleanup()
         end
-    end)
+    end))
 end
 
-local function AnimateDamageText(damageFrame, amount)
-    local damageText = DamageTextTemplate:Clone()
-    damageText.Text = tostring(amount)
-    
-    local randomOffset = math.random(-25, 25) / 100 
-
-    damageText.Size = UDim2.new(0, 0, 0, 0)
-    damageText.Position = UDim2.new(0.5 + randomOffset, 0, 0.7, 0)
-    damageText.TextTransparency = 1
-    damageText.TextStrokeTransparency = 1
-    damageText.AnchorPoint = Vector2.new(0.5, 0.5)
-    damageText.Visible = true
-    damageText.Parent = damageFrame
-
-
-    local popTween = TweenService:Create(damageText, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = UDim2.new(1.2, 0, 1.2, 0),
-        Position = UDim2.new(0.5 + randomOffset, 0, 0.4, 0),
-        TextTransparency = 0,
-        TextStrokeTransparency = 0
-    })
-
-
-    local fadeTween = TweenService:Create(damageText, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
-        Size = UDim2.new(0.9, 0, 0.9, 0),
-        Position = UDim2.new(0.5 + randomOffset, 0, 0, 0),
-        TextTransparency = 1,
-        TextStrokeTransparency = 1
-    })
-
-    popTween:Play()
-    popTween.Completed:Wait()
-    
-    task.wait(0.15) 
-    
-    fadeTween:Play()
-    fadeTween.Completed:Wait()
-    
-    damageText:Destroy()
-end
+-- Damage text is pooled and animated by Modules.HitFeedback independently of overheads.
 
 -- // CONNECTIONS // --
 
 local function SetupPlayer(player: Player)
-    player.CharacterAdded:Connect(function(character)
-        CreateOverhead(player, character)
-    end)
-    if player.Character then
-        CreateOverhead(player, player.Character)
+    if records[player] or player.Parent ~= Players then return end
+    local record = {connections = {}}
+    records[player] = record
+    local function added(character)
+        if record.character == character or player.Character ~= character then return end
+        clearCharacter(record); record.character = character
+        task.spawn(CreateOverhead, player, character, record)
     end
+    table.insert(record.connections, player.CharacterAdded:Connect(added))
+    table.insert(record.connections, player.CharacterRemoving:Connect(function(character)
+        if record.character == character then clearCharacter(record) end
+    end))
+    if player.Character then added(player.Character) end
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
     SetupPlayer(player)
 end
 Players.PlayerAdded:Connect(SetupPlayer)
-
-
-DamageDealtClient.OnClientEvent:Connect(function(victimCharacter: Model, amount: number)
-    if not victimCharacter then return end
-    
-    local head = victimCharacter:FindFirstChild("Head")
-    if not head then return end
-    
-    local targetOverhead = nil
-    for _, child in ipairs(head:GetChildren()) do
-        if child.Name:match("^OverheadUI_") then
-            targetOverhead = child
-            break
-        end
-    end
-    
-    if targetOverhead then
-        local container = targetOverhead:FindFirstChild("Container")
-        local damageFrame = container and container:FindFirstChild("DamageFrame")
-        if damageFrame then
-            task.spawn(AnimateDamageText, damageFrame, amount)
-        end
-    end
+Players.PlayerRemoving:Connect(function(player)
+    local record = records[player]
+    if not record then return end
+    clearCharacter(record)
+    for _, connection in ipairs(record.connections) do connection:Disconnect() end
+    records[player] = nil
 end)
+
+
 
 return {}

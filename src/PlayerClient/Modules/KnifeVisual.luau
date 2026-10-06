@@ -79,9 +79,17 @@ function Visual.Create(template, settings)
 	}
 	local angles = settings.RotationDegrees
 	local rotation = assert(rotations[axis], "Invalid knife BladeAxis") * CFrame.Angles(math.rad(angles[1]), math.rad(angles[2]), math.rad(angles[3]))
-	local tipDistance = 0
-	for _, corner in ipairs(corners) do tipDistance = math.max(tipDistance, -rotation:VectorToWorldSpace(corner - center).Z) end
-	if settings.TipDistance > 0 then tipDistance = settings.TipDistance end
+	local tipDistance, tailDistance = 0, 0
+	for _, corner in ipairs(corners) do
+		local forward = -rotation:VectorToWorldSpace(corner - center).Z
+		tipDistance, tailDistance = math.max(tipDistance, forward), math.max(tailDistance, -forward)
+	end
+	-- FileMesh bounds cannot be read from SpecialMesh. Its existing tip override
+	-- describes the visible half-length when the physical Part.Size differs.
+	if settings.TipDistance > 0 then tipDistance, tailDistance = settings.TipDistance, settings.TipDistance end
+	local visibleLength = tipDistance + tailDistance
+	local stickDepth = math.clamp(math.max(settings.StickDepth,
+		visibleLength * (settings.StickFraction or 0)), 0, visibleLength * 0.8)
 	for _, record in ipairs(records) do record.offset = CFrame.new(-center) * record.offset end
 	local model = Instance.new("Model")
 	model.Name = "KnifeProjectile_" .. template.Name
@@ -95,7 +103,7 @@ function Visual.Create(template, settings)
 	trailAnchor.Anchored, trailAnchor.CanCollide, trailAnchor.CanTouch, trailAnchor.CanQuery = true, false, false, false
 	trailAnchor.CastShadow, trailAnchor.Parent = false, model
 	return {model = model, root = root, trailAnchor = trailAnchor, parts = records, rotation = rotation,
-		tipDistance = tipDistance, stickDepth = settings.StickDepth}
+		tipDistance = tipDistance, stickDepth = stickDepth}
 end
 
 local function place(visual, frame)
@@ -108,10 +116,10 @@ function Visual.Fly(visual, position, direction)
 end
 
 function Visual.Stick(visual, position, direction, normal)
-	-- A normal points out of a surface; the blade points into it. Keep the
-	-- blade's center outside so transparent handles cannot bury the whole mesh.
+	-- Raycast normals point out of the impacted face. Aim into that face so
+	-- walls, floors and slopes embed the same visible fraction of every skin.
 	local into = typeof(normal) == "Vector3" and normal.Magnitude > 0.5 and -normal.Unit or direction
-	local center = position - into * math.max(0, visual.tipDistance - visual.stickDepth)
+	local center = position - into * (visual.tipDistance - visual.stickDepth)
 	place(visual, lookAlong(center, into) * visual.rotation)
 	visual.trailAnchor.CFrame = lookAlong(center, into)
 end

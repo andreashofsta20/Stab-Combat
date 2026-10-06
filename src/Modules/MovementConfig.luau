@@ -1,6 +1,15 @@
 return {
 	WalkSpeed = 16, RunSpeed = 32, CrouchSpeed = 8,
-	SlideSpeed = 60, SlideEndSpeed = 12, SlideDuration = 0.7, SlideCooldown = 1,
+	SlideSpeed = 60, SlideEndSpeed = 32, SlideDuration = 0.8, SlideCooldown = 1,
+	SlideBoostSeconds = 0.1, SlideFadeSeconds = 0.18,
+	-- Finite acceleration and ground-tangent motion keep ramps and small seams
+	-- smooth without pinning the character vertically or bypassing collisions.
+	SlideAcceleration = 260, SlideSteerDegreesPerSecond = 85,
+	SlideSurfaceResponse = 18, SlideProbeInterval = 1 / 30,
+	SlideGroundTolerance = 0.4, SlideGroundGrace = 0.12,
+	SlideMaxSlopeDegrees = 50, SlideStepHeight = 0.85,
+	SlideStepMargin = 0.1, SlideStepCooldown = 0.22,
+	SlideStepGrace = 0.22, SlideStepProbeDistance = 6.5,
 	FadeSeconds = 0.12, RecoveryInterval = 0.25, AssetRetrySeconds = 8,
 	Animations = {
 		Walk = "rbxassetid://79598872056948", Run = "rbxassetid://117319187680453",

@@ -26,7 +26,7 @@ end
 
 
 local VotingDuratation = 15
-local VotingDuratationSTUDIO = 5
+local VotingDuratationSTUDIO = 30
 
 
 RoundHandler.VotingDuration = VotingDuratation

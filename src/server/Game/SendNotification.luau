@@ -40,25 +40,20 @@ local NotificationClientRemotesFolder = ClientRemotesFolder:WaitForChild("Notifi
 -- // REMOTES // --
 local SendNotificationRemote = NotificationClientRemotesFolder:WaitForChild("RecieveNotification")
 
-function CheckSettings(player : Player)
-	local leaderstats = player:WaitForChild("leaderstats")
-	local SettingsFolder = leaderstats:WaitForChild("Settings")
-	
-	if SettingsFolder:FindFirstChild("Notifications").Value == true then
-		return false
-	else
-		return true	
-	end
-
+local function notificationsEnabled(player : Player)
+	if not player or player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local settings = leaderstats and leaderstats:FindFirstChild("Settings")
+	local enabled = settings and settings:FindFirstChild("Notifications")
+	return enabled ~= nil and enabled:IsA("BoolValue") and enabled.Value == true
 end
 
 
 
 function NotificationHandler.SendNotification(player : Player, message : string, duration : number, image : string)
 	
-	if CheckSettings(player) then
-		return
-	end
+	-- Notifications must never suspend a remote handler while profile data loads.
+	if not Enabled or not notificationsEnabled(player) then return end
 	
 	
 	if NotificationImages[image] then
@@ -75,6 +70,7 @@ end
 
 
 function NotificationHandler.SendNotificationServer(message : string, duration : number, image : string)
+	if not Enabled then return end
 	if NotificationImages[image] then
 		image = NotificationImages[image]
 	else

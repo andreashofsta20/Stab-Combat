@@ -44,6 +44,7 @@ return function(load)
 	end
 	function Frame:VectorToObjectSpace(v) return self:Inverse():VectorToWorldSpace(v) end
 	function Frame:PointToObjectSpace(v) return self:Inverse():PointToWorldSpace(v) end
+	function Frame:ToObjectSpace(other) return self:Inverse() * other end
 	function Frame:Lerp(other, alpha)
 		local r = {}; for i = 1, 9 do r[i] = self.matrix[i] + (other.matrix[i] - self.matrix[i]) * alpha end
 		return frame(self.Position + (other.Position - self.Position) * alpha, r)
@@ -89,11 +90,84 @@ return function(load)
 	end
 	Frame.identity = Frame.new()
 	local Config = load("Config")
+	local InspectConfig = load("InspectConfig")
+	local InspectMotion = load("InspectMotion", {CFrame = Frame, script = {Parent = {WeaponInspectConfig = "InspectConfig"}},
+		require = function(name) assert(name == "InspectConfig"); return InspectConfig end})
 	local Math = load("Math", { CFrame = Frame, Vector3 = Vector })
 	local settings = Config.Default.Pose
 	local ToolPhysics = load("ToolPhysics")
 	local Motion = load("ViewmodelMath", {CFrame = Frame, Vector3 = Vector})
 	local firstPerson = Config.Default.FirstPerson
+	test("walk and sprint avatar animations stay nearly fixed at 30 60 and 144 FPS", function()
+		for _, tuning in ipairs({firstPerson, load("KnifeConfig").FirstPerson}) do
+			for _, hz in ipairs({30, 60, 144}) do
+				local state, posture, rendered = Motion.New(), nil, nil
+				for tick = 1, hz * 4 do
+					local phase = tick / hz * 12
+					local body = Frame.new(math.sin(phase) * 0.4, math.cos(phase) * 0.4, 0.2)
+						* Frame.Angles(math.sin(phase) * 0.5, 0, 0.3)
+					local arm = Frame.Angles(math.sin(phase) * 1.2, 0.2, 0)
+					rendered, posture = Motion.Step(state, Frame.identity, 1/hz, false, false, 32, tuning, body, arm)
+					if tick > hz then
+						assert(posture.Position.Magnitude <= tuning.MaxMovementAnimationOffset + 0.0001)
+						local _, angle = posture:ToAxisAngle()
+						assert(angle <= math.rad(tuning.MaxMovementAnimationDegrees) + 0.0001)
+						assert((rendered.Position - V(table.unpack(tuning.ArmPosition))).Magnitude < 0.025)
+					end
+				end
+				assert(state.bob <= 1 and state.movement > 0.99)
+				for _ = 1, hz*2 do Motion.Step(state, Frame.identity, 1/hz, false, false, 0, tuning) end
+				assert(state.movement < 1e-5 and state.bob < 1e-5)
+			end
+		end
+	end)
+	test("both first-person weapons keep walking bob and airborne animation within tighter sightline budgets", function()
+		local knife = load("KnifeConfig").FirstPerson
+		for _, tuning in ipairs({firstPerson, knife}) do
+			for _, hz in ipairs({30, 60, 144}) do
+				local state = Motion.New()
+				for _ = 1, hz * 2 do Motion.Step(state, Frame.identity, 1/hz, false, false, 32, tuning) end
+				for _ = 1, hz do
+					local frame = Motion.Step(state, Frame.identity, 1/hz, false, false, 32, tuning)
+					assert(math.abs(frame.Position.Y - tuning.ArmPosition[2]) < 0.01)
+					assert(math.abs(frame.Position.X - tuning.ArmPosition[1]) < 0.02)
+				end
+				local airborne
+				for _ = 1, hz * 2 do
+					_, airborne = Motion.Step(state, Frame.identity, 1/hz, false, false, 32, tuning,
+						Frame.new(0, 2, 0) * Frame.Angles(1.2, 0.5, 0), Frame.Angles(1.8, 0, 0), nil, {airborne = true})
+				end
+				assert(airborne.Position.Y <= 0.02)
+				local _, angle = airborne:ToAxisAngle(); assert(angle <= math.rad(2) + 1e-6)
+			end
+		end
+	end)
+	test("jump pose stays below its upward cap with reduced rotation and bob", function()
+		for _, hz in ipairs({30, 60, 144}) do
+			local state, posture = Motion.New(), nil
+			for _ = 1, hz * 2 do
+				_, posture = Motion.Step(state, Frame.identity, 1/hz, false, false, 32, firstPerson,
+					Frame.new(0, 2, 0) * Frame.Angles(0.8, 0, 0), Frame.Angles(1.8, 0, 0), nil, {airborne = true})
+			end
+			assert(posture.Position.Y <= firstPerson.MaxUpwardAnimationOffset + 1e-6)
+			local _, angle = posture:ToAxisAngle(); assert(angle <= math.rad(firstPerson.AirMaxAnimationDegrees) + 1e-6)
+		end
+	end)
+	test("inspection damps sprint posture smoothly without changing action authority", function()
+		local function settle(inspectBlend)
+			local state, posture = Motion.New(), nil
+			for _ = 1, 120 do
+				_, posture = Motion.Step(state, Frame.identity, 1/60, false, false, 32, firstPerson,
+					Frame.new(0.2, -0.2, 0.1) * Frame.Angles(0.4, 0, 0), Frame.Angles(0.8, 0, 0), nil,
+					{inspectBlend = inspectBlend})
+			end
+			return posture
+		end
+		local sprint, inspect = settle(0), settle(1)
+		assert(inspect.Position.Magnitude < sprint.Position.Magnitude * 0.2)
+		local _, sprintAngle = sprint:ToAxisAngle(); local _, inspectAngle = inspect:ToAxisAngle()
+		assert(inspectAngle < sprintAngle * 0.2)
+	end)
 	test("first-person is restricted to fully zoomed in with a small numerical tolerance", function()
 		assert(Motion.FirstPerson(false, 0.5, firstPerson))
 		assert(not Motion.FirstPerson(false, 0.56, firstPerson))
@@ -182,8 +256,27 @@ return function(load)
 		near(b.FirstPerson.AimOffset[1], -0.4); near(firstPerson.AimOffset[1], -0.3)
 		Config.Overrides.TestView = nil
 	end)
+	test("headshot damage and optional empty-click settings inherit per skin and reject invalid values", function()
+		local config = load("Config")
+		assert(config.Get("Normal Revolver").Damage == 34 and config.Get("Normal Revolver").HeadshotDamage == 70)
+		assert(config.Get("Normal Revolver").Effects.EmptySoundId == "")
+		config.Overrides.TestClick = {HeadshotDamage = 80, Effects = {
+			EmptySoundId = "rbxassetid://123456", EmptySoundVolume = 0.4, EmptySoundCooldownMs = 400}}
+		local custom = config.Get("TestClick")
+		assert(custom.Damage == 34 and custom.HeadshotDamage == 80 and custom.Effects.EmptySoundVolume == 0.4)
+		assert(config.Get("Normal Revolver").HeadshotDamage == 70 and config.Get("Normal Revolver").Effects.EmptySoundId == "")
+		for _, override in ipairs({
+			{HeadshotDamage = 0}, {HeadshotDamage = math.huge}, {HeadshotDamage = 0/0},
+			{Effects = {EmptySoundId = 123}}, {Effects = {EmptySoundVolume = -1}},
+			{Effects = {EmptySoundVolume = 0/0}}, {Effects = {EmptySoundCooldownMs = 0}},
+			{Effects = {EmptySoundCooldownMs = math.huge}},
+		}) do
+			config.Overrides.TestInvalidClick = override
+			assert(not pcall(config.Get, "TestInvalidClick"))
+		end
+	end)
 	local RayMath = load("RayMath", { typeof = function(value) return type(value) == "table" and value.kind or type(value) end })
-	local Raycast = load("Raycast", { script = { Parent = { RevolverMath = "RayMath" } }, require = function() return RayMath end, Vector3 = Vector })
+	local Raycast = load("Raycast", { script = { Parent = { RevolverMath = "RayMath" } }, require = function() return RayMath end, Vector3 = Vector, CFrame = Frame })
 	local function worldBoxes(boxes)
 		return function(origin, vector)
 			local length = vector.Magnitude
@@ -200,14 +293,14 @@ return function(load)
 			return nearest
 		end
 	end
-	test("a low ledge between camera and barrel cannot redirect a forward shot downward/backward", function()
+	test("a visible cursor ledge between camera and avatar can be shot behind the character", function()
 		local target = { frame = Frame.new(0, 1, -40) }
 		local worldCast = worldBoxes({ { position = V(0, 1, 3), size = { 6, 0.6, 2 } } })
-		local result = Raycast.Resolve(V(0, 1, 8), V(0, 0, -1), V(1, 2, 0), Config.Default, { target }, worldCast)
-		assert(result and result.victim == target, "Shot was redirected to foreground ledge; z=" .. tostring(result and result.position.Z))
-		assert(result.position.Z < 0)
+		local result = Raycast.Resolve(V(0, 1, 8), V(0, 0, -1), V(0, 1, 0), Config.Default, { target }, worldCast)
+		assert(result and not result.victim and result.normal, "The cursor's foreground ledge must remain selectable")
+		near(result.position.Z, 2)
 	end)
-	test("open-ground aiming never converges toward a floor hit behind the firing plane", function()
+	test("cursor ground behind the character remains a valid third-person target", function()
 		local function ground(origin, vector)
 			if vector.Y >= 0 or origin.Y < 0 then return nil end
 			local fraction = -origin.Y / vector.Y
@@ -216,9 +309,10 @@ return function(load)
 		end
 		local muzzle, direction = V(1, 5, 0), V(0, -0.5, -1).Unit
 		local result = Raycast.Resolve(V(0, 2, 8), direction, muzzle, Config.Default, {}, ground)
-		assert(result and result.position.Z < 0, "Floor should be hit in front of the barrel")
+		assert(result and result.position.Z > 0, "The visible floor under the cursor must not be skipped behind the character")
 		near(result.position.Y, 0)
-		assert((result.position - muzzle):Dot(direction) > 0)
+		near(result.position.Z, 4)
+		assert((result.position - muzzle):Dot(direction) < 0)
 	end)
 	test("first-person and shoulder aiming retain cursor alignment and barrel range", function()
 		local target = { frame = Frame.new(0, 3, -40) }
@@ -238,13 +332,11 @@ return function(load)
 			assert(result.position.Z > -5 and result.position.Z < 0)
 		end
 	end)
-	test("near clipping stays on the cursor ray across steep angles and never extends range", function()
+	test("cursor picking starts at the camera across steep angles and physical shots never extend range", function()
 		for _, direction in ipairs({ V(0, 0, -1), V(0.4, 0.5, -1).Unit, V(-0.4, -0.6, -1).Unit, V(0, 1, 0), V(0, -1, 0) }) do
 			local camera, muzzle = V(0, 4, 8), V(1, 2, 0)
 			local origin = Raycast.GetAimOrigin(camera, direction, muzzle)
-			near((origin - camera):Cross(direction).Magnitude, 0)
-			assert((origin - camera):Dot(direction) >= 0)
-			assert((origin - camera).Magnitude <= math.max(0, (muzzle-camera):Dot(direction)) + 1e-5)
+			near((origin - camera).Magnitude, 0)
 			local result = Raycast.Resolve(camera, direction, muzzle, Config.Default, {}, function() return nil end)
 			assert(result and result.distance <= Config.Default.Range)
 			assert((result.position - muzzle):Dot(direction) > 0)
@@ -309,7 +401,7 @@ return function(load)
 			Count = function() local n = 0; for _ in pairs(handlers) do n += 1 end; return n end }
 	end
 	local function object(class, name)
-		local obj = { ClassName = class, Name = name, children = {}, Transform = Frame.identity, Size = V(1, 2, 1), ChildAdded = signal(), ChildRemoved = signal(), Activated = signal(), DescendantAdded = signal(), DescendantRemoving = signal() }
+		local obj = { kind = "Instance", ClassName = class, Name = name, children = {}, Transform = Frame.identity, Size = V(1, 2, 1), ChildAdded = signal(), ChildRemoved = signal(), Activated = signal(), DescendantAdded = signal(), DescendantRemoving = signal() }
 		function obj:IsA(kind) return kind == class or (kind == "BasePart" and class == "Part") end
 		function obj:GetChildren() self.childReads = (self.childReads or 0) + 1; return self.children end
 		function obj:GetDescendants()
@@ -320,6 +412,7 @@ return function(load)
 		function obj:FindFirstChild(childName) for _, child in ipairs(self.children) do if child.Name == childName then return child end end end
 		function obj:FindFirstChildOfClass(kind) for _, child in ipairs(self.children) do if child:IsA(kind) then return child end end end
 		function obj:GetAttribute(name) return self.attributes and self.attributes[name] end
+		function obj:SetAttribute(name, value) self.attributes = self.attributes or {}; self.attributes[name] = value end
 		function obj:GetPropertyChangedSignal(name)
 			self.propertySignals = self.propertySignals or {}; self.propertySignals[name] = self.propertySignals[name] or signal()
 			return self.propertySignals[name]
@@ -327,9 +420,23 @@ return function(load)
 		obj.FindFirstChildWhichIsA = obj.FindFirstChildOfClass
 		function obj:Destroy() self.Parent = nil; self.destroyed = true; for _, child in ipairs(self.children) do child:Destroy() end end
 		function obj:Emit(count) self.emitted = (self.emitted or 0) + count end
+		function obj:Clear() self.cleared = (self.cleared or 0) + 1 end
+		function obj:Stop() self.stopped = (self.stopped or 0) + 1 end
 		function obj:Play() self.played = true end
 		function obj:WaitForChild(name) return assert(self:FindFirstChild(name), name) end
-		return obj
+		return setmetatable(obj, {__index = function(self, key)
+			if key == "CFrame" and class == "Part" then return Frame.new(self.Position or Vector.zero) end
+			if key == "WorldCFrame" and class == "Attachment" then
+				local basis = self.Parent and self.Parent.CFrame or Frame.identity
+				local localFrame = self.CFrame or Frame.new(self.Position or Vector.zero)
+				local full = basis * localFrame
+				if rawget(self, "WorldPosition") then return Frame.new(self.WorldPosition) * full.Rotation end
+				return full
+			end
+			if key == "WorldPosition" and class == "Attachment" and self.Parent and self.Parent:IsA("BasePart") then
+				return (self.Parent.CFrame or Frame.identity):PointToWorldSpace(self.CFrame and self.CFrame.Position or self.Position or Vector.zero)
+			end
+		end})
 	end
 	local function fixture()
 		local character, torso, arm = object("Model", "Character"), object("Part", "Torso"), object("Part", "Right Arm")
@@ -361,7 +468,7 @@ return function(load)
 			InputBegan = signal(), InputEnded = signal(), WindowFocusReleased = signal(), TextBoxFocused = signal(), LastInputTypeChanged = signal(),
 			GetFocusedTextBox = function() return nil end, GetMouseLocation = function() return { X = 123, Y = 234 } end }
 		local services = { Players = players, UserInputService = input, GuiService = { MenuOpened = signal() }, RunService = events,
-			ReplicatedStorage = { Modules = { RagdollQuery = "RagdollQuery", RevolverConfig = "Config", RevolverToolPhysics = "ToolPhysics", CursorConfig = "CursorConfig", RevolversInfo = "Catalog", RevolverPoseMath = "Math", RevolverRaycast = "Raycast", MouseCursorVisibility = "MouseVisibility" } },
+			ReplicatedStorage = { Modules = { WeaponInspectConfig = "InspectConfig", WeaponInspectMotion = "InspectMotion", RagdollQuery = "RagdollQuery", RevolverConfig = "Config", RevolverToolPhysics = "ToolPhysics", CursorConfig = "CursorConfig", RevolversInfo = "Catalog", RevolverPoseMath = "Math", RevolverRaycast = "Raycast", MouseCursorVisibility = "MouseVisibility" } },
 			Debris = { AddItem = function() end }, TweenService = { Create = function() return { Play = function() end } end } }
 		local function constructor(...) return { ... } end
 		local env = {
@@ -371,11 +478,11 @@ return function(load)
 			ColorSequence = { new = constructor }, ColorSequenceKeypoint = { new = constructor },
 			NumberRange = { new = constructor }, NumberSequence = { new = constructor }, NumberSequenceKeypoint = { new = constructor }, TweenInfo = { new = constructor },
 			typeof = function(value) return type(value) == "table" and value.kind or typeof(value) end,
-			Enum = { Material = { Neon = "Neon" }, NormalId = { Front = "Front" }, TextureMode = { Stretch = "Stretch" }, AnimationPriority = { Action4 = "Action4" },
+			Enum = { SurfaceGuiSizingMode = {FixedSize = "FixedSize"}, Material = { Air = "Air", Neon = "Neon" }, NormalId = { Front = "Front" }, TextureMode = { Stretch = "Stretch" }, AnimationPriority = { Action4 = "Action4" },
 				UserInputState = { End = "End", Cancel = "Cancel" },
 				MouseBehavior = { Default = "Default", LockCenter = "LockCenter", LockCurrentPosition = "LockCurrentPosition" }, CameraType = { Custom = "Custom", Scriptable = "Scriptable" },
 				RenderPriority = { Camera = { Value = 200 } }, RaycastFilterType = { Exclude = "Exclude" }, Font = { GothamBold = "GothamBold" } },
-			RaycastParams = { new = function() return {} end }, UDim2 = { new = constructor, fromScale = constructor, fromOffset = constructor },
+			RaycastParams = { new = function() return {} end }, UDim2 = { new = constructor, fromScale = constructor, fromOffset = constructor }, UDim = {new = constructor},
 			Instance = { new = function(class) local obj = object(class, class); table.insert(created, obj); return obj end },
 			require = function(name) return assert(({ RagdollQuery = queryStub, Config = Config, ToolPhysics = ToolPhysics, Math = Math, Raycast = Raycast, Catalog = { ["Amber Revolver"] = {} } })[name]) end,
 		}
@@ -552,7 +659,7 @@ return function(load)
 		assert(allocations == 1 and rays <= 31)
 		assert(not f.character.descendantReads and not f.character.childReads)
 	end)
-	test("arm cursor sampling also skips foreground behind the barrel in free aim and ADS", function()
+	test("arm cursor sampling retains rear targets between camera and avatar in free aim and ADS", function()
 		for _, aiming in ipairs({ false, true }) do
 			local f = fixture(); local pose = load("Pose", f.env); pose.Init(f.remote); pose.SetSession("session")
 			f.torso.CFrame = Frame.new(0, 3, 0)
@@ -569,8 +676,12 @@ return function(load)
 				return hit
 			end
 			pose.SampleCursor(f.tool, ray, false, aiming)
-			near(sampled.X, 0); near(sampled.Y, 2); near(sampled.Z, 0)
-			assert(#f.remote.sent == 1 and math.abs(f.remote.sent[1][3]) < math.rad(1), "Arm followed foreground ground")
+			near(sampled.X, 0); near(sampled.Y, 2); near(sampled.Z, 8)
+			assert(#f.remote.sent == 1)
+			local shoulder = f.torso.CFrame:PointToWorldSpace(f.joint.C0.Position)
+			local direction = f.torso.CFrame:VectorToObjectSpace(V(0, 2, 4) - shoulder)
+			local pitch, yaw = Math.Angles(direction.X, direction.Y, direction.Z, Config.Default.Pose)
+			near(f.remote.sent[1][3], pitch); near(f.remote.sent[1][4], yaw)
 		end
 	end)
 	test("aim camera centers input, smoothly zooms, and restores on release", function()
@@ -716,6 +827,78 @@ return function(load)
 		effects.CorrectTracer(shot, V(0, 0, -20)); f.advance(0.2); assert(shot.destroyed)
 		assert(f.events.RenderStepped.Count() == 0)
 	end)
+	test("shot beams stay straight and trail history is bounded to the same tail", function()
+		local f = fixture(); local effects = load("Effects", f.env)
+		local settings = Config.Default.Effects
+		effects.Tracer(Vector.zero, V(0, 0, -100), settings)
+		for _, item in ipairs(f.created) do
+			if item:IsA("Beam") then
+				assert(item.CurveSize0 == 0 and item.CurveSize1 == 0 and item.Segments == 1)
+			elseif item:IsA("Trail") then assert(item.MaxLength == settings.TracerTailLength) end
+		end
+		effects.Clear()
+	end)
+	test("off-axis corrections clear the old path and synchronously place one streak at its original age", function()
+		for _, hz in ipairs({30, 60, 144}) do
+			local f = fixture(); local effects = load("Effects", f.env); local settings = Config.Default.Effects
+			local shot = effects.Tracer(Vector.zero, V(0, 0, -100), settings)
+			local tip, beam, ribbons = nil, nil, {}
+			for _, item in ipairs(f.created) do
+				if item.Name == "BulletGlint" then tip = item end
+				if item:IsA("Beam") then beam = item end
+				if item:IsA("Trail") then table.insert(ribbons, item) end
+			end
+			f.advance(1 / hz); local created = #f.created
+			local before = {ribbons[1].cleared, ribbons[2].cleared}
+			local destination = V(8, 4, -20)
+			effects.CorrectTracer(shot, destination)
+			local fraction = math.min(1, (1 / hz) / (settings.VisualTravelMs / 1000))
+			near((tip.CFrame.Position - destination * fraction).Magnitude, 0)
+			near((beam.Attachment1.Position - destination * fraction).Magnitude, 0)
+			for index, ribbon in ipairs(ribbons) do assert(ribbon.cleared == before[index] + 2 and ribbon.Enabled) end
+			assert(#f.created == created and f.events.RenderStepped:Count() == 1)
+			f.advance(settings.VisualTravelMs / 1000 - 1 / hz + 0.001)
+			near((tip.CFrame.Position - destination).Magnitude, 0)
+			assert(tip.Transparency == 1 and not ribbons[1].Enabled and not ribbons[2].Enabled)
+			effects.Clear()
+		end
+	end)
+	test("late shorter and longer corrections cannot replay a finished glint or retain a second trail", function()
+		for _, destination in ipairs({V(4, 2, -10), V(-20, 10, -300)}) do
+			local f = fixture(); local effects = load("Effects", f.env); local settings = Config.Default.Effects
+			local shot = effects.Tracer(Vector.zero, V(0, 0, -100), settings)
+			local tip, ribbons = nil, {}
+			for _, item in ipairs(f.created) do
+				if item.Name == "BulletGlint" then tip = item end
+				if item:IsA("Trail") then table.insert(ribbons, item) end
+			end
+			f.advance(settings.VisualTravelMs / 1000 + 0.02)
+			assert(tip.Transparency == 1 and not ribbons[1].Enabled and not ribbons[2].Enabled)
+			local created, cleared = #f.created, ribbons[1].cleared
+			effects.CorrectTracer(shot, destination)
+			near((tip.CFrame.Position - destination).Magnitude, 0)
+			assert(tip.Transparency == 1 and not ribbons[1].Enabled and not ribbons[2].Enabled)
+			assert(ribbons[1].cleared == cleared + 2 and #f.created == created)
+			f.advance(settings.TracerLifetimeMs / 1000 - 0.02 + 0.001)
+			assert(shot.destroyed and f.events.RenderStepped:Count() == 0)
+		end
+	end)
+	test("empty trigger sound is opt-in pooled owner feedback with independent skin settings", function()
+		local f = fixture(); local effects = load("Effects", f.env); local tuning = Config.Get("Amber Revolver")
+		local created = #f.created
+		effects.Empty(f.tool, tuning); assert(#f.created == created)
+		tuning.Effects.EmptySoundId, tuning.Effects.EmptySoundVolume = "rbxassetid://123456", 0.65
+		effects.Empty(f.tool, tuning)
+		local sound = f.created[#f.created]
+		assert(sound.Name == "RevolverEmptySound" and sound.Parent:IsA("Folder") and sound.played)
+		assert(sound.SoundId == tuning.Effects.EmptySoundId and sound.Volume == 0.65)
+		local count = #f.created
+		tuning.Effects.EmptySoundId, tuning.Effects.EmptySoundVolume = "rbxassetid://654321", 0.4
+		for _ = 1, 20 do effects.Empty(f.tool, tuning) end
+		assert(#f.created == count and sound.SoundId == "rbxassetid://654321" and sound.Volume == 0.4)
+		assert(sound.TimePosition == 0 and sound.PlaybackSpeed == tuning.Effects.SoundPlaybackSpeed)
+		effects.Clear(); assert(sound.destroyed)
+	end)
 	test("impact particles require a confirmed normal and disabled tracers allocate nothing", function()
 		local f = fixture(false); local effects = load("Effects", f.env)
 		local count = #f.created
@@ -725,7 +908,7 @@ return function(load)
 		count = #f.created; assert(not effects.Tracer(Vector.zero, V(0, 0, -40), disabled)); assert(#f.created == count)
 		assert(not effects.Tracer(Vector.zero, Vector.zero, Config.Default.Effects))
 	end)
-	test("first-person muzzle effects use the copied gun once while observers use the world gun", function()
+	test("built-in muzzle bursts suppress a second authored flash on copied and world guns", function()
 		for _, localShot in ipairs({true, false}) do
 			local f = fixture(); local effects = load("Effects", f.env)
 			local visual = object("Model", "Weapon")
@@ -736,8 +919,10 @@ return function(load)
 			f.tool.children, visual.children = {liveMuzzle}, {copyMuzzle}
 			local shot = effects.Fire(f.tool, Vector.zero, V(0, 2, -20), Config.Get(f.tool.Name), localShot, visual)
 			assert(shot)
-			assert((localShot and copyEmitter or liveEmitter).emitted == Config.Default.Effects.MuzzleParticleCount)
-			assert(not (localShot and liveEmitter or copyEmitter).emitted)
+			assert(not copyEmitter.emitted and not liveEmitter.emitted)
+			local bursts = 0
+			for _, item in ipairs(f.created) do if item.Name == "RevolverMuzzleBurst" then bursts += 1 end end
+			assert(bursts == 1)
 			local sounds = 0
 			for _, item in ipairs(f.created) do if item.ClassName == "Sound" then sounds += 1 end end
 			assert(sounds == 1)
@@ -756,9 +941,205 @@ return function(load)
 			if item.Name == "Path" then path = item end
 		end
 		assert(burst and path)
-		near((burst.CFrame.Position - muzzle.WorldPosition).Magnitude, 0)
-		near((path.CFrame.Position - muzzle.WorldPosition).Magnitude, 0)
+		local expected = Raycast.GetVisualMuzzleFrame(visual, Config.Get(f.tool.Name)).Position
+		near((burst.CFrame.Position - expected).Magnitude, 0)
+		near((path.CFrame.Position - expected).Magnitude, 0)
 		effects.Clear()
+	end)
+	test("fallback barrel origin rises and advances in the rotated Handle's local space", function()
+		local f = fixture(); local tuning = Config.Get(f.tool.Name)
+		local handle = object("Part", "Handle"); handle.Parent = f.tool; f.tool.children = {handle}
+		handle.CFrame = Frame.new(0.4, 1.1, -0.6) * Frame.Angles(0.7, -0.8, 0.2)
+		local previous = handle.CFrame:PointToWorldSpace(V(0, 0, -0.5))
+		local expected = previous + handle.CFrame:VectorToWorldSpace(V(0, 0.18, -0.2))
+		local cosmetic = Raycast.GetMuzzlePosition(f.tool, tuning)
+		local physical = Raycast.GetMuzzle(f.tool, f.character:FindFirstChild("Head"), tuning, Config.Security.MaxMuzzleDistance)
+		near((cosmetic - expected).Magnitude, 0); near((physical - cosmetic).Magnitude, 0)
+		assert((cosmetic - previous).Magnitude < 0.3, "The fallback adjustment must remain small")
+	end)
+	test("authored muzzle attachments and parts retain their exact origin ahead of the fallback", function()
+		for _, class in ipairs({"Attachment", "Part"}) do
+			local f = fixture(); local tuning = Config.Get(f.tool.Name)
+			tuning.MuzzleOffset = {0, 4, -4}
+			local handle, muzzle = object("Part", "Handle"), object(class, tuning.MuzzleAttachmentName)
+			handle.CFrame, handle.Parent = Frame.new(0.5, 1.2, -0.4), f.tool
+			muzzle.Parent = handle
+			if class == "Attachment" then muzzle.CFrame = Frame.new(0.1, 0.3, -1.2)
+			else muzzle.Position = V(0.6, 1.5, -1.6) end
+			f.tool.children = {handle, muzzle}
+			local expected = class == "Attachment" and muzzle.WorldPosition or muzzle.Position
+			local origin, authored = Raycast.GetMuzzlePosition(f.tool, tuning)
+			assert(authored == muzzle); near((origin - expected).Magnitude, 0)
+			near((Raycast.GetMuzzle(f.tool, f.character:FindFirstChild("Head"), tuning, 7) - expected).Magnitude, 0)
+		end
+	end)
+	test("per-skin muzzle names and fallback offsets remain authoritative", function()
+		local f = fixture(); local previous = Config.Overrides[f.tool.Name]
+		Config.Overrides[f.tool.Name] = {MuzzleAttachmentName = "BarrelTip", MuzzleOffset = {0.1, 0.35, -0.9}}
+		local tuning = Config.Get(f.tool.Name); Config.Overrides[f.tool.Name] = previous
+		local handle = object("Part", "Handle"); handle.CFrame = Frame.new(0, 1, 0); handle.Parent = f.tool
+		f.tool.children = {handle}
+		near((Raycast.GetMuzzlePosition(f.tool, tuning) - V(0.1, 1.35, -0.9)).Magnitude, 0)
+		local muzzle = object("Attachment", "BarrelTip"); muzzle.CFrame, muzzle.Parent = Frame.new(0, 0.2, -1.1), handle
+		table.insert(f.tool.children, muzzle)
+		near((Raycast.GetMuzzlePosition(f.tool, tuning) - muzzle.WorldPosition).Magnitude, 0)
+	end)
+	test("invalid or distant muzzle geometry keeps the protected server and observer origin", function()
+		for _, position in ipairs({V(0, 2, -100), V(0/0, 2, -1), V(math.huge, 2, -1)}) do
+			local f = fixture(); local tuning = Config.Get(f.tool.Name)
+			local head = f.character:FindFirstChild("Head")
+			local muzzle = object("Attachment", "Muzzle"); muzzle.WorldPosition = position; f.tool.children = {muzzle}
+			local physical = Raycast.GetMuzzle(f.tool, head, tuning, Config.Security.MaxMuzzleDistance)
+			near((physical - head.Position).Magnitude, 0)
+			local effects = load("Effects", f.env)
+			effects.Fire(f.tool, physical, V(0, 2, -20), tuning, false)
+			for _, item in ipairs(f.created) do
+				if item.Name == "RevolverMuzzleBurst" or item.Name == "Path" then
+					near((item.CFrame.Position - physical).Magnitude, 0)
+				end
+			end
+			effects.Clear()
+		end
+	end)
+	test("observer muzzle flash and streak use the exact accepted origin despite replicated barrel offsets", function()
+		local f = fixture(); local tuning = Config.Get(f.tool.Name)
+		local handle = object("Part", "Handle"); handle.CFrame, handle.Parent = Frame.new(0.7, 1.2, -0.4), f.tool
+		f.tool.children = {handle}
+		local physical = Raycast.GetMuzzle(f.tool, f.character:FindFirstChild("Head"), tuning, 7)
+		local expected = V(0, 2, 0)
+		assert((Raycast.GetVisualMuzzleFrame(f.tool, tuning).Position - physical).Magnitude > 0.1)
+		local effects = load("Effects", f.env); effects.Fire(f.tool, expected, V(0, 2, -20), tuning, false)
+		local found = 0
+		for _, item in ipairs(f.created) do
+			if item.Name == "RevolverMuzzleBurst" or item.Name == "Path" then
+				found += 1; near((item.CFrame.Position - expected).Magnitude, 0)
+			end
+		end
+		assert(found == 2); effects.Clear()
+	end)
+	test("visual muzzle overrides apply to authored sockets without changing the authoritative origin", function()
+		local f = fixture(); local tuning = Config.Get(f.tool.Name)
+		local handle, muzzle = object("Part", "Handle"), object("Attachment", "Muzzle")
+		handle.CFrame, handle.Parent = Frame.new(0.5, 1, 0) * Frame.Angles(0.1, -0.3, 0.2), f.tool
+		muzzle.Parent, muzzle.CFrame = handle, Frame.new(0, 0.2, -0.5) * Frame.Angles(0.4, 0.5, 0.6)
+		f.tool.children = {handle, muzzle}
+		local physical = Raycast.GetMuzzle(f.tool, f.character:FindFirstChild("Head"), tuning, 7)
+		tuning.Effects.MuzzleVisualRight, tuning.Effects.MuzzleVisualUp, tuning.Effects.MuzzleVisualForward = 0.1, 0.4, 0.7
+		local visual = Raycast.GetVisualMuzzleFrame(f.tool, tuning)
+		near((visual.Position - muzzle.WorldCFrame:PointToWorldSpace(V(0.1, 0.4, -0.7))).Magnitude, 0)
+		near((Raycast.GetMuzzle(f.tool, f.character:FindFirstChild("Head"), tuning, 7) - physical).Magnitude, 0)
+	end)
+	test("two-ray resolution identifies world miss surfaces while victim hits have no mark surface", function()
+		local wall = object("Part", "Wall"); local tuning = Config.Get("Amber Revolver")
+		local function cast(_, vector) return {Distance = math.min(8, vector.Magnitude), Normal = V(0, 0, 1), Instance = wall} end
+		local miss = Raycast.Resolve(Vector.zero, V(0, 0, -1), Vector.zero, tuning, {}, cast)
+		assert(miss.surface == wall and miss.normal and not miss.victim)
+		local target = {frame = Frame.new(0, 0, -5)}
+		local hit = Raycast.Resolve(Vector.zero, V(0, 0, -1), Vector.zero, tuning, {target}, cast)
+		assert(hit.victim == target and not hit.surface and not hit.normal)
+	end)
+
+	local function holeFixture(texture)
+		local f = fixture(); f.holeSettings = Config.Get(f.tool.Name).Effects
+		f.holeSettings.ImpactEnabled = false
+		if texture then f.holeSettings.BulletHoleTextureId = texture end
+		f.wall = object("Part", "Wall"); f.wall.Parent, f.wall.CFrame = f.env.workspace, Frame.identity
+		f.effects = load("Effects", f.env)
+		function f.mark(position, normal, surface)
+			return f.effects.BulletHole(position or V(0, 2, -10), normal or V(0, 0, 1), surface or f.wall, f.holeSettings)
+		end
+		function f.countHoles()
+			local count = 0; for _, item in ipairs(f.created) do if item.Name == "RevolverBulletHole" then count += 1 end end; return count
+		end
+		function f.holeGui(part)
+			for _, item in ipairs(f.created) do if item.Name == "BulletHoleSurface" and item.Parent == part then return item end end
+		end
+		return f
+	end
+	test("bullet marks align with wall floor and ceiling normals and retain a surface separation", function()
+		for _, normal in ipairs({V(0, 0, 1), V(0, 1, 0), V(0, -1, 0), V(0.6, 0.8, 0)}) do
+			local f = holeFixture(); local position = V(2, 3, -10); local part = f.mark(position, normal)
+			assert(part and part.CanQuery == false and part.CanCollide == false and not part.CastShadow)
+			near((part.CFrame.Position - position):Dot(normal), f.holeSettings.BulletHoleSurfaceOffset)
+			near(part.CFrame.LookVector:Dot(normal), 1)
+			local gui = f.holeGui(part); assert(gui and not gui.AlwaysOnTop and gui.Enabled)
+			f.effects.Clear(); assert(part.destroyed and f.events.RenderStepped:Count() == 0)
+		end
+	end)
+	test("bullet marks reject air avatars invalid normals and distant surfaces before allocating", function()
+		local f = holeFixture(); local count = #f.created
+		for _, normal in ipairs({V(0, 0, 0), V(0/0, 0, 1), V(math.huge, 0, 1), V(0, 9, 0)}) do assert(not f.mark(nil, normal)) end
+		assert(not f.mark(V(0/0, 0, 0)))
+		assert(not f.mark(V(2000, 0, 0)))
+		f.effects.Impact(V(0, 2, -10), V(0, 0, 1), f.holeSettings, nil, false)
+		f.effects.Impact(V(0, 2, -10), V(0, 0, 1), f.holeSettings, f.wall, true)
+		assert(not f.mark(nil, nil, f.character:FindFirstChild("Head")))
+		assert(#f.created == count and f.events.RenderStepped:Count() == 0)
+	end)
+	test("bullet mark texture overrides replace the immediately available drawn puncture", function()
+		for _, texture in ipairs({"", "rbxassetid://test-image"}) do
+			local f = holeFixture(texture); local part = f.mark(); local gui = f.holeGui(part)
+			local image, fallback
+			for _, item in ipairs(f.created) do
+				if item.Parent == gui and item.Name == "Texture" then image = item end
+				if item.Parent == gui and item.Name == "DrawnPuncture" then fallback = item end
+			end
+			assert(image.Image == texture and image.Visible == (texture ~= "") and fallback.Visible == (texture == ""))
+			f.effects.Clear()
+		end
+	end)
+	test("bullet mark pool grows one miss at a time then reuses its bounded slots and expires its update", function()
+		local f = holeFixture(); local first = f.mark(); assert(f.countHoles() == 1)
+		for _ = 2, Config.Presentation.MaxBulletHoles do f.mark() end
+		local allocated = #f.created
+		for _ = 1, 200 do f.mark() end
+		assert(#f.created == allocated and f.countHoles() == Config.Presentation.MaxBulletHoles)
+		assert(f.events.RenderStepped:Count() == 1)
+		f.advance(7.5)
+		for _, item in ipairs(f.created) do if item.Name == "Texture" then near(item.ImageTransparency, 0.5) end end
+		f.advance(0.6); assert(f.events.RenderStepped:Count() == 0)
+		for _, item in ipairs(f.created) do if item.Name == "BulletHoleSurface" then assert(not item.Enabled) end end
+		f.mark(); assert(#f.created == allocated and f.events.RenderStepped:Count() == 1)
+		f.effects.Clear(); assert(first.destroyed and f.events.RenderStepped:Count() == 0)
+	end)
+	test("bullet marks follow moving parts hide near the camera and clear removed surfaces", function()
+		local f = holeFixture(); local position = V(0, 2, -10); local part = f.mark(position); local gui = f.holeGui(part)
+		local original = part.CFrame
+		f.wall.CFrame = Frame.new(2, 3, 4) * Frame.Angles(0.2, 0.3, 0.4); f.advance(0.02)
+		near((part.CFrame.Position - f.wall.CFrame:PointToWorldSpace(original.Position)).Magnitude, 0)
+		f.camera.CFrame = Frame.new(part.CFrame.Position); f.advance(0.02); assert(not gui.Enabled)
+		f.camera.CFrame = Frame.new(0, 0, 10); f.advance(0.02); assert(gui.Enabled)
+		f.wall.Parent = nil; f.advance(0.02); assert(not gui.Enabled and f.events.RenderStepped:Count() == 0)
+		f.effects.Clear()
+	end)
+	test("stationary bullet marks avoid redundant appearance and transform writes until fading", function()
+		local f = holeFixture(); local part = f.mark(); local gui = f.holeGui(part)
+		local writes = 0
+		local function watch(item, key)
+			local mt, stored = table.clone(getmetatable(item) or {}), item[key]
+			local oldIndex, oldNewIndex = mt.__index, mt.__newindex
+			rawset(item, key, nil)
+			mt.__index = function(self, property)
+				if property == key then return stored end
+				if type(oldIndex) == "function" then return oldIndex(self, property) end
+				return oldIndex and oldIndex[property]
+			end
+			mt.__newindex = function(self, property, value)
+				if property == key then writes += 1; stored = value
+				elseif oldNewIndex then oldNewIndex(self, property, value)
+				else rawset(self, property, value) end
+			end
+			setmetatable(item, mt)
+		end
+		watch(part, "CFrame"); watch(gui, "Enabled")
+		for _, item in ipairs(f.created) do
+			if item.Name == "Texture" then watch(item, "ImageTransparency") end
+			if item.Name == "Puncture" or item.Name:match("^Crack") then watch(item, "BackgroundTransparency") end
+		end
+		for _ = 1, 144 do f.advance(1/144) end
+		assert(writes == 0)
+		f.advance(6.5); assert(writes > 0)
+		f.effects.Clear()
 	end)
 	test("cancelled predictions and character cleanup remove tracer state", function()
 		local f = fixture(false); local effects = load("Effects", f.env)
@@ -793,8 +1174,11 @@ return function(load)
 		local f = fixture()
 		f.config = load("Config")
 		local playerGui = object("PlayerGui", "PlayerGui")
+		local leaderstats, binds = object("Folder", "leaderstats"), object("Folder", "KeyBinds")
+		f.reloadBind = object("StringValue", "Reload"); f.reloadBind.Value, f.reloadBind.Changed = "R", signal()
+		binds.children, leaderstats.children = {f.reloadBind}, {binds}
 		function f.player:FindFirstChildOfClass(name) return name == "PlayerGui" and playerGui end
-		function f.player:WaitForChild(name) return name == "PlayerGui" and playerGui end
+		function f.player:WaitForChild(name) return name == "PlayerGui" and playerGui or name == "leaderstats" and leaderstats end
 		f.player.attributes = { DataReady = true, InRound = true }
 		function f.player:GetAttribute(name) return self.attributes[name] end
 		function f.player:GetAttributeChangedSignal() return signal() end
@@ -815,26 +1199,50 @@ return function(load)
 		f.env.Enum.UserInputType = {}
 		for _, name in ipairs({ "MouseButton1", "MouseButton2", "Touch", "Keyboard", "Gamepad1" }) do f.env.Enum.UserInputType[name] = { Name = name } end
 		f.env.Enum.KeyCode = {}
-		for _, name in ipairs({ "Unknown", "R", "ButtonX", "ButtonR2", "ButtonL2" }) do f.env.Enum.KeyCode[name] = { Name = name } end
+		for _, name in ipairs({"W","A","S","D","Space","Tab","Slash","Escape","Backspace","Return","KeypadEnter","I","O","F","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","LeftMeta","RightMeta","Unknown","ButtonR2","ButtonL2","ButtonX","E","G","LeftShift","LeftControl","C","One","Two","Three","Q","R","T","X","Y","H","J","K","L","U","B"}) do f.env.Enum.KeyCode[name] = {Name = name} end
+		function f.env.Enum.KeyCode:GetEnumItems()
+			local values = {}; for _, item in pairs(self) do if type(item) == "table" then table.insert(values, item) end end; return values
+		end
+		local validation = load("KeybindValidation", f.env)
+		f.services.ReplicatedStorage.Modules.KeybindValidation = "KeybindValidation"
 		local aim = load("Camera", f.env)
 		local pose = { Init = function() end, SetLocalAim = function(tool) f.poseCleared = tool == nil end,
 			Kick = function() end, ResetLocal = function() end, SetSession = function() end,
 			SampleCursor = function(...) f.lastSample = { ... }; f.poseCleared = false end,
 			GetLocalAnimation = function() return f.bodyAnimation, f.armAnimation end }
 		local effects = { Equip = function() f.equipEffects = (f.equipEffects or 0) + 1 end,
-			Fire = function(...) f.fireEffects = (f.fireEffects or 0) + 1; f.fireEffectArgs = {...}; return nil end,
-			Impact = function() f.impacts = (f.impacts or 0) + 1 end,
+			SetFirstPerson = function(tool) f.preparedShotTool = tool end,
+			GetShotOrigin = function(_, origin) return f.cosmeticOrigin or origin end,
+			Fire = function(...) f.fireEffects = (f.fireEffects or 0) + 1; f.fireEffectArgs = {...}; return f.tracer end,
+			ConfirmedTracer = function(...) f.confirmedTracers = (f.confirmedTracers or 0) + 1; f.confirmedArgs = {...}; return f.tracer end,
+			Empty = function(...) f.emptyEffects = (f.emptyEffects or 0) + 1; f.emptyEffectArgs = {...} end,
+			CorrectTracer = function(...) f.corrections = (f.corrections or 0) + 1; f.correctionArgs = {...} end,
+			Impact = function(...) f.impacts = (f.impacts or 0) + 1; f.impactArgs = {...} end,
 			Reload = function() f.reloadEffects = (f.reloadEffects or 0) + 1 end, StopReload = function() end, Clear = function() end }
 		local viewmodel = {Clear = function() f.viewClears = (f.viewClears or 0) + 1 end,
+			InterruptInspect = function() f.inspectInterrupts = (f.inspectInterrupts or 0) + 1 end,
 			Update = function(...) f.viewUpdate = {...} end, Kick = function(tool) f.viewKick = tool end,
 			GetVisualTool = function() return f.visualTool end, IsFirstPerson = function() return f.firstPerson == true end}
-		f.env.script = { Parent = { RevolverEffects = "Effects", RevolverAimPose = "Pose", RevolverAimCamera = "Camera", RevolverViewmodel = "Viewmodel" } }
-		local dependencies = { Config = f.config, Math = Math, Catalog = { ["Amber Revolver"] = {} }, Camera = aim, Pose = pose, Effects = effects,
+		f.env.script = { Parent = { HitFeedback = "Feedback", RevolverEffects = "Effects", RevolverAimPose = "Pose", RevolverAimCamera = "Camera", RevolverViewmodel = "Viewmodel" } }
+		local dependencies = { Config = f.config, KeybindValidation = validation, Math = Math, Catalog = { ["Amber Revolver"] = {} }, Camera = aim, Pose = pose, Effects = effects,
 			RagdollQuery = queryStub, Viewmodel = viewmodel, ToolPhysics = ToolPhysics,
+			Feedback = {SetAimPosition = function(position) f.feedbackPosition = position end},
 			CursorConfig = {WhiteDotSize = 5, WhiteDotEnabled = true},
-			Raycast = { GetMuzzle = function(_, h) return h.Position end, Resolve = function() return { position = V(0, 2, -20) } end } }
+			Raycast = { GetCharacterGeometry = function(character)
+					if f.actualRaycast then return Raycast.GetCharacterGeometry(character) end
+					return {}
+				end,
+				GetVisualShotOrigin = Raycast.GetVisualShotOrigin,
+				GetMuzzle = function(_, h)
+					f.muzzleReads = (f.muzzleReads or 0) + 1
+					return f.physicalOrigin or h.Position
+				end,
+				Resolve = function(...)
+					if f.actualRaycast then return Raycast.Resolve(...) end
+					return { position = V(0, 2, -20) }
+				end } }
 		f.env.require = function(name) return assert(dependencies[name], name) end
-		f.controller, f.aim, f.action, f.active, f.shot = load("Controller", f.env), aim, action, active, shot
+		f.controller, f.aim, f.action, f.active, f.shot, f.state = load("Controller", f.env), aim, action, active, shot, snapshot
 		f.controller.Init()
 		f.hud, f.ammoLabel = f.created[1], f.created[2]
 		for _, obj in ipairs(f.created) do
@@ -842,14 +1250,222 @@ return function(load)
 			elseif obj.Text == "RELOAD" then f.reloadButton = obj
 			elseif obj.Text == "AIM" then f.aimButton = obj end
 		end
-		function f.snapshot(ammo, reload, ack)
+		function f.snapshot(ammo, reload, ack, reason)
 			snapshot.OnClientEvent:Fire({ Character = f.character, Session = "session", Revision = (f.revision or 0) + 1,
-				AckSequence = ack or 0, Ammo = ammo, ReloadEnd = reload or 0, NextShot = 0 })
+				AckSequence = ack or 0, Ammo = ammo, ReloadEnd = reload or 0, NextShot = 0, Reason = reason })
 			f.revision = (f.revision or 0) + 1
 		end
 		function f.inputObject(kind, key) return { UserInputType = f.env.Enum.UserInputType[kind], KeyCode = f.env.Enum.KeyCode[key or "Unknown"] } end
 		return f
 	end
+	test("accepted owner shots reconcile once without duplicate fire flash or sound", function()
+		local f = controllerFixture(); f.snapshot(3); f.tracer = {Parent = true}
+		assert(f.controller.Fire()); local request = f.action.sent[#f.action.sent]
+		local accepted = {ShooterId = f.player.UserId, Session = "session", Sequence = request[3],
+			Weapon = f.tool.Name, Origin = Vector.zero, Position = V(5, 2, -30), Normal = V(0, 0, 1), Hit = false}
+		for _ = 1, 4 do f.shot.OnClientEvent:Fire(accepted) end
+		assert(f.fireEffects == 1 and not f.corrections and f.confirmedTracers == 1 and f.impacts == 1)
+		assert(f.fireEffectArgs[9] == true and f.confirmedArgs[2] == accepted.Position)
+	end)
+	test("a delayed blocked shot starts only one confirmed streak and cannot use a muzzle beyond the wall", function()
+		local f = controllerFixture(); f.snapshot(3)
+		f.cosmeticOrigin = V(0, 2, -4)
+		assert(f.controller.Fire() and not f.confirmedTracers and not f.impacts)
+		assert(f.fireEffectArgs[9] == true)
+		f.advance(0.7)
+		assert(not f.confirmedTracers and not f.impacts)
+		f.snapshot(2, nil, 1, "Fired")
+		local accepted = {ShooterId = f.player.UserId, Session = "session", Sequence = 1,
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -2), Normal = V(0, 0, 1), Hit = false}
+		for _ = 1, 3 do f.shot.OnClientEvent:Fire(accepted) end
+		assert(f.confirmedTracers == 1 and f.fireEffects == 1 and f.impacts == 1 and not f.corrections)
+		near((f.confirmedArgs[1] - accepted.Origin).Magnitude, 0)
+		near((f.confirmedArgs[2] - accepted.Position).Magnitude, 0)
+	end)
+	test("confirmed cover replaces an unsafe cosmetic path with the accepted physical origin", function()
+		local f = controllerFixture(); f.snapshot(3); f.cosmeticOrigin = V(2, 2, -1)
+		assert(f.controller.Fire())
+		local physical = V(0, 2, 0)
+		f.env.workspace.Raycast = function(_, origin, vector)
+			local length = vector.Magnitude
+			if length < 0.001 then return nil end
+			local distance = RayMath.RayBoxDistance(origin, vector.Unit, Frame.new(1.6, 2, -5), {0.5, 4, 0.5}, length)
+			return distance and {Distance = distance, Normal = V(0, 0, 1)} or nil
+		end
+		f.shot.OnClientEvent:Fire({ShooterId = f.player.UserId, Session = "session", Sequence = 1,
+			Weapon = f.tool.Name, Origin = physical, Position = V(0, 2, -20), Normal = nil, Hit = false})
+		assert(f.confirmedTracers == 1)
+		near((f.confirmedArgs[1] - physical).Magnitude, 0)
+	end)
+	test("cover moving into a confirmed path suppresses stale owner and observer flight without a second endpoint", function()
+		local f = controllerFixture(); f.snapshot(3); assert(f.controller.Fire())
+		f.env.workspace.Raycast = function(_, _, vector)
+			return vector.Magnitude > 10 and {Distance = 10, Normal = V(0, 0, 1)} or nil
+		end
+		local data = {ShooterId = f.player.UserId, Session = "session", Sequence = 1,
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -20), Normal = V(0, 0, 1)}
+		f.shot.OnClientEvent:Fire(data)
+		assert(not f.confirmedTracers and f.fireEffects == 1 and f.impacts == 1)
+		near((f.impactArgs[1] - data.Position).Magnitude, 0)
+		data.ShooterId, data.Session = 2, "observer-session"
+		f.shot.OnClientEvent:Fire(data)
+		assert(f.fireEffects == 2 and f.fireEffectArgs[9] == true and f.impacts == 2)
+		near((f.fireEffectArgs[2] - data.Origin).Magnitude, 0)
+		near((f.fireEffectArgs[3] - data.Position).Magnitude, 0)
+	end)
+	test("rejected state removes only its shot while earlier accepted replies still create one streak", function()
+		local f = controllerFixture(); f.snapshot(3); assert(f.controller.Fire())
+		f.snapshot(2, nil, 1, "Fired")
+		f.advance(0.4); assert(f.controller.Fire())
+		f.snapshot(2, nil, 2, "InvalidAim")
+		local accepted = {ShooterId = f.player.UserId, Session = "session", Sequence = 1,
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -6), Normal = V(0, 0, 1)}
+		f.shot.OnClientEvent:Fire(accepted)
+		assert(f.confirmedTracers == 1 and f.fireEffects == 2)
+		accepted.Sequence = 2; f.shot.OnClientEvent:Fire(accepted)
+		assert(f.confirmedTracers == 1)
+	end)
+	test("a world target between camera and avatar is fired at and resolved against head-side cover", function()
+		local f = controllerFixture(); f.snapshot(3); f.actualRaycast = true
+		f.env.workspace.Raycast = function(_, origin, vector)
+			local length = vector.Magnitude; if length < 0.001 then return nil end
+			local distance = RayMath.RayBoxDistance(origin, vector.Unit, Frame.new(0, 2, 4), {4, 4, 1}, length)
+			return distance and {Distance = distance, Normal = V(0, 0, -1)} or nil
+		end
+		local requests = #f.action.sent
+		assert(f.controller.Fire() and #f.action.sent == requests + 1 and f.fireEffects == 1 and not f.confirmedTracers)
+		near(f.fireEffectArgs[3].Z, 3.5)
+		assert(f.action.sent[#f.action.sent][3] == 1)
+	end)
+	test("third-person client can shoot a rear player inside the camera-to-avatar span", function()
+		for _, aiming in ipairs({false, true}) do
+			local f = controllerFixture(); f.snapshot(3); f.actualRaycast = true
+			local other, character = object("Player", "Other"), object("Model", "RearPlayer")
+			other.Character = character; function other:GetAttribute(name) return name == "InRound" end
+			local root, head, humanoid = object("Part", "HumanoidRootPart"), object("Part", "Head"), object("Humanoid", "Humanoid")
+			root.Parent, root.Position, root.CFrame, root.Size = character, V(0, 0, 4), Frame.new(0, 0, 4), V(2, 2, 1)
+			head.Parent, head.Position, head.CFrame, head.Size = character, V(0, 2, 4), Frame.new(0, 2, 4), V(2, 1, 1)
+			humanoid.Parent, humanoid.Health = character, 100
+			character.children = {root, head, humanoid}
+			f.services.Players.GetPlayers = function() return {f.player, other} end
+			if aiming then assert(f.controller.SetAiming(true)) end
+			assert(f.controller.Fire() and f.fireEffects == 1 and not f.muzzleReads)
+			near((f.fireEffectArgs[2] - V(0, 2, 0)).Magnitude, 0)
+			near(f.fireEffectArgs[3].Z, 3.5)
+			assert(f.action.sent[#f.action.sent][1] == "Fire" and not f.confirmedTracers)
+		end
+	end)
+	test("an advanced decorative barrel cannot flip the shot backwards or skip a nearby cursor blocker", function()
+		local f = controllerFixture(); f.snapshot(3); f.actualRaycast = true
+		f.physicalOrigin, f.cosmeticOrigin = V(1, 2, -2), V(1, 2, -2)
+		f.env.workspace.Raycast = function(_, origin, vector)
+			local length = vector.Magnitude; if length < 0.001 then return nil end
+			local distance = RayMath.RayBoxDistance(origin, vector.Unit, Frame.new(0, 2, -1), {0.2, 0.2, 0.2}, length)
+			return distance and {Distance = distance, Normal = V(0, 0, 1)} or nil
+		end
+		assert(f.controller.Fire() and not f.muzzleReads)
+		near((f.fireEffectArgs[2] - V(0, 2, 0)).Magnitude, 0)
+		near((f.fireEffectArgs[10] - V(0, 2, 0)).Magnitude, 0)
+		near(f.fireEffectArgs[3].Z, -0.9)
+		assert(f.action.sent[#f.action.sent][3] == 1 and f.fireEffectArgs[9] == true)
+	end)
+	test("lowered and rotated gun movement cannot block a clear cursor over a ledge in hip fire or first person", function()
+		for _, firstPerson in ipairs({false, true}) do
+			local f = controllerFixture(); f.snapshot(3); f.actualRaycast, f.firstPerson = true, firstPerson
+			local head = V(0, 2, 0)
+			f.camera.ViewportPointToRay = function() return {Origin = firstPerson and head or V(0, 2, 8), Direction = V(0, 0, -1)} end
+			local ledge = worldBoxes({{position = V(0, 0.75, -2), size = {4, 1.5, 0.5}}})
+			f.env.workspace.Raycast = function(_, origin, vector) return ledge(origin, vector) end
+			local acceptedPoint
+			for _, muzzle in ipairs({V(0, 0.7, -1), V(0.4, 0.3, -1.2), V(-0.4, 1, -0.8)}) do
+				f.physicalOrigin, f.cosmeticOrigin = muzzle, muzzle
+				assert(ledge(muzzle, V(0, 2, -350) - muzzle), "The moving barrel path must actually cross the low ledge")
+				assert(f.controller.Fire() and not f.muzzleReads)
+				near((f.fireEffectArgs[2] - head).Magnitude, 0)
+				near((f.fireEffectArgs[10] - head).Magnitude, 0)
+				local endpoint = f.fireEffectArgs[3]
+				near(endpoint.Y, 2); near(endpoint.Z, -350)
+				if acceptedPoint then near((endpoint - acceptedPoint).Magnitude, 0) else acceptedPoint = endpoint end
+				f.advance(0.4)
+			end
+		end
+	end)
+	test("a barely embedded decorative muzzle cannot make engine-style inside-origin casts skip cover", function()
+		local f = controllerFixture(); f.snapshot(3); f.actualRaycast = true
+		f.physicalOrigin, f.cosmeticOrigin = V(0, 2, -1.005), V(0, 2, -1.005)
+		local box, size = Frame.new(0, 2, -1.1), {4, 4, 0.2}
+		f.env.workspace.Raycast = function(_, origin, vector)
+			local localOrigin, length = box:PointToObjectSpace(origin), vector.Magnitude
+			if math.abs(localOrigin.X) < 2 and math.abs(localOrigin.Y) < 2 and math.abs(localOrigin.Z) < 0.1 then return nil end
+			if length < 0.001 then return nil end
+			local distance = RayMath.RayBoxDistance(origin, vector.Unit, box, size, length)
+			return distance and {Distance = distance, Normal = V(0, 0, 1)} or nil
+		end
+		assert(f.controller.Fire())
+		near((f.fireEffectArgs[2] - V(0, 2, 0)).Magnitude, 0)
+		near((f.fireEffectArgs[10] - V(0, 2, 0)).Magnitude, 0)
+		near(f.fireEffectArgs[3].Z, -1)
+		assert(f.fireEffectArgs[9] == true and not f.confirmedTracers)
+	end)
+	test("expired and previous-session owner replies cannot resurrect a traveling streak", function()
+		local f = controllerFixture(); f.snapshot(3); assert(f.controller.Fire())
+		f.advance(2.01)
+		local data = {ShooterId = f.player.UserId, Session = "session", Sequence = 1,
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -20), Normal = V(0, 0, 1)}
+		f.shot.OnClientEvent:Fire(data); assert(not f.confirmedTracers and f.impacts == 1)
+		data.Session, data.Sequence = "old-session", 2
+		f.shot.OnClientEvent:Fire(data); assert(not f.confirmedTracers and f.impacts == 1)
+	end)
+	test("empty trigger clicks are throttled and never create shots or consume ammo", function()
+		local f = controllerFixture(); f.snapshot(0)
+		local count = #f.action.sent
+		for _ = 1, 10 do assert(not f.controller.Fire()) end
+		assert(f.emptyEffects == 1 and not f.fireEffects and #f.action.sent == count)
+		assert(f.emptyEffectArgs[1] == f.tool and f.emptyEffectArgs[2].Effects.EmptySoundId == "")
+		f.advance(f.config.Default.Effects.EmptySoundCooldownMs / 1000 + 0.001)
+		assert(not f.controller.Fire() and f.emptyEffects == 2 and #f.action.sent == count)
+		f.snapshot(3); assert(f.controller.Fire() and f.fireEffects == 1)
+		local request = f.action.sent[#f.action.sent]; assert(request[3] == 1)
+	end)
+	test("empty clicks respect reload menu lobby and shot cooldown gates", function()
+		for _, block in ipairs({
+			function(f) f.snapshot(0, f.env.workspace:GetServerTimeNow() + 2) end,
+			function(f) f.snapshot(0); f.controller.Reload() end,
+			function(f) f.snapshot(0); f.player.attributes.InRound = false end,
+			function(f) f.snapshot(0); f.services.GuiService.MenuIsOpen = true end,
+			function(f) f.snapshot(1); assert(f.controller.Fire()) end,
+		}) do
+			local f = controllerFixture(); block(f)
+			assert(not f.controller.Fire() and not f.emptyEffects)
+		end
+	end)
+	test("shoot aim and reload interrupt inspect before accepting gameplay input", function()
+		local f = controllerFixture(); f.snapshot(3); f.advance(1/60)
+		local count = f.inspectInterrupts or 0
+		assert(f.controller.Fire()); assert(f.inspectInterrupts == count + 1 and f.action.sent[#f.action.sent][1] == "Fire")
+		assert(f.controller.SetAiming(true)); assert(f.inspectInterrupts == count + 2)
+		assert(f.controller.Reload()); assert(f.inspectInterrupts == count + 3 and f.action.sent[#f.action.sent][1] == "Reload")
+		assert(not f.controller.Fire()); assert(f.inspectInterrupts == count + 4, "an attempted shot must also cancel inspect")
+	end)
+	test("reload input and HUD use the saved key and switch immediately when rebound", function()
+		local f = controllerFixture(); f.snapshot(2); f.advance(1/60)
+		assert(f.ammoLabel.Text:find("[R]", 1, true))
+		f.reloadBind.Value = "T"; f.reloadBind.Changed:Fire("T"); f.advance(1/60)
+		assert(f.ammoLabel.Text:find("[T]", 1, true))
+		f.input.InputBegan:Fire(f.inputObject("Keyboard", "R"), false); assert(not f.reloadEffects)
+		f.input.InputBegan:Fire(f.inputObject("Keyboard", "T"), true); assert(not f.reloadEffects)
+		f.input.InputBegan:Fire(f.inputObject("Keyboard", "T"), false); assert(f.reloadEffects == 1)
+		local request = f.action.sent[#f.action.sent]; assert(request[1] == "Reload")
+	end)
+	test("default R and gamepad reload remain available without bypassing combat gates", function()
+		local f = controllerFixture(); f.snapshot(2)
+		f.input.InputBegan:Fire(f.inputObject("Keyboard", "R"), false); assert(f.reloadEffects == 1)
+		local pad = controllerFixture(); pad.snapshot(2)
+		pad.reloadBind.Value = "T"; pad.reloadBind.Changed:Fire("T")
+		pad.input.InputBegan:Fire(pad.inputObject("Gamepad1", "ButtonX"), false); assert(pad.reloadEffects == 1)
+		local lobby = controllerFixture(); lobby.snapshot(2); lobby.player.attributes.InRound = false
+		lobby.input.InputBegan:Fire(lobby.inputObject("Keyboard", "R"), false); assert(not lobby.reloadEffects)
+	end)
 	test("RMB hold starts ADS and release restores it even for processed input", function()
 		local f = controllerFixture(); f.snapshot(3)
 		local right = f.inputObject("MouseButton2")
@@ -891,21 +1507,39 @@ return function(load)
 		local fires = 0; for _, data in ipairs(f.action.sent) do if data[1] == "Fire" then fires += 1 end end
 		assert(fires == 1)
 	end)
-	test("first-person shots suppress local visuals and retain suppression on delayed acknowledgement", function()
+	test("first-person shots request camera muzzle feedback and still show confirmed impacts once", function()
 		local f = controllerFixture(); f.snapshot(3); f.firstPerson = true
 		assert(f.controller.Fire() and f.fireEffectArgs[7] == true)
 		f.firstPerson = false -- zoom out before the server replies
 		f.shot.OnClientEvent:Fire({ShooterId = f.player.UserId, Session = "session", Sequence = 1,
-			Weapon = f.tool.Name, Position = V(0, 2, -20), Normal = V(0, 0, 1)})
-		assert(not f.impacts)
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -20), Normal = V(0, 0, 1)})
+		assert(f.impacts == 1)
 		f.advance(0.4); assert(f.controller.Fire() and f.fireEffectArgs[7] == false)
 		f.shot.OnClientEvent:Fire({ShooterId = f.player.UserId, Session = "session", Sequence = 2,
-			Weapon = f.tool.Name, Position = V(0, 2, -20), Normal = V(0, 0, 1)})
-		assert(f.impacts == 1)
+			Weapon = f.tool.Name, Origin = V(0, 2, 0), Position = V(0, 2, -20), Normal = V(0, 0, 1)})
+		assert(f.impacts == 2)
 		f.firstPerson = true
-		f.shot.OnClientEvent:Fire({ShooterId = 2, Weapon = f.tool.Name, Origin = V(0, 2, 0),
+		f.shot.OnClientEvent:Fire({ShooterId = 2, Session = "other-session", Sequence = 1, Weapon = f.tool.Name, Origin = V(0, 2, 0),
 			Position = V(0, 2, -20), Normal = V(0, 0, 1)})
-		assert(f.impacts == 2 and f.fireEffectArgs[5] == false)
+		assert(f.impacts == 3 and f.fireEffectArgs[5] == false)
+	end)
+	test("accepted shot marks use the server surface and position once for owners and observers", function()
+		local f = controllerFixture(); f.snapshot(3)
+		assert(f.controller.Fire() and not f.impacts)
+		local wall = object("Part", "ConfirmedWall")
+		local data = {ShooterId = f.player.UserId, Session = "session", Sequence = 1, Weapon = f.tool.Name,
+			Origin = V(0, 2, 0), Position = V(1, 3, -9), Normal = V(0, 0, 1), Surface = wall, Hit = false}
+		f.shot.OnClientEvent:Fire(data)
+		assert(f.impacts == 1 and f.fireEffects == 1 and f.impactArgs[4] == wall and f.impactArgs[5] == false)
+		near((f.impactArgs[1] - data.Position).Magnitude, 0)
+		f.shot.OnClientEvent:Fire(data); assert(f.impacts == 1 and f.fireEffects == 1)
+		data.Session = "stale-session"; f.shot.OnClientEvent:Fire(data); assert(f.impacts == 1)
+		data.ShooterId, data.Session = 2, "observer-session"
+		data.Origin = V(0, 2, 0); f.shot.OnClientEvent:Fire(data)
+		assert(f.impacts == 2 and f.fireEffects == 2 and f.fireEffectArgs[8] == true)
+		f.shot.OnClientEvent:Fire(data); assert(f.impacts == 2 and f.fireEffects == 2)
+		f.services.Players.PlayerRemoving:Fire({UserId = 2})
+		data.Session = "new-observer-session"; f.shot.OnClientEvent:Fire(data); assert(f.impacts == 3)
 	end)
 	test("missing RMB release events are recovered from the real held-button state", function()
 		local f = controllerFixture(); f.snapshot(3)
@@ -1031,7 +1665,7 @@ return function(load)
 		f.action, f.snapshotRemote, f.shot, f.poseRemote = object("RemoteEvent", "Action"), object("RemoteEvent", "State"), object("RemoteEvent", "Shot"), object("UnreliableRemoteEvent", "Aim")
 		for _, remote in ipairs({ f.action, f.snapshotRemote, f.shot, f.poseRemote }) do remote.OnServerEvent = signal() end
 		function f.snapshotRemote:FireClient(_, data) f.snapshotData = data end
-		function f.shot:FireAllClients() f.shotCalls = (f.shotCalls or 0) + 1 end
+		function f.shot:FireAllClients(data) f.shotCalls = (f.shotCalls or 0) + 1; f.shotData = data end
 		f.posePackets = {}
 		function f.poseRemote:FireAllClients(...) table.insert(f.posePackets, { ... }) end
 		revolver.children = { f.action, f.snapshotRemote, f.shot, f.poseRemote }
@@ -1123,6 +1757,17 @@ return function(load)
 		assert(f.damageArgs[4] == "Revolver" and f.damageArgs[5] == f.tool.Name)
 		dealt = 0; f.advance(1); f.combat("Fire", 2); assert(f.damageCalls == 1 and f.shotCalls == 2)
 	end)
+	test("server broadcasts confirmed miss surface metadata only after accepting a shot", function()
+		local f = serverFixture(); f.player.attributes.InRound = true
+		f.mainGame.GameActive, f.mainGame.RoundStats, f.mainGame.PlayersInGame[1] = true, {}, true
+		local wall = object("Part", "Wall")
+		f.resolved = {position = V(2, 3, -10), normal = V(0, 0, 1), surface = wall}
+		f.sync(); f.combat("Fire", 1)
+		assert(f.shotData.Surface == wall and f.shotData.Hit == false and f.shotCalls == 1)
+		near((f.shotData.Position - f.resolved.position).Magnitude, 0)
+		f.combat("Fire", 1); assert(f.shotCalls == 1)
+		f.combat("Fire", 2); assert(f.shotCalls == 1, "Cooldown rejection cannot leave a bullet mark")
+	end)
 	local function knifeFixture()
 		local f = fixture()
 		local config = load("KnifeConfig")
@@ -1156,17 +1801,20 @@ return function(load)
 		knife.children, knife.DamageDealtClient = {results, damage}, damage
 		remotes.children = {knife}
 		local rs, ss, knives = object("Folder", "ReplicatedStorage"), object("Folder", "ServerStorage"), object("Folder", "Knives")
-		rs.children, rs.Modules, rs.Remotes = {remotes}, {RagdollQuery = "RagdollQuery", ProjectileMath = "Projectile", KnifeConfig = "KnifeConfig"}, remotes
+		rs.children, rs.Modules, rs.Remotes = {remotes}, {RagdollQuery = "RagdollQuery", ProjectileMath = "Projectile",
+			RevolverRaycast = "Raycast", KnifeConfig = "KnifeConfig"}, remotes
 		ss.children, knives.children = {knives}, {object("Tool", "KnifeA")}
 		f.services.ReplicatedStorage, f.services.ServerStorage = rs, ss
-		local deps = {RagdollQuery = queryStub, Projectile = projectile, KnifeConfig = config, Game = f.mainGame, Hitboxes = {GetPlayerFromHitbox = function(part)
+		local deps = {RagdollQuery = queryStub, Projectile = projectile, Raycast = Raycast, KnifeConfig = config, Game = f.mainGame, Hitboxes = {GetPlayerFromHitbox = function(part)
 			if part == victimPart then return f.victim, victimHum end
 		end}}
 		f.env.require = function(name) return assert(deps[name], name) end
 		f.env.script = {Parent = {PlayerHitbox = "Hitboxes", Parent = {Game = {MainGame = "Game"}}}}
 		f.rays = 0
-		f.env.workspace.Raycast = function(_, origin, vector)
+		f.env.workspace.Raycast = function(_, origin, vector, params)
 			f.rays += 1; f.castOrigin, f.castVector = origin, vector
+			if f.hit and f.hit.Instance and f.hit.Instance.Parent == f.victimChar
+				and table.find(params.FilterDescendantsInstances, f.victimChar) then return nil end
 			return f.hit
 		end
 		f.throw = load("KnifeThrow", f.env)
@@ -1275,21 +1923,243 @@ return function(load)
 		f.hit = {Instance = f.victimPart, Position = V(0,2,-5), Normal = V(0,0,1)}
 		assert(f.fire("stale")); near(f.victimHum.Health, 100); assert(not f.damageCalls)
 	end)
-	test("first-person fire keeps sound while allocating no flash tracer smoke or custom particles", function()
+	test("first-person fire before the camera model is ready keeps sound and streak without using hidden skin emitters", function()
 		local f = fixture(); local tuning = Config.Get("Amber Revolver")
 		local muzzle, custom = object("Attachment", "Muzzle"), object("ParticleEmitter", "SkinFlash")
 		muzzle.WorldPosition, muzzle.children = V(0, 1, -1), {custom}
 		table.insert(f.tool.children, muzzle)
 		local effects = load("Effects", f.env)
-		assert(effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, true, nil, true) == nil)
+		local shot = effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, true, nil, true); assert(shot)
 		assert(not custom.emitted)
 		local sounds = 0
 		for _, item in ipairs(f.created) do
-			assert(item.ClassName ~= "ParticleEmitter" and item.ClassName ~= "Beam"
-				and item.ClassName ~= "Trail" and item.ClassName ~= "PointLight")
+			assert(item.ClassName ~= "ParticleEmitter" and item.ClassName ~= "PointLight")
 			if item.ClassName == "Sound" then sounds += 1; assert(item.played) end
 		end
-		assert(sounds == 1)
+		assert(sounds == 1); effects.Clear(); assert(shot.destroyed)
+	end)
+	test("first-person feedback reuses emitters audio and streaks with one shared update and no new Instances or scans", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual = object("Model", "CameraWeapon"); visual.Parent = object("Model", "RevolverFirstPerson")
+		local handle = object("Part", "Handle"); handle.Parent, handle.CFrame = visual, Frame.identity
+		visual.children = {handle}
+		local effects = load("Effects", f.env)
+		effects.SetFirstPerson(visual, tuning)
+		local created = #f.created
+		local flash, sparks, voices, streaks = nil, nil, 0, 0
+		for _, item in ipairs(f.created) do
+			if item.Name == "FirstPersonShotFlash" then flash = item end
+			if item.Name == "FirstPersonShotSparks" then sparks = item end
+			if item.Name == "FirstPersonShotSound" then voices += 1 end
+			if item.Name == "RevolverShotStreak" then streaks += 1 end
+		end
+		assert(flash and sparks and voices == tuning.FirstPerson.ShotSoundVoices)
+		assert(streaks == tuning.FirstPerson.ShotTracerSlots)
+		assert(flash.Parent.Parent == handle and flash.Rate == 0 and not flash.Enabled and flash.LockedToPart == false)
+		assert(flash.Lifetime[1] <= 0.08 and sparks.Lifetime[1] <= 0.1)
+		for _ = 1, 100 do
+			effects.SetFirstPerson(visual, tuning)
+			assert(effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, true, visual, true).Parent)
+		end
+		assert(#f.created == created and not visual.descendantReads and f.events.RenderStepped:Count() == 1)
+		assert(flash.emitted == 200 and sparks.emitted == 100 * tuning.FirstPerson.ShotSparkCount)
+		for _, item in ipairs(f.created) do assert(not item:IsA("PointLight")) end
+		effects.SetFirstPerson(nil, tuning); assert(flash.cleared == 1 and sparks.cleared == 1)
+		f.advance(0.3); assert(f.events.RenderStepped:Count() == 0)
+		for _, item in ipairs(f.created) do
+			if item:IsA("Beam") or item:IsA("Trail") then assert(not item.Enabled) end
+			if item.Name == "RevolverShotStreak" then assert(not item.destroyed) end
+		end
+		effects.SetFirstPerson(nil, tuning); assert(flash.cleared == 1)
+		effects.SetFirstPerson(visual, tuning); assert(#f.created == created)
+		effects.Clear(); assert(flash.Parent.destroyed and sparks.Parent.destroyed)
+	end)
+	test("deferred first-person feedback emits once at the safe origin and confirmation only starts the pooled streak", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		local flash, socket, path
+		for _, item in ipairs(f.created) do
+			if item.Name == "FirstPersonShotFlash" then flash, socket = item, item.Parent end
+		end
+		local safe, destination, priorFrame = V(0, 2, 0), V(0, 2, -1), socket.CFrame
+		local emittedAt
+		function flash:Emit(count) self.emitted = (self.emitted or 0) + count; emittedAt = socket.WorldPosition end
+		local allocated = #f.created
+		assert(not effects.Fire(f.tool, safe, destination, tuning, true, visual, true, false, true, safe))
+		assert(f.events.RenderStepped:Count() == 0 and flash.emitted == 2)
+		near((socket.CFrame.Position - priorFrame.Position).Magnitude, 0)
+		near(socket.CFrame.LookVector:Dot(priorFrame.LookVector), 1)
+		near((emittedAt - safe).Magnitude, 0)
+		f.advance(0.6)
+		local lease = effects.ConfirmedTracer(safe, destination, tuning, visual, true)
+		assert(lease and lease.Parent and flash.emitted == 2 and #f.created == allocated)
+		for _, item in ipairs(f.created) do if item:IsA("Beam") and item.Enabled then path = item.Parent end end
+		assert(path); near((path.CFrame.Position - safe).Magnitude, 0)
+		f.advance(0.3); effects.Clear(); assert(not lease.Parent and f.events.RenderStepped:Count() == 0)
+	end)
+	test("a zero-distance pointblank hit still emits first-person flash at the safe origin without a streak", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		local safe, emittedAt = V(0, 2, 0), nil
+		for _, item in ipairs(f.created) do
+			if item.Name == "FirstPersonShotFlash" then
+				function item:Emit(count) self.emitted = count; emittedAt = self.Parent.WorldPosition end
+			end
+		end
+		assert(not effects.Fire(f.tool, safe, safe, tuning, true, visual, true, false, true, safe))
+		near((emittedAt - safe).Magnitude, 0)
+		assert(not effects.ConfirmedTracer(safe, safe, tuning, visual, true) and f.events.RenderStepped:Count() == 0)
+		effects.Clear()
+	end)
+	test("first-person streak starts at the visible muzzle and follows confirmed correction", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, handle, muzzle = object("Model", "CameraWeapon"), object("Part", "Handle"), object("Attachment", "Muzzle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle, muzzle}, visual
+		muzzle.Parent, muzzle.CFrame = handle, Frame.new(0.8,-0.6,-1.5)
+		local hidden = object("ParticleEmitter", "HiddenSkinFlash"); f.tool.children = {hidden}
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual,tuning)
+		local lease = effects.Fire(f.tool,V(300,200,0),V(0,0,-30),tuning,true,visual,true)
+		local path, tip
+		local expected = muzzle.WorldPosition + f.camera.CFrame:VectorToWorldSpace(V(tuning.Effects.MuzzleVisualRight,
+			tuning.Effects.MuzzleVisualUp, -tuning.Effects.MuzzleVisualForward))
+		for _, item in ipairs(f.created) do
+			if item.Name == "Path" and (item.CFrame.Position - expected).Magnitude < 1e-5 then path = item end
+			if item.Name == "BulletGlint" and item.Transparency == 0.15 then tip = item end
+		end
+		assert(path and tip and lease.Parent and not hidden.emitted)
+		near((path.CFrame.Position-expected).Magnitude,0)
+		effects.CorrectTracer(lease,V(2,1,-25)); f.advance(tuning.Effects.VisualTravelMs/1000)
+		near((tip.CFrame.Position-V(2,1,-25)).Magnitude,0)
+		effects.Clear(); assert(not lease.Parent and f.events.RenderStepped:Count() == 0)
+	end)
+	test("reused streak leases ignore delayed corrections and cleanup for an older shot", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver"); tuning.FirstPerson.ShotTracerSlots = 1
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual,tuning)
+		local old = effects.Fire(f.tool,Vector.zero,V(0,0,-20),tuning,true,visual,true)
+		local clearCounts = {}
+		for _, item in ipairs(f.created) do if item:IsA("Trail") then clearCounts[item] = item.cleared end end
+		f.advance(0.01)
+		local current = effects.Fire(f.tool,Vector.zero,V(3,1,-40),tuning,true,visual,true)
+		assert(old ~= current and not old.Parent and current.Parent)
+		old:Destroy(); effects.CorrectTracer(old,V(0,0,-1)); assert(current.Parent)
+		f.advance(tuning.Effects.VisualTravelMs/1000 + 0.001)
+		for _, item in ipairs(f.created) do
+			if item.Name == "BulletGlint" then near((item.CFrame.Position-V(3,1,-40)).Magnitude,0) end
+			if item:IsA("Trail") then assert(item.cleared == clearCounts[item] + 3 and not item.Enabled) end
+		end
+		current:Destroy(); assert(not current.Parent and f.events.RenderStepped:Count() == 0)
+		effects.Clear()
+	end)
+	test("disabled tracers keep first-person flash and sound without preparing a streak pool", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver"); tuning.Effects.TracerEnabled = false
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual,tuning)
+		assert(not effects.Fire(f.tool,Vector.zero,V(0,0,-20),tuning,true,visual,true))
+		local flashed = false
+		for _, item in ipairs(f.created) do
+			assert(not item:IsA("Beam") and not item:IsA("Trail"))
+			if item.Name == "FirstPersonShotFlash" then flashed = item.emitted == 2 end
+		end
+		assert(flashed and f.events.RenderStepped:Count() == 0); effects.Clear()
+	end)
+	test("first-person and observer streaks share the same active budget and single update", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local previousBudget = Config.Presentation.MaxActiveTracers; Config.Presentation.MaxActiveTracers = 2
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual,tuning)
+		local owner = effects.Fire(f.tool,Vector.zero,V(0,0,-20),tuning,true,visual,true)
+		f.advance(0.001); local observer = effects.Tracer(Vector.zero,V(0,0,-25),tuning.Effects)
+		f.advance(0.001); local latest = effects.Tracer(Vector.zero,V(0,0,-30),tuning.Effects)
+		assert(not owner.Parent and observer.Parent and latest.Parent)
+		f.advance(0.001); local nextOwner = effects.Fire(f.tool,Vector.zero,V(0,0,-40),tuning,true,visual,true)
+		assert(observer.destroyed and latest.Parent and nextOwner.Parent and f.events.RenderStepped:Count() == 1)
+		effects.Clear(); assert(latest.destroyed and not nextOwner.Parent and f.events.RenderStepped:Count() == 0)
+		Config.Presentation.MaxActiveTracers = previousBudget
+	end)
+	test("removing an already suspended camera gun destroys its cached streak pool", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual,tuning)
+		local shot = effects.Fire(f.tool,Vector.zero,V(0,0,-20),tuning,true,visual,true)
+		effects.SetFirstPerson(nil,tuning); assert(shot.Parent)
+		visual.Parent = nil; effects.SetFirstPerson(nil,tuning)
+		assert(not shot.Parent and f.events.RenderStepped:Count() == 0)
+		for _, item in ipairs(f.created) do if item.Name == "RevolverShotStreak" then assert(item.destroyed) end end
+		effects.Clear()
+	end)
+	test("pooled first-person flash follows the authored muzzle and cleanup preserves that attachment", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver")
+		local visual, barrel, muzzle = object("Model", "CameraWeapon"), object("Part", "Muzzle"), object("Attachment", "Muzzle")
+		local handle = object("Part", "Handle"); handle.Parent, handle.CFrame = visual, Frame.identity
+		muzzle.Parent, muzzle.CFrame = barrel, Frame.new(0, 0, -1)
+		visual.children, visual.Parent = {muzzle, handle}, object("Model", "RevolverFirstPerson")
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		local flash
+		for _, item in ipairs(f.created) do if item.Name == "FirstPersonShotFlash" then flash = item end end
+		assert(flash.Parent ~= muzzle and flash.Parent.Parent == muzzle.Parent)
+		local oldSocket = flash.Parent
+		muzzle.CFrame = Frame.new(0.3, 0.1, -2); effects.SetFirstPerson(visual, tuning)
+		local expected = muzzle.WorldPosition + f.camera.CFrame:VectorToWorldSpace(V(0,
+			tuning.Effects.MuzzleVisualUp, -tuning.Effects.MuzzleVisualForward))
+		near((flash.Parent.WorldPosition - expected).Magnitude, 0)
+		effects.Clear(); assert(not muzzle.destroyed and oldSocket.destroyed)
+	end)
+	test("first-person fallback flash and streak leave the raised forward barrel tip", function()
+		local f = fixture(); local tuning = Config.Get(f.tool.Name)
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		handle.CFrame = Frame.new(0.7, -0.5, -0.6) * Frame.Angles(0.1, 0.2, 0.05)
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		local expected = Raycast.GetMuzzlePosition(visual, tuning) + f.camera.CFrame:VectorToWorldSpace(V(0,
+			tuning.Effects.MuzzleVisualUp, -tuning.Effects.MuzzleVisualForward))
+		local flash, path
+		effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, true, visual, true)
+		for _, item in ipairs(f.created) do
+			if item.Name == "FirstPersonShotFlash" then flash = item end
+			if item.Name == "Path" and item.CFrame.Position.Z < -1 then path = item end
+		end
+		assert(flash and path and flash.Parent.Parent == handle)
+		near((flash.Parent.WorldPosition - expected).Magnitude, 0)
+		near((path.CFrame.Position - expected).Magnitude, 0)
+		local socket = flash.Parent; effects.Clear(); assert(socket.destroyed and not handle.destroyed)
+	end)
+	test("first-person visual Up and Forward use camera axes across rotated skin attachments", function()
+		local f = fixture(); local tuning = Config.Get(f.tool.Name)
+		local visual, handle, muzzle = object("Model", "CameraWeapon"), object("Part", "Handle"), object("Attachment", "Muzzle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle, muzzle}, visual
+		handle.CFrame = Frame.new(0.6, -0.5, -1) * Frame.Angles(0.2, 0.6, 0.3)
+		muzzle.Parent, muzzle.CFrame = handle, Frame.new(0.1, 0.2, -0.4) * Frame.Angles(1.1, 0.2, 1.3)
+		f.camera.CFrame = Frame.new(0, 0, 0) * Frame.Angles(0.5, -0.7, 0.1)
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		local socket
+		for _, item in ipairs(f.created) do if item.Name == "FirstPersonShotMuzzle" then socket = item end end
+		local offset = V(tuning.Effects.MuzzleVisualRight, tuning.Effects.MuzzleVisualUp, -tuning.Effects.MuzzleVisualForward)
+		near((f.camera.CFrame:VectorToObjectSpace(socket.WorldPosition - muzzle.WorldPosition) - offset).Magnitude, 0)
+		f.camera.CFrame = Frame.new(0, 0, 0) * Frame.Angles(-1.2, 1.1, -0.2); effects.SetFirstPerson(visual, tuning)
+		near((f.camera.CFrame:VectorToObjectSpace(socket.WorldPosition - muzzle.WorldPosition) - offset).Magnitude, 0)
+		effects.Clear(); assert(not muzzle.destroyed)
+	end)
+	test("camera muzzle enable setting hides its particles while retaining the pooled firing sound", function()
+		local f = fixture(); local tuning = Config.Get("Amber Revolver"); tuning.FirstPerson.ShotEnabled = false
+		local visual, handle = object("Model", "CameraWeapon"), object("Part", "Handle")
+		visual.Parent, visual.children, handle.Parent = {}, {handle}, visual
+		local effects = load("Effects", f.env); effects.SetFirstPerson(visual, tuning)
+		effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, true, visual, true)
+		local played = false
+		for _, item in ipairs(f.created) do
+			if item:IsA("ParticleEmitter") then assert(not item.emitted) end
+			if item:IsA("Sound") and item.played then played = true end
+		end
+		assert(played); effects.Clear()
 	end)
 	-- Geometry stand-ins keep real parenting and recursive cloning semantics.
 	local geometryMethods = {}
@@ -1364,6 +2234,14 @@ return function(load)
 	end
 	local function viewmodelFixture()
 		local f = fixture(); f.env.Instance.new = geometryObject
+		f.buildJobs, f.buildYields = {}, 0
+		f.env.task = {defer = function(fn) table.insert(f.buildJobs, fn) end,
+			wait = function() f.buildYields += 1 end}
+		function f.flushBuilds()
+			local jobs = f.buildJobs; f.buildJobs = {}
+			for _, job in ipairs(jobs) do job() end
+			return #jobs > 0
+		end
 		f.services.PhysicsService = {IsCollisionGroupRegistered = function() return true end}
 		local attributes = {[Config.FirstPersonPhysics.ReadyAttribute] = true}
 		f.services.ReplicatedStorage.GetAttribute = function(_, name) return attributes[name] end
@@ -1374,7 +2252,8 @@ return function(load)
 		f.root = geometryObject("Part", "HumanoidRootPart", f.character); f.root.AssemblyLinearVelocity = Vector.zero
 		geometryObject("Part", "Torso", f.character)
 		geometryObject("Part", "Head", f.character)
-		f.humanoid = geometryObject("Humanoid", "Humanoid", f.character); f.humanoid.Health = 100
+		f.humanoid = geometryObject("Humanoid", "Humanoid", f.character)
+		f.humanoid.Health, f.humanoid.WalkSpeed, f.humanoid.FloorMaterial = 100, 16, "Concrete"
 		f.player.Character = f.character
 		f.tool = geometryObject("Tool", "Amber Revolver", f.character); f.tool.Grip = Frame.identity
 		f.handle = geometryObject("Part", "Handle", f.tool); f.handle.CFrame = Frame.new(3, 5, 7)
@@ -1391,12 +2270,18 @@ return function(load)
 		f.env.Enum.HumanoidRigType = {R6 = "R6"}
 		f.env.Enum.MeshType = {FileMesh = "FileMesh", Brick = "Brick"}
 		f.tuning = Config.Get(f.tool.Name)
+		local visibility = load("WeaponVisibility", f.env)
+		f.env.script = {Parent = {WeaponViewmodelVisibility = "WeaponVisibility"}}
+		local requireModule = f.env.require
+		f.env.require = function(name) if name == "WeaponVisibility" then return visibility end; return requireModule(name) end
 		f.geometry = load("WeaponGeometry", f.env)
 		f.skinEffects = load("WeaponEffects", f.env)
 		f.services.ReplicatedStorage.Modules.RevolverViewmodelMath = "ViewmodelMath"
 		f.env.script = {Parent = {WeaponViewmodelGeometry = "WeaponGeometry", WeaponViewmodelEffects = "WeaponEffects",
-			WeaponViewmodel = "WeaponViewmodel"}}
-		local dependencies = {Config = Config, ViewmodelMath = Motion, WeaponGeometry = f.geometry, WeaponEffects = f.skinEffects}
+			WeaponViewmodel = "WeaponViewmodel", RevolverEffects = "RevolverEffects"}}
+		local dependencies = {Config = Config, InspectConfig = InspectConfig, InspectMotion = InspectMotion,
+			ViewmodelMath = Motion, WeaponGeometry = f.geometry, WeaponEffects = f.skinEffects, WeaponVisibility = visibility,
+			RevolverEffects = {SetFirstPerson = function(weapon) f.preparedWeapon = weapon end}}
 		f.env.require = function(name) return assert(dependencies[name], name) end
 		f.warnings = {}; f.env.warn = function(message) table.insert(f.warnings, message) end
 		f.factory = load("WeaponViewmodel", f.env); dependencies.WeaponViewmodel = f.factory
@@ -1405,16 +2290,249 @@ return function(load)
 		function f.update(allowed, aiming, reloading, dt)
 			f.view.Update(f.tool, f.tuning, allowed ~= false, aiming == true, reloading == true, dt or 1/60,
 				f.bodyAnimation, f.armAnimation, f.action, f.weaponVisible)
+			-- Deferred construction runs outside the render callback. Publish only on
+			-- the following render; preserve this fixture's settled-frame assertions.
+			if f.flushBuilds() then
+				f.view.Update(f.tool, f.tuning, allowed ~= false, aiming == true, reloading == true, dt or 1/60,
+					f.bodyAnimation, f.armAnimation, f.action, f.weaponVisible)
+			end
 		end
 		function f.model() return f.camera:FindFirstChild("RevolverFirstPerson") end
 		return f
 	end
+	test("render schedules construction without cloning and Clear cancels queued work", function()
+		local f = viewmodelFixture()
+		f.view.Update(f.tool, f.tuning, true, false, false, 1/60)
+		assert(#f.buildJobs == 1 and not f.handle.cloneCount and not f.model())
+		for _ = 1, 10 do f.view.Update(f.tool, f.tuning, true, false, false, 1/60) end
+		assert(#f.buildJobs == 1 and not f.handle.cloneCount)
+		f.view.Clear(); f.flushBuilds()
+		assert(not f.model() and not f.handle.cloneCount and f.tool.DescendantAdded:Count() == 0)
+		f.update(); assert(f.model() and f.preparedWeapon == f.view.GetVisualTool(f.tool)); f.view.Clear()
+	end)
+	test("large cosmetic builds yield and late geometry during a yield cannot publish a stale copy", function()
+		local f = viewmodelFixture(); f.tuning.FirstPerson.BuildObjectsPerFrame = 2
+		local late
+		f.env.task.wait = function()
+			f.buildYields += 1
+			if not late then
+				late = geometryObject("Part", "LateBlade", f.tool)
+				f.tool.DescendantAdded:Fire(late)
+			end
+		end
+		f.update(); assert(not f.model() and f.buildYields > 0 and #f.warnings == 0)
+		f.update(); assert(f.model():FindFirstChild("LateBlade", true))
+		assert(f.tool.DescendantAdded:Count() == 1); f.view.Clear()
+		assert(f.tool.DescendantAdded:Count() == 0 and f.handle.Changed:Count() == 0)
+	end)
+	test("cancelling during a construction yield destroys the partial model and temporary listeners", function()
+		local f = viewmodelFixture(); f.tuning.FirstPerson.BuildObjectsPerFrame = 1
+		local createdModels = {}
+		f.env.Instance.new = function(class)
+			local item = geometryObject(class)
+			if class == "Model" then table.insert(createdModels, item) end
+			return item
+		end
+		f.env.task.wait = function() f.view.Clear() end
+		f.view.Update(f.tool, f.tuning, true, false, false, 1/60); f.flushBuilds()
+		assert(not f.model() and #f.buildJobs == 0 and #f.warnings == 0)
+		for _, model in ipairs(createdModels) do assert(model.destroyed) end
+		assert(f.tool.DescendantAdded:Count() == 0 and f.handle.Changed:Count() == 0
+			and f.character.DescendantAdded:Count() == 0 and f.handle.LocalTransparencyModifier == 0)
+		f.env.task.wait = function() end; f.update(); assert(f.model()); f.view.Clear()
+	end)
+	test("sprinting can start and finish a stable inspection without changing movement", function()
+		local f = viewmodelFixture(); f.humanoid.WalkSpeed = 32; f.root.AssemblyLinearVelocity = V(32, 0, 0)
+		f.bodyAnimation = Frame.Angles(0.4, 0, 0); f.armAnimation = Frame.Angles(0.9, 0, 0)
+		f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+		for _ = 1, 60 do f.update() end
+		assert(f.view.IsInspecting(f.tool) and f.humanoid.WalkSpeed == 32)
+		for _ = 1, math.ceil(InspectConfig.Revolver.Duration * 60) do f.update() end
+		assert(not f.view.IsInspecting(f.tool) and #f.warnings == 0); f.view.Clear()
+	end)
+	test("animated skin appearance during build settles to the latest snapshot without starvation", function()
+		local f = viewmodelFixture(); f.tuning.FirstPerson.BuildObjectsPerFrame = 1
+		f.env.task.wait = function()
+			f.buildYields += 1
+			f.handle.Color = f.buildYields
+			f.handle.Size = V(1 + f.buildYields * 0.01, 2, 1)
+		end
+		f.update()
+		local handle = assert(f.view.GetVisualTool(f.tool)):FindFirstChild("Handle")
+		assert(handle.Color == f.handle.Color and handle.Size.X == f.handle.Size.X and #f.warnings == 0)
+		assert(f.handle.cloneCount == 1 and f.handle.Changed:Count() == 1)
+		f.view.Clear(); assert(f.handle.Changed:Count() == 0)
+	end)
+	test("inspect waits for a fully published hold and never restarts an active animation", function()
+		local f = viewmodelFixture()
+		assert(not f.view.StartInspect(f.tool))
+		f.update(); assert(not f.view.StartInspect(f.tool))
+		f.update(true, false, false, 0.25)
+		assert(f.view.StartInspect(f.tool) and f.view.IsInspecting(f.tool))
+		assert(not f.view.StartInspect(f.tool) and not f.view.StartInspect({}))
+		f.view.Clear(); assert(not f.view.IsInspecting(f.tool))
+	end)
+	test("inspect moves the camera copy while preserving skin grip and all gameplay transforms", function()
+		local f = viewmodelFixture(); f.update(true, false, false, 0.25)
+		local model = assert(f.model())
+		local camera, focus, root, shoulder, handle = f.camera.CFrame, f.camera.Focus, f.root.CFrame, f.joint.C0, f.handle.CFrame
+		local idle = model:FindFirstChild("Right Arm").CFrame
+		local skinOffset = f.handle.CFrame:Inverse() * f.barrel.CFrame
+		local reads, avatarReads, modelParts = f.tool.descendantReads, f.character.descendantReads, #model:GetDescendants()
+		assert(f.view.StartInspect(f.tool))
+		for _ = 1, 48 do f.update() end
+		local copy = model:FindFirstChild("Handle", true)
+		local barrel = model:FindFirstChild("Barrel", true)
+		local inspected = model:FindFirstChild("Right Arm").CFrame
+		assert((inspected.Position - idle.Position).Magnitude < 0.1, "inspect must retain a small, in-place hold")
+		local rotationChange = 0; for i = 1, 9 do rotationChange += math.abs(inspected.matrix[i] - idle.matrix[i]) end
+		assert(rotationChange > 0.1, "inspect must visibly tilt the held weapon")
+		local expectedBarrel = copy.CFrame * skinOffset
+		near((expectedBarrel.Position - barrel.CFrame.Position).Magnitude, 0)
+		for i = 1, 9 do near(expectedBarrel.matrix[i], barrel.CFrame.matrix[i]) end
+		assert(f.camera.CFrame == camera and f.camera.Focus == focus and f.root.CFrame == root
+			and f.joint.C0 == shoulder and f.handle.CFrame == handle)
+		assert(f.model() == model and #model:GetDescendants() == modelParts
+			and f.tool.descendantReads == reads and f.character.descendantReads == avatarReads)
+		for _ = 1, math.ceil(InspectConfig.Revolver.Duration * 60) do f.update() end
+		assert(not f.view.IsInspecting(f.tool) and f.model() == model and #f.warnings == 0)
+		f.view.Clear()
+	end)
+	for _, case in ipairs({
+		{"aim", function(f) f.update(true, true) end},
+		{"reload", function(f) f.update(true, false, true) end},
+		{"knife early charge", function(f) f.action = {holdingCharge = true, charging = false}; f.update() end},
+		{"knife full charge", function(f) f.action = {charging = true, charge = 1}; f.update() end},
+		{"knife throw", function(f) f.action = {throwElapsed = 0.1}; f.update() end},
+		{"knife stab", function(f) f.action = {stabElapsed = 0.1}; f.update() end},
+		{"hidden returning blade", function(f) f.weaponVisible = false; f.update() end},
+	}) do
+		test(case[1] .. " takes the viewmodel immediately and blocks inspect", function()
+			local f = viewmodelFixture(); f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+			f.update(true, false, false, 0.3); case[2](f)
+			assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool) and #f.warnings == 0)
+			f.view.Clear()
+		end)
+	end
+	for _, case in ipairs({
+		{"slide", function(f) f.character.attributes = {[InspectConfig.PostureAttribute] = "Slide"} end},
+		{"jump", function(f) f.humanoid.FloorMaterial = "Air" end},
+		{"seat", function(f) f.humanoid.Sit = true end},
+	}) do
+		test(case[1] .. " blends inspect out quickly and prevents another start", function()
+			local f = viewmodelFixture(); f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+			f.update(true, false, false, 0.5); case[2](f); f.update()
+			assert(f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+			f.update(true, false, false, InspectConfig.ReturnSeconds)
+			assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+			f.view.Clear()
+		end)
+	end
+	test("walking and crouching retain inspect while taking damage cancels it", function()
+		local f = viewmodelFixture(); f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+		f.root.AssemblyLinearVelocity = V(10, 0, 0); f.humanoid.WalkSpeed = 8
+		f.character.attributes = {[InspectConfig.PostureAttribute] = "Crouch"}; f.bodyAnimation = Frame.new(0, -0.5, 0)
+		f.update(true, false, false, 0.5); assert(f.view.IsInspecting(f.tool))
+		f.humanoid.Health = 75; f.update()
+		assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+		f.update(true, false, false, InspectConfig.AfterActionSeconds); assert(f.view.StartInspect(f.tool))
+		f.view.Clear()
+	end)
+	test("combat interruption is immediate and late recoil for an old Tool cannot interrupt the next hold", function()
+		local f = viewmodelFixture(); f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+		f.view.Kick({}); assert(f.view.IsInspecting(f.tool))
+		f.view.Kick(f.tool); assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+		f.update(true, false, false, InspectConfig.AfterActionSeconds); assert(f.view.StartInspect(f.tool))
+		f.view.InterruptInspect(); assert(not f.view.IsInspecting(f.tool))
+		f.view.Clear()
+	end)
+	for _, case in ipairs({
+		{"zoom out", function(f) f.camera.Focus = Frame.new(0, 0, -2); f.update() end},
+		{"menu", function(f) f.update(false) end},
+		{"VR", function(f) f.services.VRService.VREnabled = true; f.update() end},
+		{"camera takeover", function(f) f.camera.CameraType = "Scriptable"; f.update() end},
+		{"spectating", function(f) f.camera.CameraSubject = {}; f.update() end},
+		{"death", function(f) f.humanoid.Health = 0; f.update() end},
+		{"ragdoll", function(f) f.character.attributes = {Ragdolled = true}; f.update() end},
+		{"unequip", function(f) f.tool.Parent = nil; f.update() end},
+	}) do
+		test(case[1] .. " clears inspect without retaining the hidden hold", function()
+			local f = viewmodelFixture(); f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+			f.update(true, false, false, 0.5); case[2](f)
+			assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool)
+				and not f.model() and f.handle.LocalTransparencyModifier == 0 and #f.warnings == 0)
+			f.view.Clear()
+		end)
+	end
+	test("actual knife motion shares inspect and instantly yields to held charge", function()
+		local f = viewmodelFixture(); local knifeConfig = load("KnifeConfig")
+		local knifeMotion = load("KnifeMotion", {CFrame = Frame, Vector3 = Vector,
+			script = {Parent = {RevolverViewmodelMath = "Shared"}}, require = function(name) assert(name == "Shared"); return Motion end})
+		f.tuning = {FirstPerson = knifeConfig.FirstPerson, Pose = {R6RotationOffset = knifeConfig.FirstPerson.R6RotationOffset}}
+		f.view = f.factory.New({Name = "RevolverFirstPerson", Motion = knifeMotion, InspectKind = "Knife"})
+		f.update(true, false, false, 0.25); assert(f.view.StartInspect(f.tool))
+		for _ = 1, 60 do f.update() end
+		assert(f.view.IsInspecting(f.tool) and f.model() and #f.warnings == 0)
+		f.action = {holdingCharge = true, charging = true, charge = 1}; f.update()
+		assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+		for _ = 1, 90 do f.update() end
+		local arm = f.model():FindFirstChild("Right Arm")
+		assert(arm.CFrame.Position.Y > 0, "full charge must retain its raised knife pose")
+		assert(f.view.IsActive(f.tool) and #f.warnings == 0); f.view.Clear()
+	end)
+	test("knife presenter holds a visible forward stab and blocks inspection for its configurable duration", function()
+		local f = viewmodelFixture(); local knifeConfig = load("KnifeConfig")
+		local knifeMotion = load("KnifeMotion", {CFrame = Frame, Vector3 = Vector,
+			script = {Parent = {RevolverViewmodelMath = "Shared"}}, require = function() return Motion end})
+		local settings = table.clone(knifeConfig.FirstPerson); settings.StabSeconds = 0.6
+		f.tuning = {FirstPerson = settings, Pose = {R6RotationOffset = settings.R6RotationOffset}}
+		f.view = f.factory.New({Name = "RevolverFirstPerson", Motion = knifeMotion, InspectKind = "Knife"})
+		for _ = 1,120 do f.update() end
+		local model = assert(f.model()); local arm = model:FindFirstChild("Right Arm")
+		local originalArm, originalHandle = arm.CFrame, f.handle.CFrame
+		assert(f.view.StartInspect(f.tool))
+		f.action = {stabElapsed = settings.StabSeconds * 0.5}; f.update()
+		assert(not f.view.IsInspecting(f.tool) and not f.view.StartInspect(f.tool))
+		assert(arm.CFrame.Position.Z - originalArm.Position.Z < -1.3)
+		local held = arm.CFrame
+		f.bodyAnimation = Frame.Angles(0.7,-0.4,0); f.armAnimation = Frame.Angles(-1.2,0.5,0.3)
+		f.root.AssemblyLinearVelocity = V(32,0,0); f.action.stabElapsed = settings.StabSeconds * 0.55; f.update()
+		near((arm.CFrame.Position-held.Position).Magnitude,0)
+		for index=1,9 do near(arm.CFrame.matrix[index],held.matrix[index]) end
+		local copyHandle = model:FindFirstChild("Handle",true)
+		local copyBlade = model:FindFirstChild("Barrel",true)
+		near(((copyHandle.CFrame:Inverse()*copyBlade.CFrame).Position
+			-(f.handle.CFrame:Inverse()*f.barrel.CFrame).Position).Magnitude,0)
+		assert(f.handle.CFrame == originalHandle and f.humanoid.WalkSpeed == 16)
+		f.action.stabElapsed = 0.5; f.update(); assert(not f.view.StartInspect(f.tool))
+		f.action.stabElapsed = settings.StabSeconds; f.update(); assert(f.view.StartInspect(f.tool))
+		assert(#f.warnings == 0); f.view.Clear()
+	end)
+	test("canceling an extended knife through menu or unequip cannot carry its attack into the next hold", function()
+		for _, exit in ipairs({"menu","unequip"}) do
+			local f = viewmodelFixture(); local knifeConfig = load("KnifeConfig")
+			local knifeMotion = load("KnifeMotion", {CFrame = Frame, Vector3 = Vector,
+				script = {Parent = {RevolverViewmodelMath = "Shared"}}, require = function() return Motion end})
+			f.tuning = {FirstPerson = knifeConfig.FirstPerson, Pose = {R6RotationOffset = knifeConfig.FirstPerson.R6RotationOffset}}
+			f.view = f.factory.New({Name = "RevolverFirstPerson", Motion = knifeMotion, InspectKind = "Knife"})
+			f.update(); f.action = {stabElapsed = knifeConfig.FirstPerson.StabSeconds*0.5}; f.update()
+			local extended = assert(f.model()); assert(extended:FindFirstChild("Right Arm").CFrame.Position.Z < -2)
+			if exit == "menu" then f.update(false) else f.tool.Parent = nil; f.update() end
+			assert(not f.model() and f.handle.LocalTransparencyModifier == 0)
+			if exit == "unequip" then assert(extended.destroyed); f.tool.Parent = f.character end
+			f.action = {}; f.update()
+			near(assert(f.model()):FindFirstChild("Right Arm").CFrame.Position.Z,knifeConfig.FirstPerson.ArmPosition[3])
+			assert(#f.warnings == 0); f.view.Clear()
+			assert(f.handle.Changed:Count() == 0 and f.tool.DescendantAdded:Count() == 0)
+		end
+	end)
 	test("independent shared presenters release their own model listeners and character visibility", function()
 		local old = viewmodelFixture(); old.update(); local oldModel = assert(old.model())
 		local nextAvatar = viewmodelFixture()
 		old.player.Character, old.env.workspace.CurrentCamera = nextAvatar.character, nextAvatar.camera
 		local knife = old.factory.New({Name = "KnifeFirstPerson", Motion = Motion})
 		knife.Update(nextAvatar.tool, nextAvatar.tuning, true, false, false, 1/60)
+		old.flushBuilds(); knife.Update(nextAvatar.tool, nextAvatar.tuning, true, false, false, 1/60)
 		local nextModel = assert(nextAvatar.camera:FindFirstChild("KnifeFirstPerson"))
 		old.view.Clear()
 		assert(oldModel.destroyed and not nextModel.destroyed and knife.IsActive(nextAvatar.tool))
@@ -1471,6 +2589,69 @@ return function(load)
 		assert(model:FindFirstChild("Humanoid").EvaluateStateMachine == false)
 		assert(f.right.LocalTransparencyModifier == 1 and f.handle.LocalTransparencyModifier == 1 and #f.warnings == 0)
 		f.view.Clear()
+	end)
+	test("the hidden real gun masks textures and decals independently while its camera skin stays visible", function()
+		local f = viewmodelFixture()
+		local texture, decal = geometryObject("Texture", "SkinFace", f.barrel), geometryObject("Decal", "SkinLogo", f.handle)
+		texture.Transparency, texture.LocalTransparencyModifier, decal.LocalTransparencyModifier = 0.25, 0.3, 0.1
+		f.update(); local model, reads = assert(f.model()), f.tool.descendantReads
+		local copy = model:FindFirstChild("SkinFace", true)
+		assert(texture.LocalTransparencyModifier == 1 and decal.LocalTransparencyModifier == 1)
+		assert(copy.LocalTransparencyModifier == 0 and copy.Transparency == 0.25)
+		texture.LocalTransparencyModifier = 0.4; texture.Transparency = 0.5
+		assert(texture.LocalTransparencyModifier == 1 and copy.Transparency == 0.5)
+		for _ = 1, 300 do f.update() end
+		assert(f.model() == model and f.tool.descendantReads == reads)
+		f.camera.Focus = Frame.new(0, 0, -1); f.update()
+		assert(texture.LocalTransparencyModifier == 0.4 and decal.LocalTransparencyModifier == 0.1)
+		f.view.Clear(); assert(texture.Changed:Count() == 0 and decal.Changed:Count() == 0)
+	end)
+	test("fallback texture hiding never mirrors its hidden transparency onto the camera skin", function()
+		local f = viewmodelFixture(); local texture = geometryObject("Texture", "LegacyTexture", f.handle)
+		texture.noLocalModifier, texture.Transparency = true, 0.2
+		f.update(); local copy = f.model():FindFirstChild("LegacyTexture", true)
+		assert(texture.Transparency == 1 and copy.Transparency == 0.2)
+		texture.Transparency = 0.6
+		assert(texture.Transparency == 1 and copy.Transparency == 0.6)
+		f.update(false); assert(texture.Transparency == 0.6 and copy.Transparency == 0.6)
+		f.update(); assert(texture.Transparency == 1 and copy.Transparency == 0.6)
+		f.view.Clear(); assert(texture.Transparency == 0.6 and texture.Changed:Count() == 0)
+	end)
+	test("texture masks restore on every weapon lifecycle exit and late faces are also hidden", function()
+		for _, exit in ipairs({"menu", "unequip", "death", "respawn"}) do
+			local f = viewmodelFixture(); f.update()
+			local texture = geometryObject("Texture", "LateFace", f.handle); texture.LocalTransparencyModifier = 0.2
+			f.tool.DescendantAdded:Fire(texture); f.update()
+			assert(texture.LocalTransparencyModifier == 1 and f.model():FindFirstChild("LateFace", true).LocalTransparencyModifier == 0)
+			if exit == "unequip" then f.tool.Parent = nil
+			elseif exit == "death" then f.humanoid.Health = 0
+			elseif exit == "respawn" then f.player.Character = geometryObject("Model", "Replacement") end
+			f.update(exit ~= "menu")
+			assert(texture.LocalTransparencyModifier == 0.2 and not f.model())
+			f.view.Clear(); assert(texture.Changed:Count() == 0)
+		end
+	end)
+	test("knife throw hiding includes the camera weapon's face textures and restores its skin after return", function()
+		local f = viewmodelFixture(); local texture = geometryObject("Texture", "BladeSkin", f.barrel)
+		texture.Transparency = 0.2
+		f.update(); local copy = f.model():FindFirstChild("BladeSkin", true)
+		f.weaponVisible = false; f.update()
+		assert(copy.LocalTransparencyModifier == 1 and f.model():FindFirstChild("Right Arm").LocalTransparencyModifier == 0)
+		texture.Transparency = 0.5; assert(copy.Transparency == 0.5 and copy.LocalTransparencyModifier == 1)
+		f.weaponVisible = true; f.update()
+		assert(copy.LocalTransparencyModifier == 0 and copy.Transparency == 0.5)
+		f.view.Clear(); assert(texture.LocalTransparencyModifier == 0 and texture.Changed:Count() == 0)
+	end)
+	test("deferred fallback texture masks preserve authored opacity and release all listeners", function()
+		local f = viewmodelFixture(); local texture = geometryObject("Texture", "DeferredFace", f.barrel)
+		texture.noLocalModifier, texture.Transparency = true, 0.2
+		local changed, dispatch, queue = texture.Changed, texture.Changed.Fire, {}
+		function changed:Fire(property) table.insert(queue, property) end
+		local function flush() while #queue > 0 do dispatch(changed, table.remove(queue, 1)) end end
+		f.update(); flush(); assert(f.model():FindFirstChild("DeferredFace", true).Transparency == 0.2)
+		texture.Transparency = 0.7; f.update(); flush()
+		assert(texture.Transparency == 1 and f.model():FindFirstChild("DeferredFace", true).Transparency == 0.7)
+		f.view.Clear(); flush(); assert(texture.Transparency == 0.7 and changed:Count() == 0)
 	end)
 	test("first-person arms use configured thickness without changing length, avatar or gun grip", function()
 		local f = viewmodelFixture(); local mesh = geometryObject("SpecialMesh", "ArmMesh", f.right)
@@ -1873,17 +3054,85 @@ return function(load)
 		assert(f.handle.LocalTransparencyModifier == 1)
 		f.view.Clear(); assert(f.handle.LocalTransparencyModifier == 0)
 	end)
-	test("a RightGrip arriving after equip updates the copied hold once", function()
-		local f = viewmodelFixture(); f.grip.Parent = nil
-		f.update(); local model = f.model()
-		f.grip.Parent = f.right; f.character.DescendantAdded:Fire(f.grip); f.update()
-		assert(model.destroyed and f.handle.cloneCount == 2)
+	local function gripFixture(kind)
+		local f = viewmodelFixture()
+		if kind == "knife" then
+			local config = load("KnifeConfig")
+			local motion = load("KnifeMotion", {CFrame = Frame, Vector3 = Vector,
+				script = {Parent = {RevolverViewmodelMath = "Shared"}}, require = function() return Motion end})
+			f.tuning = {FirstPerson = config.FirstPerson, Pose = {R6RotationOffset = config.FirstPerson.R6RotationOffset}}
+			f.view = f.factory.New({Name = "RevolverFirstPerson", Motion = motion, InspectKind = "Knife"})
+		end
+		return f
+	end
+	local function assertGrip(f, transform)
 		local arm, gun = f.model():FindFirstChild("Right Arm"), f.view.GetVisualTool(f.tool):FindFirstChild("Handle")
-		local expected = arm.CFrame * f.grip.C0 * f.grip.C1:Inverse()
+		local expected = arm.CFrame * f.grip.C0 * (transform or Frame.identity) * f.grip.C1:Inverse()
 		near((gun.CFrame.Position - expected.Position).Magnitude, 0)
 		for i = 1, 9 do near(gun.CFrame.matrix[i], expected.matrix[i]) end
-		f.view.Clear()
-	end)
+	end
+	for _, kind in ipairs({"revolver", "knife"}) do
+		test(kind .. " waits for a real RightGrip instead of publishing a guessed upward hold", function()
+			local f = gripFixture(kind); f.grip.Parent = nil
+			for _ = 1, 20 do f.update() end
+			assert(not f.model() and not f.handle.cloneCount and f.handle.LocalTransparencyModifier == 0)
+			f.grip.Parent = f.right; f.character.DescendantAdded:Fire(f.grip)
+			for _ = 1, 12 do f.update() end
+			assert(f.model() and f.handle.cloneCount == 1 and #f.warnings == 0)
+			assertGrip(f); f.view.Clear()
+		end)
+		test(kind .. " recovers when existing grip part references replicate after its parent", function()
+			local f = gripFixture(kind); f.grip.Part0, f.grip.Part1 = nil, nil
+			for _ = 1, 12 do f.update() end
+			assert(not f.model() and not f.handle.cloneCount)
+			f.grip.Part0 = f.right
+			for _ = 1, 12 do f.update() end
+			assert(not f.model() and f.handle.LocalTransparencyModifier == 0)
+			f.grip.Part1 = f.handle -- no DescendantAdded event for property replication
+			for _ = 1, 12 do f.update() end
+			assertGrip(f); assert(f.handle.cloneCount == 1 and #f.warnings == 0); f.view.Clear()
+		end)
+		test(kind .. " follows settled grip position and rotation without rebuilding or world pose feedback", function()
+			local f = gripFixture(kind); f.update()
+			local model, reads, live = f.model(), f.tool.descendantReads, f.handle.CFrame
+			f.tool.Grip = Frame.new(0.2, 0.1, -0.3) * Frame.Angles(0.3, -0.4, 0.5)
+			f.grip.C0 = Frame.new(0.1, -0.85, 0.2) * Frame.Angles(-0.2, 0.3, -0.1)
+			f.grip.C1 = f.tool.Grip
+			for _, pitch in ipairs({-1.5, 0, 1.5}) do
+				f.camera.CFrame = Frame.new(10, 20, -5) * Frame.Angles(pitch, 0.7, 0)
+				f.camera.Focus = f.camera.CFrame * Frame.new(0, 0, -0.5)
+				f.update(); assertGrip(f)
+			end
+			assert(f.model() == model and f.handle.cloneCount == 1 and f.tool.descendantReads == reads)
+			assert(f.handle.CFrame == live and #f.warnings == 0); f.view.Clear()
+		end)
+		test(kind .. " suspends an invalid grip and resumes the same complete camera model", function()
+			local f = gripFixture(kind); f.update(true, false, false, 0.25)
+			local model, reads = f.model(), f.tool.descendantReads
+			assert(f.view.StartInspect(f.tool))
+			f.grip.Part1 = geometryObject("Part", "OtherHandle", f.character)
+			f.update()
+			assert(not f.model() and not f.view.IsActive(f.tool) and not f.view.IsInspecting(f.tool))
+			assert(f.handle.LocalTransparencyModifier == 0 and f.right.LocalTransparencyModifier == 0)
+			f.grip.Part1 = f.handle; f.update()
+			assert(f.model() == model and f.handle.cloneCount == 1 and f.tool.descendantReads == reads)
+			assertGrip(f); assert(#f.warnings == 0); f.view.Clear()
+		end)
+		test(kind .. " follows a replacement animated grip without cloning or retaining the old joint", function()
+			local f = gripFixture(kind); f.update()
+			local model, reads, old = f.model(), f.tool.descendantReads, f.grip
+			old.Parent = nil; f.character.DescendantRemoving:Fire(old); f.update()
+			assert(not f.model() and f.handle.LocalTransparencyModifier == 0)
+			f.grip = geometryObject("Motor6D", "RightGrip", f.right)
+			f.grip.Part0, f.grip.Part1 = f.right, f.handle
+			f.grip.C0, f.grip.C1 = Frame.new(0, -1, 0), Frame.Angles(-math.pi/2, 0, 0)
+			f.grip.Transform = Frame.new(0.1, 0.2, 0) * Frame.Angles(0.25, -0.15, 0.1)
+			f.character.DescendantAdded:Fire(f.grip); f.update(); assertGrip(f, f.grip.Transform)
+			f.grip.Transform = Frame.Angles(-0.4, 0.2, -0.1); f.update(); assertGrip(f, f.grip.Transform)
+			assert(f.model() == model and f.handle.cloneCount == 1 and f.tool.descendantReads == reads)
+			assert(not old.cloneCount and not f.grip.cloneCount and #f.warnings == 0); f.view.Clear()
+		end)
+	end
 	test("new skin pieces rebuild once and nonarchivable source flags are restored", function()
 		local f = viewmodelFixture(); f.tool.Archivable, f.barrel.Archivable = false, false
 		f.update(); local model = f.model(); assert(model and not f.tool.Archivable and not f.barrel.Archivable)
@@ -2027,15 +3276,18 @@ return function(load)
 		assert(blade.Anchored and not blade.CanCollide and not blade.CanTouch and not blade.CanQuery)
 		assert(f.blade.LocalTransparencyModifier == 1 and f.handle.Transparency == 1)
 	end)
-	test("knife tip embeds in walls and floors while the visible blade remains outside", function()
+	test("half the visible multipart knife embeds into walls floors ceilings and slopes", function()
 		local f = visualFixture(); local visual = f.visuals.Create(f.template, f.effects)
 		local blade = visual.model:FindFirstChild("Blade", true)
-		for _, case in ipairs({{V(0, 2, -20), V(0, 0, 1)}, {V(5, 0, 7), V(0, 1, 0)}}) do
+		for _, case in ipairs({{V(0, 2, -20), V(0, 0, 1)}, {V(5, 0, 7), V(0, 1, 0)},
+			{V(0, 10, 0), V(0, -1, 0)}, {V(2, 2, 2), V(1, 1, 0).Unit}}) do
 			local hit, normal = case[1], case[2]
 			f.visuals.Stick(visual, hit, V(0, 0, -1), normal)
 			local tip = blade.CFrame:PointToWorldSpace(V(0, 2, 0))
-			near((tip - hit):Dot(normal), -0.15)
-			assert((blade.CFrame.Position - hit):Dot(normal) > 1)
+			local tail = blade.CFrame:PointToWorldSpace(V(0, -2, 0))
+			near((tip - hit):Dot(normal), -2)
+			near((tail - hit):Dot(normal), 2)
+			near((blade.CFrame.Position - hit):Dot(normal), 0)
 			near((blade.CFrame:VectorToWorldSpace(V(0, 1, 0)) + normal).Magnitude, 0)
 		end
 	end)
@@ -2092,7 +3344,9 @@ return function(load)
 		effects.Fire(f.tool, Vector.zero, V(0, 0, -20), tuning, false)
 		effects.Reload(f.tool, tuning); effects.Equip(f.tool, tuning)
 		local ids = {}; for _, item in ipairs(f.created) do if item.ClassName == "Sound" and item.played then ids[item.SoundId] = item.Volume end end
-		near(ids[tuning.Effects.FireSoundId], 0.7); near(ids[tuning.Effects.ReloadSoundId], 0.7); near(ids[tuning.Effects.EquipSoundId], 0.45)
+		near(ids[tuning.Effects.FireSoundId], tuning.Effects.SoundVolume)
+		near(ids[tuning.Effects.ReloadSoundId], tuning.Effects.SoundVolume)
+		near(ids[tuning.Effects.EquipSoundId], tuning.Effects.EquipSoundVolume)
 	end)
 	local function knifeClientFixture()
 		local f = fixture(); f.config = load("KnifeConfig"); f.effectsConfig = load("KnifeEffectsConfig")
@@ -2148,6 +3402,7 @@ return function(load)
 			table.clear(hidden)
 		end
 		local knifeViewmodel = {
+			InterruptInspect = function() f.inspectInterrupts = (f.inspectInterrupts or 0) + 1 end,
 			Init = function() f.viewmodelInits = (f.viewmodelInits or 0) + 1 end,
 			Clear = function() f.viewmodelClears = (f.viewmodelClears or 0) + 1; restorePresentation() end,
 			IsFirstPerson = function() return f.firstPerson == true end,
@@ -2195,6 +3450,21 @@ return function(load)
 		function f.projectiles() local all = {}; for _, item in ipairs(f.workspace.children) do if string.find(item.Name, "KnifeProjectile_", 1, true) then table.insert(all, item) end end; return all end
 		return f
 	end
+	test("knife charge and stab interrupt inspect without delaying the combat request", function()
+		local f = knifeClientFixture(); assert(f.controller.BeginCharge())
+		assert(f.inspectInterrupts == 1); f.controller.CancelCharge(); f.advance(0.02)
+		assert(f.controller.Stab()); assert(f.inspectInterrupts == 2 and f.stabs == 1)
+	end)
+	test("emote menu opening cancels knife presentation and its active charge", function()
+		local f = knifeClientFixture(); f.firstPerson = true; assert(f.controller.BeginCharge())
+		local main = f.player.PlayerGui:FindFirstChild("Main")
+		local emote, background = object("Frame", "EmoteFrame"), object("Frame", "background")
+		background.Visible, background.Parent = true, emote; emote.children = {background}
+		emote.Parent = main; table.insert(main.children, emote)
+		f.advance(0.25); f.advance(0.01) -- the heartbeat cancellation precedes the next render sample
+		assert(not f.knifePresentation.allowed and not f.knifePresentation.action.holdingCharge)
+		assert(not f.controller.BeginCharge() and #f.throwRemote.sent == 0)
+	end)
 	test("knife presentation follows the same actual charge threshold and cancellation as combat", function()
 		local f = knifeClientFixture(); assert(f.viewmodelInits == 1)
 		assert(f.controller.BeginCharge()); f.advance(0.1)
@@ -2278,8 +3548,9 @@ return function(load)
 		assert(not f.knifePresentation.allowed and f.viewmodelClears >= 1)
 		f.player.CharacterRemoving:Fire(f.character); f.advance(0.01); assert(f.knifePresentation.tool == nil)
 	end)
-	test("knife yellow X requires confirmed positive throw damage and ignores predicted wall hits", function()
+	test("knife controller leaves hit presentation to shared feedback and installs no obsolete marker listener", function()
 		local f = knifeClientFixture(); f.castResult = {Position = V(0, 2, -5)}
+		assert(f.damage.OnClientEvent:Count() == 0)
 		assert(f.controller.BeginCharge()); f.advance(0.3); assert(f.controller.ReleaseCharge())
 		assert(not f.hitMarkers)
 		f.result.OnClientEvent:Fire({shotId = f.throwRemote.sent[1][1], accepted = true, position = V(0, 2, -5), normal = V(0,0,1)})
@@ -2287,9 +3558,9 @@ return function(load)
 		for _, amount in ipairs({0, -1, math.huge, -math.huge, 0/0, "50"}) do f.damage.OnClientEvent:Fire(nil, amount, "KnifeThrow") end
 		for _, kind in ipairs({"Revolver", "KnifeStab", "Unknown"}) do f.damage.OnClientEvent:Fire(nil, 50, kind) end
 		assert(not f.hitMarkers)
-		f.damage.OnClientEvent:Fire(nil, 50, "KnifeThrow"); assert(f.hitMarkers == 1)
+		f.damage.OnClientEvent:Fire(nil, 50, "KnifeThrow"); assert(not f.hitMarkers)
 	end)
-	test("knife yellow X is suppressed outside active healthy equipped combat", function()
+	test("knife controller adds no legacy marker subscription across combat gates", function()
 		for _, block in ipairs({"round", "unready", "dead", "unequip", "menu", "inactive"}) do
 			local f = knifeClientFixture()
 			if block == "round" then f.player.attributes.InRound = false
@@ -2298,7 +3569,8 @@ return function(load)
 			elseif block == "unequip" then f.tool.Parent = nil
 			elseif block == "menu" then f.services.GuiService.MenuIsOpen = true
 			else f.active.Value = false end
-			f.damage.OnClientEvent:Fire(nil, 50, "KnifeThrow"); assert(not f.hitMarkers, block)
+			f.damage.OnClientEvent:Fire(nil, 50, "KnifeThrow")
+			assert(f.damage.OnClientEvent:Count() == 0 and not f.hitMarkers, block)
 		end
 	end)
 	test("observer knives fly then remain embedded for four seconds with a stopped trail", function()
@@ -2317,7 +3589,7 @@ return function(load)
 		f.advance(0.02); assert(not f.impacts)
 		f.advance(0.2); f.result.OnClientEvent:Fire({shotId = sent[1], accepted = true, position = V(0, 2, -5), normal = V(0, 0, 1)})
 		assert(f.impacts == 1); local blade = projectile:FindFirstChild("Blade", true)
-		near((blade.CFrame:PointToWorldSpace(V(0, 2, 0)) - V(0, 2, -5)):Dot(V(0, 0, 1)), -0.15)
+		near((blade.CFrame:PointToWorldSpace(V(0, 2, 0)) - V(0, 2, -5)):Dot(V(0, 0, 1)), -2)
 		f.advance(3.99); assert(projectile.Parent == f.workspace)
 		f.advance(0.02); assert(projectile.Parent == nil)
 	end)
@@ -2378,6 +3650,54 @@ return function(load)
 		end
 		assert(aim.IsAiming()); aim.Stop(true)
 	end)
+	test("steep cursor aim fades unstable shoulder yaw while ordinary aiming retains its range", function()
+		for _, y in ipairs({-1, 1}) do
+			for _, x in ipairs({-0.001, 0.001, -0.07, 0.07}) do
+				local _, yaw = Math.Angles(x, y, 0.001, settings)
+				near(yaw, 0)
+			end
+		end
+		local _, ordinary = Math.Angles(1, 0.5, -1, settings); near(ordinary, -math.pi / 4)
+		local previous
+		for index = 0, 300 do
+			local _, yaw = Math.Angles(index / 1000, -1, 0.001, settings)
+			if previous then assert(math.abs(yaw - previous) < math.rad(1)) end
+			previous = yaw
+		end
+	end)
+	test("vertical yaw fade tuning rejects invalid skin overrides before pose math", function()
+		for _, limits in ipairs({{0.2, 0.2}, {0.3, 0.1}, {-0.1, 0.25}, {0.1, 1.1}, {0/0, 0.25}, {0.1, "bad"}}) do
+			Config.Overrides.InvalidVerticalFade = {Pose = {VerticalYawFadeStart = limits[1], VerticalYawFadeEnd = limits[2]}}
+			assert(not pcall(Config.Get, "InvalidVerticalFade"))
+		end
+		Config.Overrides.InvalidVerticalFade = nil
+		assert(Config.Get("Normal Revolver").Pose.VerticalYawFadeStart == settings.VerticalYawFadeStart)
+	end)
+	test("camera support arm stays continuous through vertical alignment and steep camera turns", function()
+		local f = viewmodelFixture(); f.update()
+		f.grip.C0, f.grip.C1 = Frame.identity, Frame.identity
+		local visual = {
+			right = {Size = V(1, 2, 1)}, left = {Size = V(1, 2, 1)},
+			sourceRight = f.right, sourceHandle = f.handle, pieces = {}, shell = {}, leftShoulder = V(0, 0, 0),
+			weaponVisibility = {SetActive = function() end, Guard = function() end}, supportHandOffset = V(0, 0, 0),
+		}
+		for _, pitch in ipairs({-1.56, 0, 1.56}) do
+			for _, yaw in ipairs({-1.5, 0, 1.5}) do
+				local camera = Frame.new(10, 25, -8) * Frame.Angles(pitch, yaw, 0)
+				local previous
+				for _, y in ipairs({0.975, 0.979, 0.981, 0.985, 0.99, 0.999, 1}) do
+					local direction = V(math.sqrt(1 - y*y), -y, 0)
+					f.geometry.Place(visual, camera, Frame.new(direction * 3), firstPerson, {0, 0, 0})
+					local localArm = camera:Inverse() * visual.left.CFrame
+					near((localArm:VectorToWorldSpace(V(0, -1, 0)) - direction).Magnitude, 0)
+					near((visual.left.CFrame:PointToWorldSpace(V(0, -1, 0)) - visual.right.CFrame.Position).Magnitude, 0)
+					if previous then for index = 1, 9 do assert(math.abs(localArm.matrix[index] - previous.matrix[index]) < 0.12) end end
+					previous = localArm
+				end
+			end
+		end
+		f.view.Clear()
+	end)
 	test("camera collision distances around one stud do not toggle the shoulder offset", function()
 		local f = fixture(); local aim = load("Camera", f.env); assert(aim.Start(f.tool, Config.Default.Aim, function() return true end))
 		for _ = 1, 80 do f.advance(0.02) end
@@ -2397,7 +3717,7 @@ return function(load)
 		distance = 0.2; f.advance(0.1); pose.SampleCursor(f.tool, ray, false, true)
 		local second = f.remote.sent[#f.remote.sent]; near(first[3], second[3]); near(first[4], second[4])
 	end)
-	test("overhead clipping retains elevated targets in front and muzzle cover still blocks them", function()
+	test("full overhead cursor rays retain elevated targets and actual firing-path cover still blocks them", function()
 		local camera, reference, targetPosition = V(0,28,8), V(0,4,0), V(0,6,-2)
 		local direction = (targetPosition-camera).Unit
 		local tuning = table.clone(Config.Default); tuning.HitboxSize = {0.2,0.2,0.2}

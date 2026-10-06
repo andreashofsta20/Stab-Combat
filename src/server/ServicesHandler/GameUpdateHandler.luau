@@ -7,7 +7,7 @@ local function MakeFrameVisible()
         local playerGui = v:FindFirstChildOfClass("PlayerGui")
         if playerGui then
             local Main = playerGui:FindFirstChild("Main")
-            local frame = Main:FindFirstChild("GameUpdate")
+            local frame = Main and Main:FindFirstChild("GameUpdate")
             if frame then
                 frame.Visible = true
             end

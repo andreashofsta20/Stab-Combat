@@ -2,9 +2,9 @@ local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local Validation = require(RS.Modules.KeybindValidation)
 local Config = require(RS.Modules.KnifeConfig)
+local Feedback = require(script.Parent.HitFeedback)
 local Hint = {}
-local gui, label, marker, binds, lastWidth
-local hitMarkerUntil = 0
+local gui, label, binds, lastWidth
 
 function Hint.Format(stabKey, throwKey, mobile, charge)
 	if charge ~= nil then
@@ -31,27 +31,13 @@ function Hint.Init()
 	label.Font, label.TextSize, label.TextScaled, label.Parent = Enum.Font.GothamBold, 18, true, gui
 	local limit = Instance.new("UITextSizeConstraint")
 	limit.MinTextSize, limit.MaxTextSize, limit.Parent = 10, 18, label
-	-- Matches the revolver's confirmed-hit marker, above the weapon cursor.
-	marker = Instance.new("TextLabel")
-	marker.Name, marker.Visible = "HitMarker", false
-	marker.AnchorPoint, marker.Size, marker.BackgroundTransparency = Vector2.new(0.5, 0.5), UDim2.fromOffset(32, 32), 1
-	marker.Text, marker.TextColor3, marker.TextSize, marker.Parent = "X", Color3.fromRGB(255, 210, 80), 32, gui
-end
-
-function Hint.ShowHitMarker()
-	if gui and Config.Presentation.HitMarkerEnabled then
-		hitMarkerUntil = os.clock() + Config.Presentation.HitMarkerSeconds
-	end
 end
 
 function Hint.Update(visible, mobile, charge, aimPosition)
 	if not gui then return end
-	if visible ~= true then hitMarkerUntil = 0 end
-	marker.Visible = visible == true and Config.Presentation.HitMarkerEnabled
-		and aimPosition ~= nil and os.clock() < hitMarkerUntil
-	if marker.Visible then marker.Position = UDim2.fromOffset(aimPosition.X, aimPosition.Y) end
+	if visible == true then Feedback.SetAimPosition(aimPosition) end
 	label.Visible = visible == true and Config.Presentation.HintEnabled
-	gui.Enabled = label.Visible or marker.Visible
+	gui.Enabled = label.Visible
 	if not gui.Enabled then return end
 	local camera = workspace.CurrentCamera
 	if camera then

@@ -37,7 +37,6 @@ local LIFETIME = Config.Presentation.Lifetime
 local ThrowKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrowKnife")
 local ThrewKnifeClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("ThrewClient")
 local StabKnifeRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Knife"):WaitForChild("StabKnife")
-local DamageDealtClient = ReplicatedStorage.Remotes.Knife:WaitForChild("DamageDealtClient")
 
 local MainUi = player.PlayerGui:WaitForChild("Main")
 local BottomLeftFrame = MainUi:WaitForChild("BottomLeft")
@@ -81,6 +80,7 @@ local stabTrack = nil
 local currentHumanoid: Humanoid? = nil
 local equippedKnife, rootJoint, rightShoulder
 local thrownTool, stabbedTool
+local firstPersonAction = {} -- reused by the render callback; no frame-by-frame table allocation
 
 local function refreshKnife(character)
     local nextTool
@@ -105,13 +105,14 @@ local function isAnyFrameVisible()
             return true
         end
     end
-    return false
+    local emote = MainUi:FindFirstChild("EmoteFrame")
+    local background = emote and emote:FindFirstChild("background")
+    return background ~= nil and background.Visible
 end
 
 local function removePrediction(id)
     local prediction = predictedShots[id]
     if not prediction then return end
-    if prediction.connection then prediction.connection:Disconnect() end
     if prediction.visual then prediction.visual.model:Destroy() end
     predictedShots[id] = nil
 end
@@ -135,6 +136,29 @@ local function finishImpact(prediction)
         end
     else
         KnifeVisual.Fly(prediction.visual, prediction.destination, prediction.direction)
+    end
+end
+
+local function updateKnifeVisuals(now)
+    -- All flying knives share the controller's existing Heartbeat. Stuck
+    -- knives stop moving and retain only their bounded retirement timer.
+    for shotId, prediction in pairs(predictedShots) do
+        if not prediction.arrived then
+            local visual = prediction.visual
+            if not visual.model.Parent or now - prediction.started > LIFETIME then
+                removePrediction(shotId)
+                continue
+            end
+            local distance = math.max(0, (prediction.destination - prediction.origin):Dot(prediction.direction))
+            local travelled = math.min(distance, VISUAL_OFFSET + prediction.speed * (now - prediction.started))
+            KnifeVisual.Fly(visual, prediction.origin + prediction.direction * travelled, prediction.direction)
+            if travelled >= distance then
+                prediction.arrived = true
+                prediction.stopEffects()
+                finishImpact(prediction)
+                retirePrediction(prediction)
+            end
+        end
     end
 end
 
@@ -168,20 +192,6 @@ local function createKnifeVisual(origin, direction, charge, shotId, knifeName, d
         suppressVFX = suppressVFX == true,
     }
     predictedShots[shotId] = prediction
-    prediction.connection = RunService.Heartbeat:Connect(function()
-        if not visual.model.Parent or os.clock() - prediction.started > LIFETIME then removePrediction(shotId); return end
-        local distance = math.max(0, (prediction.destination - origin):Dot(direction))
-        local travelled = math.min(distance, VISUAL_OFFSET + prediction.speed * (os.clock() - prediction.started))
-        KnifeVisual.Fly(visual, origin + direction * travelled, direction)
-        if travelled >= distance then
-            prediction.connection:Disconnect()
-            prediction.connection = nil
-            prediction.arrived = true
-            stopEffects()
-            finishImpact(prediction)
-            retirePrediction(prediction)
-        end
-    end)
     return prediction
 end
 
@@ -517,15 +527,8 @@ function CombatController.Init()
     GameActive.Changed:Connect(function()
         if not GameActive.Value then CombatController.CancelCharge(); KnifeHint.Update(false, isMobileInput) end
     end)
-    -- Reuse the existing authoritative damage notification, never predicted
-    -- geometry hits (walls/ForceFields/misses must not flash the yellow X).
-    DamageDealtClient.OnClientEvent:Connect(function(_, amount, weaponKind)
-        if weaponKind ~= "KnifeThrow" or not ProjectileMath.IsFiniteNumber(amount) or amount <= 0 then return end
-        if not GameActive.Value or player:GetAttribute("InRound") ~= true or player:GetAttribute("DataReady") ~= true
-            or not currentHumanoid or currentHumanoid.Health <= 0 or not hasKnifeEquipped() or isAnyFrameVisible() then return end
-        KnifeHint.ShowHitMarker()
-    end)
     RunService.Heartbeat:Connect(function()
+        updateKnifeVisuals(os.clock())
         if charging and (isAnyFrameVisible() or not hasKnifeEquipped()) then CombatController.CancelCharge() end
         KnifeHint.Update(GameActive.Value and player:GetAttribute("InRound") == true
             and player:GetAttribute("DataReady") == true and hasKnifeEquipped()
@@ -537,13 +540,13 @@ function CombatController.Init()
         local tool = hasKnifeEquipped() and equippedKnife or nil
         local now = os.clock()
         local heldFor = charging and math.max(0, now - chargeStart) or 0
+        firstPersonAction.charging = charging and heldFor >= THROW_THRESHOLD
+        firstPersonAction.holdingCharge = charging
+        firstPersonAction.charge = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1)
+        firstPersonAction.throwElapsed = tool and tool == thrownTool and now - lastThrow or nil
+        firstPersonAction.stabElapsed = tool and tool == stabbedTool and now - lastStab or nil
         KnifeViewmodel.Update(tool, currentHumanoid and currentHumanoid.Health > 0
-            and not isAnyFrameVisible(), dt, animationFrame(rootJoint), animationFrame(rightShoulder), {
-                charging = charging and heldFor >= THROW_THRESHOLD,
-                charge = math.clamp(heldFor / MAX_CHARGE_TIME, 0, 1),
-                throwElapsed = tool and tool == thrownTool and now - lastThrow or nil,
-                stabElapsed = tool and tool == stabbedTool and now - lastStab or nil,
-            })
+            and not isAnyFrameVisible(), dt, animationFrame(rootJoint), animationFrame(rightShoulder), firstPersonAction)
         -- The camera model restores its original hiding mask when zooming out.
         -- Keep the real knife hidden for its existing temporary throw window.
         for part, record in pairs(handleVisibility) do
@@ -567,10 +570,6 @@ function CombatController.Init()
                 local tool = shooter and shooter.Character and shooter.Character:FindFirstChild(result.knifeName)
                 local visualId = string.format("observer_%s_%s", result.shooterUserId, result.shotId)
                 createKnifeVisual(result.origin, result.direction.Unit, result.charge, visualId, result.knifeName, result.destination, result.normal, tool, true)
-                local camera = workspace.CurrentCamera
-                if not camera or (result.origin - camera.CFrame.Position).Magnitude <= EffectsConfig.MaxEffectDistance then
-                    KnifeEffects.ThrowSound(result.origin, result.charge, EffectsConfig.Get(result.knifeName), SoundHandlerModule.Sounds.ThrowKnife)
-                end
             end
             return
         end
@@ -592,6 +591,7 @@ function CombatController.Init()
 end
 
 function CombatController.BeginCharge()
+	KnifeViewmodel.InterruptInspect()
     CombatController.Init()
     if charging or not currentHumanoid or currentHumanoid.Health <= 0 then return false end
     if player:GetAttribute("DataReady") ~= true then return false end
@@ -644,6 +644,7 @@ function CombatController.IsCharging()
 end
 
 function CombatController.Stab()
+	KnifeViewmodel.InterruptInspect()
     if charging then return false end
     return stab()
 end

@@ -185,7 +185,7 @@ end
 -- ==========================================
 -- UPDATED KILL LOGIC (FOR SPECTATING)
 -- ==========================================
-function MainGame.AddRoundKill(killer: Player)
+function MainGame.AddRoundKill(killer: Player, victim: Player?)
     if not killer then return end
     local stats = MainGame.RoundStats
     if not stats then return end
@@ -200,7 +200,13 @@ function MainGame.AddRoundKill(killer: Player)
     -- NEW: Update attribute so spectating clients see it instantly
     killer:SetAttribute("CurrentRoundKills", data.kills)
     
-    PlayerGotKilledRemote:FireClient(killer, "Kill")
+    local killId = string.format("%d:%d:%d", MainGame.RoundId, killer.UserId, data.kills)
+    PlayerGotKilledRemote:FireClient(killer, "Kill", victim and {
+        KillId = killId,
+        VictimUserId = victim.UserId,
+        VictimUsername = victim.Name,
+    } or nil)
+    return killId
 end
 
 function MainGame.RecordElimination(player: Player)
@@ -408,13 +414,16 @@ function MainGame.OnDeath(player: Player, character: Model?)
     if character ~= player.Character then return end
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health > 0 then return end
-    Ragdolls.OnDeath(character)
+    local ragdollOk, ragdollError = pcall(Ragdolls.OnDeath, character)
+    if not ragdollOk then warn("[Death] Ragdoll failed: " .. tostring(ragdollError)) end
 
     local userId = player.UserId
     local roundId = MainGame.RoundId
     if not MainGame.GameActive or not MainGame.PlayersInGame[userId] then
-        local roundData = MainGame.RoundStats and MainGame.RoundStats.players[userId]
-        if not Players.CharacterAutoLoads and (not roundData or roundData.forfeited) then
+        -- Eliminated players can die again after returning to the lobby. Their
+        -- old round-stat entry must not disable manual lobby respawning.
+        if not Players.CharacterAutoLoads and not deathLocks[userId] then
+            deathLocks[userId] = true
             task.delay(Players.RespawnTime, function()
                 if not MainGame.PlayersInGame[userId] then RespawnAtLobby(player, roundId, character) end
             end)
@@ -429,42 +438,46 @@ function MainGame.OnDeath(player: Player, character: Model?)
     local killer = pending and pending.roundId == roundId and pending.character == character and pending.killer or nil
     -- Who should the victim watch? Only a real, still-connected, different player.
     local killCamTarget = (killer and killer ~= player and killer.Parent == Players) and killer or nil
-    local stats = MainGame.RoundStats
-    if killer and killer ~= player and stats
-        and stats.players[killer.UserId]
-        and stats.players[userId]
-        and MainGame.PlayersInGame[killer.UserId] then
-        local roundParticipants = stats.startCount
-        local serverPlayerCount = #Players:GetPlayers()
-        local killerPolicy = AntiFarmModule.GetRewardPolicy(killer, roundParticipants, serverPlayerCount)
-        local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
+    local function creditDeath()
+        local leaderstats = player:FindFirstChild("leaderstats")
+        local deathsStat = leaderstats and leaderstats:FindFirstChild("Deaths")
+        if deathsStat then deathsStat.Value += 1 end
+        local stats = MainGame.RoundStats
+        if killer and killer ~= player and stats
+            and stats.players[killer.UserId]
+            and stats.players[userId]
+            and MainGame.PlayersInGame[killer.UserId] then
+            local roundParticipants = stats.startCount
+            local serverPlayerCount = #Players:GetPlayers()
+            local killerPolicy = AntiFarmModule.GetRewardPolicy(killer, roundParticipants, serverPlayerCount)
+            local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
 
-        MainGame.AddRoundKill(killer)
-        if killerPolicy.RewardMultiplier > 0 then
-            QuestsHandler.AddProgress(killer, "KILLS", 1)
+            local killId = MainGame.AddRoundKill(killer, player)
+            if killerPolicy.RewardMultiplier > 0 then
+                QuestsHandler.AddProgress(killer, "KILLS", 1)
+            end
+            -- XP pass ownership may yield. Defer rewards until death/membership and
+            -- kill credit have been committed, so they cannot hold a round open.
+            task.defer(function()
+                local earnedXp = GameRewardModule.XpReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier) or 0
+                -- Same identity as the immediate card; never infer VIP/pass/anti-farm rewards on the client.
+                if killId and killer.Parent == Players then
+                    PlayerGotKilledRemote:FireClient(killer, "KillReward", {KillId = killId, XpEarned = earnedXp})
+                end
+                GameRewardModule.CashReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
+                GameRewardModule.XpReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+                GameRewardModule.CashReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
+            end)
         end
-        -- XP pass ownership may yield. Defer rewards until death/membership and
-        -- kill credit have been committed, so they cannot hold a round open.
-        task.defer(function()
-            GameRewardModule.XpReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
-            GameRewardModule.CashReward(killer, "kill", serverPlayerCount, killerPolicy.RewardMultiplier)
-            GameRewardModule.XpReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
-            GameRewardModule.CashReward(player, "lose", serverPlayerCount, victimPolicy.RewardMultiplier)
-        end)
     end
-
-    local leaderstats = player:FindFirstChild("leaderstats")
-    local deathsStat = leaderstats and leaderstats:FindFirstChild("Deaths")
-    if deathsStat then
-        deathsStat.Value += 1
+    local function finishDeathCredit()
+        local ok, err = pcall(creditDeath)
+        if not ok then warn("[Death] Credit failed after respawn was scheduled: " .. tostring(err)) end
     end
 
     local mode = MainGame.CurrentMode
     if mode.Respawns then
         player:SetAttribute("InRound", true)
-        if killCamTarget then
-            KillCamRemote:FireClient(player, "Respawn", killCamTarget.UserId, FFA_KILLCAM_SECONDS)
-        end
         task.delay(FFA_KILLCAM_SECONDS, function()
             if MainGame.RoundId ~= roundId or player.Character ~= character then return end
             deathLocks[userId] = nil
@@ -475,20 +488,23 @@ function MainGame.OnDeath(player: Player, character: Model?)
                 end
             end
         end)
+        if killCamTarget then
+            KillCamRemote:FireClient(player, "Respawn", killCamTarget.UserId, FFA_KILLCAM_SECONDS, character)
+        end
+        finishDeathCredit()
         return
     end
 
     MainGame.RecordElimination(player)
     MainGame.PlayersInGame[userId] = nil
     player:SetAttribute("InRound", false)
-    ZoneHandler.NotifyPlayer(player, false)
-
-    -- Battle Royale: eliminated player spectates their killer (or anyone alive if no killer, e.g. zone).
-    KillCamRemote:FireClient(player, "Spectate", killCamTarget and killCamTarget.UserId or 0, 0)
-
     task.delay(1.5, function()
         RespawnAtLobby(player, roundId, character)
     end)
+    -- Battle Royale: eliminated player spectates their killer (or anyone alive if no killer, e.g. zone).
+    KillCamRemote:FireClient(player, "Spectate", killCamTarget and killCamTarget.UserId or 0, 0, character)
+    finishDeathCredit()
+    ZoneHandler.NotifyPlayer(player, false)
 end
 
 function MainGame.LeaveRound(player: Player, disconnected: boolean?)

@@ -108,12 +108,17 @@ return function(load)
 	end)
 	test("VR scripted spectator dead and ragdolled cameras release lowering immediately", function()
 		for _, deactivate in ipairs({function(f) f.vr.VREnabled = true end,
-			function(f) f.camera.CameraType = "Scriptable" end,
 			function(f) f.camera.CameraSubject = {} end,
 			function(f) f.character.humanoid.Health = 0 end,
 			function(f) f.character:SetAttribute("Ragdolled",true) end}) do
 			local f = fixture(); f.posture("Slide"); f.step(1); deactivate(f); f.step(1); near(f.camera.CFrame.Position.Y,5)
 		end
+	end)
+	test("Scriptable takeover preserves even the last owned posture frame and Focus", function()
+		local f = fixture(); f.posture("Slide"); f.step(1)
+		local frame, focus = f.camera.CFrame, f.camera.Focus
+		f.camera.CameraType = "Scriptable"; f.step(1); f.controller.Destroy()
+		assert(f.camera.CFrame == frame and f.camera.Focus == focus and f.camera.CameraType == "Scriptable")
 	end)
 	test("camera replacement restores the previous view and starts a fresh blend", function()
 		local f = fixture(); f.posture("Slide"); f.step(1)

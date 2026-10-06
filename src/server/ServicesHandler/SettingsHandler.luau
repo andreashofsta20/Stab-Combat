@@ -81,7 +81,7 @@ end
 AppliedSettingRemote.OnServerEvent:Connect(function(player: Player, settingname: string)
     if not player then return end
     if player:GetAttribute("DataReady") ~= true then return end
-    if type(settingname) ~= "string" then return end
+    if type(settingname) ~= "string" or #settingname > 64 then return end
     if not ALLOWED_SETTINGS[settingname] then return end
     local now = os.clock()
     if settingCooldowns[player.UserId] and (now - settingCooldowns[player.UserId]) < SETTING_COOLDOWN then return end

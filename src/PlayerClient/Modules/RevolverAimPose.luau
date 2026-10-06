@@ -131,11 +131,9 @@ function Pose.SampleCursor(tool, ray, reloading, aiming)
 		end
 		cursorParams.FilterDescendantsInstances = RagdollQuery.Exclude(ignore)
 	end
-	local origin = ray.Origin
-	if state.head and state.head.Parent == state.character then
-		-- A stable body reference avoids a feedback loop through the posed gun.
-		origin = Raycast.GetAimOrigin(ray.Origin, ray.Direction, state.head.Position)
-	end
+	-- Sample the full cursor ray, matching gameplay even for rear targets
+	-- between the camera and character. The posed barrel never moves this ray.
+	local origin = Raycast.GetAimOrigin(ray.Origin)
 	local hit = workspace:Raycast(origin, ray.Direction * state.tuning.Range, cursorParams)
 	local shoulder = state.joints[1]
 	local shoulderOrigin = shoulder and shoulder.torso.CFrame:PointToWorldSpace(shoulder.c0.Position)

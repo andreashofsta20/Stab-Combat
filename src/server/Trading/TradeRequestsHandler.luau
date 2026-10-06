@@ -16,12 +16,21 @@ local ACTION_COOLDOWNS = {
     CANCEL_TRADE = 0.25,
 }
 local lastActionAt: {[number]: {[string]: number}} = {}
+local initialized = false
+local function validInteger(value, maximum)
+    return type(value) == "number" and value == value and value > 0 and value <= maximum and value % 1 == 0
+end
+local function validName(value)
+    return type(value) == "string" and #value > 0 and #value <= 64
+end
 
 -- Remotes
 local RemotesFolder
 local TradeUpdateRemote
 
 function TradeRequestsHandler.Init()
+    if initialized then return end
+    initialized = true
     RemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Trading")
     TradeUpdateRemote = RemotesFolder:WaitForChild("TradeUpdate")
     
@@ -57,6 +66,8 @@ function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
     if type(action) ~= "string" then
         return
     end
+    local minGap = ACTION_COOLDOWNS[action]
+    if not minGap then return end -- never echo arbitrary client strings
 
     local now = os.clock()
     local userMap = lastActionAt[player.UserId]
@@ -64,7 +75,6 @@ function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
         userMap = {}
         lastActionAt[player.UserId] = userMap
     end
-    local minGap = ACTION_COOLDOWNS[action]
     if minGap then
         local lastAt = userMap[action]
         if lastAt and (now - lastAt) < minGap then
@@ -113,14 +123,12 @@ function TradeRequestsHandler.OnTradeAction(player: Player, action: string, ...)
         return
     end
 
-    TradeRequestsHandler.FireResult(player, action, false, "Unknown trade action")
 end
 
 function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number)
-    if typeof(targetUserId) ~= "number" then
+    if not validInteger(targetUserId, 9007199254740991) then
         return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Invalid target")
     end
-    targetUserId = math.floor(targetUserId)
     if targetUserId <= 0 or targetUserId == sender.UserId then
         return TradeRequestsHandler.FireResult(sender, "SEND_REQUEST", false, "Invalid target")
     end
@@ -153,6 +161,7 @@ function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number
     local success, sessionOrErr = TradeManager.SendRequest(sender, target)
     
     if success then
+        local request = TradeManager.GetPendingRequest(target.UserId)
         -- Notify target player
         TradeUpdateRemote:FireClient(target, "TRADE_EVENT", {
             UpdateType = "REQUEST_RECEIVED",
@@ -162,7 +171,7 @@ function TradeRequestsHandler.OnSendRequest(sender: Player, targetUserId: number
         -- 15 Second Expiry check
         task.delay(15, function()
             local pending = TradeManager.GetPendingRequest(target.UserId)
-            if pending and pending.sender == sender then
+            if pending == request and pending and pending.sender == sender then
                 TradeManager.ClearPendingRequest(target.UserId)
                 TradeUpdateRemote:FireClient(target, "TRADE_EVENT", {
                     UpdateType = "REQUEST_EXPIRED",
@@ -192,10 +201,10 @@ function TradeRequestsHandler.OnDeclineRequest(target: Player)
 end
 
 function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemName: string, quantity: number)
-    if type(itemType) ~= "string" or type(itemName) ~= "string" or typeof(quantity) ~= "number" then
+    if (itemType ~= "Inventory" and itemType ~= "Emotes") or not validName(itemName)
+        or not validInteger(quantity, 2147483647) then
         return TradeRequestsHandler.FireResult(player, "ADD_ITEM", false, "Invalid item payload")
     end
-    quantity = math.floor(quantity)
     if quantity <= 0 then
         return TradeRequestsHandler.FireResult(player, "ADD_ITEM", false, "Invalid quantity")
     end
@@ -213,14 +222,13 @@ function TradeRequestsHandler.OnAddItem(player: Player, itemType: string, itemNa
 end
 
 function TradeRequestsHandler.OnRemoveItem(player: Player, itemName: string, quantity: number?)
-    if type(itemName) ~= "string" then
+    if not validName(itemName) then
         return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid item")
     end
     if quantity ~= nil then
-        if typeof(quantity) ~= "number" then
+        if not validInteger(quantity, 2147483647) then
             return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid quantity")
         end
-        quantity = math.floor(quantity)
         if quantity <= 0 then
             return TradeRequestsHandler.FireResult(player, "REMOVE_ITEM", false, "Invalid quantity")
         end
@@ -291,7 +299,6 @@ end
 function TradeRequestsHandler.OnCancelTrade(player: Player)
     local session = TradeManager.GetTradeSession(player)
     if session then
-        TradeRequestsHandler.NotifyTrade(session, "TRADE_CANCELLED", {player = player.UserId})
         TradeManager.CancelTrade(session)
     end
     

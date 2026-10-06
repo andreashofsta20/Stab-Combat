@@ -18,10 +18,10 @@ local EquipKnifeRemote = InventoryRemotesFolder:WaitForChild("EquipKnife")
 local EmotesInfo = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("Emotes"))
 
 local DEFAULT_UNTRADEABLE_KNIVES = {
-	["Shadow Dagger"] = true,
+	["Bowie"] = true,
 }
 
-local DEFAULT_REVOLVER = "White&Black Revolver"
+local DEFAULT_REVOLVER = "Normal Revolver"
 local DEFAULT_UNTRADEABLE_REVOLVERS = {
 	[DEFAULT_REVOLVER] = true,
 }

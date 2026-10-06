@@ -10,7 +10,7 @@ if not Character then
 	end
 end
 
-local humanoid:Humanoid = Character:WaitForChild("Humanoid")
+local humanoid: Humanoid? = Character:WaitForChild("Humanoid")
 
 local StarterGui = Player.PlayerGui
 local MainUI = StarterGui:WaitForChild("Main")
@@ -31,6 +31,8 @@ local openedOnPress = false
 local open = false
 local LastAnimationTrack: AnimationTrack?
 local LastAnimation: Animation?
+local runningConnection, diedConnection
+local animationGeneration = 0
 local isMobile = false
 local decided = false
 
@@ -66,17 +68,38 @@ while not decided do task.wait() end
 -- local emoteFrame = MainUI:WaitForChild("Mobile")
 -- local emoteButton = emoteFrame:WaitForChild("StuffContainer"):WaitForChild("Emote"):WaitForChild("TextButton")
 
-Player.CharacterAdded:Connect(function(char)
-	Character = char
-	humanoid = Character:WaitForChild("Humanoid")
+local function stopAnimation()
+	animationGeneration += 1
+	if runningConnection then runningConnection:Disconnect(); runningConnection = nil end
+	local previous = LastAnimationTrack
+	LastAnimationTrack = nil
+	if previous then previous:Stop(); previous:Destroy() end
+end
+
+local function onCharacter(char)
+	stopAnimation()
+	if diedConnection then diedConnection:Disconnect(); diedConnection = nil end
+	Character, humanoid = char, nil
+	local nextHumanoid = char:WaitForChild("Humanoid")
+	if Player.Character ~= char or Character ~= char then return end
+	humanoid = nextHumanoid
+	diedConnection = humanoid.Died:Connect(stopAnimation)
+end
+Player.CharacterAdded:Connect(onCharacter)
+Player.CharacterRemoving:Connect(function(char)
+	if Character ~= char then return end
+	stopAnimation()
+	if diedConnection then diedConnection:Disconnect(); diedConnection = nil end
+	Character, humanoid = nil, nil
 end)
+if Player.Character then onCharacter(Player.Character) else Character, humanoid = nil, nil end
 
 local function PlayAnimation(animObj: Animation)
-	if LastAnimationTrack then
-		LastAnimationTrack:Stop()
-	end
-
-	local animator = humanoid:WaitForChild("Animator")
+	stopAnimation()
+	local ownerHumanoid, ownerCharacter, token = humanoid, Character, animationGeneration
+	if not ownerHumanoid or Player.Character ~= ownerCharacter or ownerHumanoid.Health <= 0 then return end
+	local animator = ownerHumanoid:WaitForChild("Animator")
+	if token ~= animationGeneration or humanoid ~= ownerHumanoid or Player.Character ~= ownerCharacter then return end
 	local track = animator:LoadAnimation(animObj)
 	track.Priority = Enum.AnimationPriority.Action3
 	track:AdjustSpeed(16)
@@ -85,14 +108,16 @@ local function PlayAnimation(animObj: Animation)
 	LastAnimation = animObj
 
 	task.delay(0.8, function()
-		if humanoid.MoveDirection.Magnitude > 0 then
-			track:Stop()
+		-- An old emote's timer cannot attach a listener to a replacement avatar
+		-- or stop the newly selected emote. Own at most one Running connection.
+		if token ~= animationGeneration or LastAnimationTrack ~= track or humanoid ~= ownerHumanoid
+			or Player.Character ~= ownerCharacter then return end
+		if ownerHumanoid.MoveDirection.Magnitude > 0 then
+			stopAnimation()
 		else
-			local conn
-			conn = humanoid.Running:Connect(function(speed)
+			runningConnection = ownerHumanoid.Running:Connect(function(speed)
 				if speed > 0 then
-					track:Stop()
-					if conn then conn:Disconnect() end
+					stopAnimation()
 				end
 			end)
 		end
@@ -202,9 +227,11 @@ local function teardownEmote(name)
 	if not state then return end
 
 	if state.dummyAnim then
-		pcall(function() state.dummyAnim:Stop() end)
+		pcall(function() state.dummyAnim:Stop(); state.dummyAnim:Destroy() end)
 	end
 	disconnectAll(state.conns or {})
+	if LastAnimation == state.animation then LastAnimation = nil end
+	if state.ownsAnimation and state.animation then state.animation:Destroy() end
 	if state.viewport and state.viewport:IsA("ViewportFrame") then
 		state.viewport.Visible = false
 	end
@@ -221,13 +248,13 @@ end
 local function getAnimationForEmote(emoteValueObj: StringValue)
 	local animObj = ReplicatedEmotes:FindFirstChild(emoteValueObj.Name)
 	if animObj and animObj:IsA("Animation") then
-		return animObj
+		return animObj, false
 	end
 
 	local a = Instance.new("Animation")
 	a.AnimationId = emoteValueObj.Value
 	a.Name = emoteValueObj.Name
-	return a
+	return a, true
 end
 
 local function setupEmote(emoteValueObj: StringValue)
@@ -259,7 +286,7 @@ local function setupEmote(emoteValueObj: StringValue)
 		frameBtn.Image = RarityColorModule[rar].Image
 	end
 
-	local AnimationNeeded = getAnimationForEmote(emoteValueObj)
+	local AnimationNeeded, ownsAnimation = getAnimationForEmote(emoteValueObj)
 
 	local ViewPortFrame = frameBtn:WaitForChild("EmoteViewport")
 	if ViewPortFrame then
@@ -297,6 +324,8 @@ local function setupEmote(emoteValueObj: StringValue)
 	emoteState[emoteName] = {
 		conns = conns,
 		dummyAnim = dummyAnim,
+		animation = AnimationNeeded,
+		ownsAnimation = ownsAnimation,
 		frame = frameBtn,
 		viewport = ViewPortFrame
 	}

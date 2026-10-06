@@ -16,6 +16,15 @@ local EquippedClient = HotBarRemotes:WaitForChild("EquippedClient")
 -- // Other // --
 local KnivesFolder = ServerStorage:WaitForChild("Knives")
 local RevolversFolder = ServerStorage:WaitForChild("Revolvers")
+local pendingEquips = {}
+local EQUIP_RETRY_SECONDS = 0.1
+local MAX_EQUIP_ATTEMPTS = 5
+
+local function CancelPendingEquip(player)
+	local pending = pendingEquips[player]
+	pendingEquips[player] = nil
+	if pending and pending.tool then pending.tool:Destroy() end
+end
 
 
 local function NotifyClient(player : Player, action : string, equippedornot : boolean)
@@ -49,6 +58,50 @@ local function IsEquippedFrom(folder: Folder, player: Player)
 	return false
 end
 
+local function EquipCatalogTool(player: Player, template: Tool, action: string, stillOwned)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local handle = template:FindFirstChild("Handle")
+	if not humanoid or humanoid.Health <= 0 or not backpack or not template:IsA("Tool")
+		or (template.RequiresHandle and (not handle or not handle:IsA("BasePart"))) then return end
+	local tool = template:Clone()
+	if not tool then return end
+	tool.Enabled, tool.CanBeDropped = true, false
+	-- Prepare the real held geometry before parenting it into a character.
+	for _, part in ipairs(tool:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored, part.CanCollide, part.CanTouch, part.Massless = false, false, false, true
+		end
+	end
+	UnequipOtherTools(player)
+	tool.Parent = backpack
+	local pending = {tool = tool, character = character, humanoid = humanoid, backpack = backpack, attempts = 0}
+	pendingEquips[player] = pending
+	local function attempt()
+		-- A delayed native equip cannot replace a later slot selection or respawn.
+		if pendingEquips[player] ~= pending then return end
+		if player.Character ~= character or humanoid.Parent ~= character or humanoid.Health <= 0 or not stillOwned()
+			or player:GetAttribute("DataReady") ~= true or backpack.Parent ~= player or tool.Parent ~= backpack then
+			CancelPendingEquip(player)
+			return
+		end
+		if character:FindFirstChildOfClass("Tool") then CancelPendingEquip(player); return end
+		pending.attempts += 1
+		local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+		if not template.RequiresHandle or (hand and hand:IsA("BasePart")) then humanoid:EquipTool(tool) end
+		if tool.Parent == character then
+			pendingEquips[player] = nil
+			NotifyClient(player, action, true)
+		elseif pending.attempts < MAX_EQUIP_ATTEMPTS then
+			task.delay(EQUIP_RETRY_SECONDS, attempt)
+		else
+			CancelPendingEquip(player)
+		end
+	end
+	attempt()
+end
+
 local function EquipKnife(player : Player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
@@ -61,10 +114,11 @@ local function EquipKnife(player : Player)
 	if leaderstats and EquippedKnife then
 		local Knife = KnivesFolder:FindFirstChild(EquippedKnife.Value)
 		if Knife then
-			local KnifeClone = Knife:Clone()
-			UnequipOtherTools(player)
-			KnifeClone.Parent = player.Character
-			NotifyClient(player, "Knife", true)
+			EquipCatalogTool(player, Knife, "Knife", function()
+				return leaderstats.Parent == player and EquippedKnife.Parent == leaderstats and inventory.Parent == leaderstats
+					and owned.Parent == inventory and EquippedKnife.Value == Knife.Name and quantity.Parent == owned
+					and quantity.Value > 0 and Knife.Parent == KnivesFolder
+			end)
 			return
 		end
 	end
@@ -84,10 +138,11 @@ local function EquipGun(player : Player)
 		and revolverInventory:FindFirstChild(EquippedGun.Value) then
 		local Gun = RevolversFolder:FindFirstChild(EquippedGun.Value)
 		if Gun then
-			local GunClone = Gun:Clone()
-			UnequipOtherTools(player)
-			GunClone.Parent = player.Character
-			NotifyClient(player, "Gun", true)
+			EquipCatalogTool(player, Gun, "Gun", function()
+				return leaderstats.Parent == player and EquippedGun.Parent == leaderstats and revolverInventory.Parent == leaderstats
+					and owned.Parent == revolverInventory and EquippedGun.Value == Gun.Name and quantity.Parent == owned
+					and quantity.Value > 0 and Gun.Parent == RevolversFolder
+			end)
 			return
 		end
 	end
@@ -101,18 +156,6 @@ end
 local equipCooldowns: {[number]: number} = {}
 local EQUIP_COOLDOWN = 0.1
 
-local function CheckIfEquipped(player : Player)
-	local character = player.Character
-	if not character then return false end
-	for i , v in pairs(character:GetChildren()) do
-		if v:IsA("Tool") then
-			return true
-		end
-	end
-	
-	return false
-end
-
 EquipRemote.OnServerEvent:Connect(function(player, category)
 	if category ~= "Knife" and category ~= "Revolver" and category ~= "Food" then return end
 	if player:GetAttribute("DataReady") ~= true then return end
@@ -122,6 +165,7 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 	local now = os.clock()
 	if equipCooldowns[player.UserId] and (now - equipCooldowns[player.UserId]) < EQUIP_COOLDOWN then return end
 	equipCooldowns[player.UserId] = now
+	CancelPendingEquip(player)
 	if category == "Food" then
 		local tool = FoodService.GetTool(player)
 		if not tool then return end
@@ -166,6 +210,7 @@ end)
 
 
 game:GetService("Players").PlayerRemoving:Connect(function(player)
+	CancelPendingEquip(player)
 	equipCooldowns[player.UserId] = nil
 end)
 

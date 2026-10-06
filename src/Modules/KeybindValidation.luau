@@ -14,6 +14,8 @@ local ACTION_ORDER = {
 	"Slot1",
 	"Slot2",
 	"Slot3",
+	"Reload",
+	"ToogleCam",
 }
 
 local DEFAULTS: KeybindMap = {
@@ -26,10 +28,15 @@ local DEFAULTS: KeybindMap = {
 	Slot1 = "One",
 	Slot2 = "Two",
 	Slot3 = "Three",
+	Reload = "R",
+	ToogleCam = "Q",
 }
 
+-- More fallback keys than actions, including the two new saved controls.
+local FALLBACK_KEYS = {"Q", "T", "Y", "H", "J", "K", "L", "U", "B", "Z", "N", "M", "V", "P"}
+
 local RESERVED: {[Enum.KeyCode]: boolean} = {
-	[Enum.KeyCode.R] = true, -- Revolver reload is a fixed control.
+	[Enum.KeyCode.F] = true, -- Fixed first-person weapon inspect.
 	[Enum.KeyCode.W] = true, [Enum.KeyCode.A] = true, [Enum.KeyCode.S] = true, [Enum.KeyCode.D] = true,
 	[Enum.KeyCode.Space] = true, [Enum.KeyCode.Tab] = true, [Enum.KeyCode.Slash] = true, [Enum.KeyCode.Escape] = true,
 	[Enum.KeyCode.Backspace] = true, [Enum.KeyCode.Return] = true, [Enum.KeyCode.KeypadEnter] = true,
@@ -63,7 +70,7 @@ local function keyName(value: any): string?
 		end
 		return nil
 	end
-	if type(value) ~= "string" then
+	if type(value) ~= "string" or #value > 64 then
 		return nil
 	end
 
@@ -146,7 +153,7 @@ function KeybindValidation.ValidateAndRepair(saved: any): KeybindMap
 			candidate = DEFAULTS[action]
 		end
 		if used[candidate] then
-			for _, fallback in ipairs({"Q", "T", "Y", "H", "J", "K", "L", "U", "B"}) do
+			for _, fallback in ipairs(FALLBACK_KEYS) do
 				if not used[fallback] then
 					candidate = fallback
 					break

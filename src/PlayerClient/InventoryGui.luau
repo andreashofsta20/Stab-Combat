@@ -36,11 +36,23 @@ local RevolverInventoryTemplate = InventoryTemplates:WaitForChild("RevolverInven
 -- // MODULES // --
 local RarityColors = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RarityColor"))
 local RevolversInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RevolversInfo"))
+local UITransitions = require(script.Parent.Modules:WaitForChild("UITransitions"))
+local inventoryTransition = UITransitions.Attach(InventoryFrameUI)
 
 local InventoryRemotesFolder = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Inventory")
 
 local EquipKnifeRemote = InventoryRemotesFolder:WaitForChild("EquipKnife")
 local EquipRevolverRemote = InventoryRemotesFolder:WaitForChild("EquipRevolver")
+local emoteTracks = {}
+local emotesPage = OtherFramesFolder:WaitForChild("Emotes")
+
+local function updateEmotePlayback()
+	local visible = InventoryFrameUI.Visible and emotesPage.Visible and EmotesFrame.Visible
+	for _, track in pairs(emoteTracks) do
+		if visible and not track.IsPlaying then track:Play()
+		elseif not visible and track.IsPlaying then track:Stop(0) end
+	end
+end
 
 local function getItemValue(item: Instance, field: string, defaultValue: any)
 	local child = item:FindFirstChild(field)
@@ -120,28 +132,28 @@ local function RefreshEmotesInventory()
 	for _, emote in pairs(EmotesFolder:GetChildren()) do
 		local emoteName = emote.Name
 		ownedEmotes[emoteName] = true
+		local rarityData, rarityName = getRarityData(getItemValue(emote, "Rarity", "Common"))
 
 		local existingTemplate = EmotesFrame:FindFirstChild(emoteName)
 		if existingTemplate then
-			local rarityValue = emote:FindFirstChild("Rarity") and emote.Rarity.Value or "Common"
 			local qtyText = emote:FindFirstChild("Quantity") and ("x" .. tostring(emote.Quantity.Value)) or "x1"
 
 			existingTemplate.Quantity.Text = qtyText
 			local rarityLabel = existingTemplate:FindFirstChild("EmoteRarity")
 			if rarityLabel then
-				rarityLabel.Text = rarityValue
+				rarityLabel.Text = rarityName
 			end
-			existingTemplate.Rarity.Image = RarityColors[rarityValue].Image
-			existingTemplate.LayoutOrder = -RarityColors[rarityValue].Priority
+			existingTemplate.Rarity.Image = rarityData.Image
+			existingTemplate.LayoutOrder = -rarityData.Priority
 
 		else
 			local template = ReplicatedStorage:WaitForChild("UITemplates"):WaitForChild("InventoryTemplates"):WaitForChild("EmoteInventoryTemplate"):Clone()
 
 			template.Name = emoteName
 			template.EmoteName.Text = emoteName
-			template.EmoteRarity.Text = emote:FindFirstChild("Rarity") and emote.Rarity.Value or "Common"
-			template.Rarity.Image = RarityColors[tostring(emote.Rarity.Value)].Image
-			template.LayoutOrder = -RarityColors[tostring(emote.Rarity.Value)].Priority
+			template.EmoteRarity.Text = rarityName
+			template.Rarity.Image = rarityData.Image
+			template.LayoutOrder = -rarityData.Priority
 			template.Quantity.Text = emote:FindFirstChild("Quantity") and "x" .. tostring(emote.Quantity.Value) or "x1"
 
 			template.Parent = EmotesFrame
@@ -156,15 +168,21 @@ local function RefreshEmotesInventory()
 			local AnimationRig:Animation = Instance.new("Animation")
 			AnimationRig.AnimationId = emote.Value
 
-			local AnimationTrack = RigHumanoid:LoadAnimation(AnimationRig)
-			AnimationTrack.Looped = true
-			AnimationTrack:Play()
+			local animator = RigHumanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", RigHumanoid)
+			local ok, animationTrack = pcall(animator.LoadAnimation, animator, AnimationRig)
+			AnimationRig:Destroy()
+			if ok then
+				animationTrack.Looped = true
+				emoteTracks[template] = animationTrack
+			end
 		end
 	end
 
 
 	for _, emote in pairs(EmotesFrame:GetChildren()) do
 		if emote:IsA("ImageButton") and not ownedEmotes[emote.Name] then
+			local track = emoteTracks[emote]
+			if track then track:Stop(0); track:Destroy(); emoteTracks[emote] = nil end
 			emote:Destroy()
 		end
 	end
@@ -181,15 +199,16 @@ local function RefreshKnivesInventory()
 	for _, knife in pairs(inventoryFolder:GetChildren()) do
 		local knifeName = knife.Name
 		ownedKnives[knifeName] = true
+		local rarityData, rarityName = getRarityData(getItemValue(knife, "Rarity", "Common"))
 
 		local existingTemplate = KnivesInventoryFrame:FindFirstChild(knifeName)
 
 		if existingTemplate then
 			existingTemplate.Quantity.Text = knife:FindFirstChild("Quantity") and "x" .. tostring(knife.Quantity.Value) or "x1"
-			existingTemplate.KnifeSkin.Text = knife:FindFirstChild("Rarity") and knife.Rarity.Value or "Common"
+			existingTemplate.KnifeSkin.Text = rarityName
 			existingTemplate.KnifeImage.Image = knife:FindFirstChild("Image") and knife.Image.Value or ""
-			existingTemplate.Rarity.Image = RarityColors[tostring(knife.Rarity.Value)].Image
-			existingTemplate.LayoutOrder = -RarityColors[tostring(knife.Rarity.Value)].Priority
+			existingTemplate.Rarity.Image = rarityData.Image
+			existingTemplate.LayoutOrder = -rarityData.Priority
 			local tradeableValue = knife:FindFirstChild("Tradeable")
 			if existingTemplate:FindFirstChild("Tradable") then
 				existingTemplate.Tradable.Visible = (tradeableValue and tradeableValue:IsA("BoolValue") and tradeableValue.Value == false) or false
@@ -206,10 +225,10 @@ local function RefreshKnivesInventory()
 
 			template.Name = knifeName
 			template.KnifeName.Text = knifeName
-			template.KnifeSkin.Text = knife:FindFirstChild("Rarity") and knife.Rarity.Value or "Common"
+			template.KnifeSkin.Text = rarityName
 			template.KnifeImage.Image = knife:FindFirstChild("Image") and knife.Image.Value or ""
-			template.Rarity.Image = RarityColors[tostring(knife.Rarity.Value)].Image
-			template.LayoutOrder = -RarityColors[tostring(knife.Rarity.Value)].Priority
+			template.Rarity.Image = rarityData.Image
+			template.LayoutOrder = -rarityData.Priority
 			template.Quantity.Text = knife:FindFirstChild("Quantity") and "x" .. tostring(knife.Quantity.Value) or "x1"
 			local tradeableValue = knife:FindFirstChild("Tradeable")
 			if template:FindFirstChild("Tradable") then
@@ -234,8 +253,8 @@ local function RefreshKnivesInventory()
 	end
 	
 	for _, uiKnife in pairs(KnivesInventoryFrame:GetChildren()) do
-		if uiKnife:IsA("ImageButton") and uiKnife.Name == EquippedKnife then
-			uiKnife.KnifeSelected.Visible = true
+		if uiKnife:IsA("ImageButton") then
+			uiKnife.KnifeSelected.Visible = uiKnife.Name == EquippedKnife
 		end
 	end
 	
@@ -362,9 +381,7 @@ end
 
 
 local function CloseFrame()
-	
-	InventoryFrameUI.Visible = false
-	Lighting.Blur.Enabled = false
+	inventoryTransition.Close(function() Lighting.Blur.Enabled = false end)
 end
 
 local function BackFrame()
@@ -388,7 +405,7 @@ local function basics()
 	
 end
 
-function HideAllFrames()
+local function HideAllFrames()
 	for i , v in pairs(OtherFramesFolder:GetChildren()) do
 		if v:IsA("Frame") or v:IsA("ScrollingFrame") or v:IsA("CanvasGroup") then
 			v.Visible = false
@@ -424,13 +441,93 @@ for i , v in pairs(MenuFrame:GetDescendants()) do
 end
 
 
-task.spawn(function()
-	while task.wait(3) do
-		RefreshKnivesInventory()
-		RefreshRevolversInventory()
-		RefreshEmotesInventory()
+-- Inventory replicas already provide change events. Coalesce replication bursts
+-- into one refresh, and keep hidden menus dirty without rebuilding their rows.
+local inventoryStats = Player:WaitForChild("leaderstats")
+local inventoryAlive, dirty, pending = true, true, false
+local inventoryConnections, valueConnections = {}, {}
+local pages = {
+	{Frame = OtherFramesFolder.Knives, Scroll = KnivesInventoryFrame, Refresh = RefreshKnivesInventory, Dirty = true},
+	{Frame = OtherFramesFolder.GunSkins, Scroll = GunSkinsInventoryFrame, Refresh = RefreshRevolversInventory, Dirty = true},
+	{Frame = emotesPage, Scroll = EmotesFrame, Refresh = RefreshEmotesInventory, Dirty = true},
+}
+UITransitions.Attach(MenuFrame, "Page")
+for _, page in ipairs(pages) do
+	UITransitions.Attach(page.Frame, "Page")
+	page.Reveal = UITransitions.Collection(page.Scroll)
+	page.RevealPending = true
+end
+local function refreshDirty()
+	pending = false
+	if not inventoryAlive or not dirty or not InventoryFrameUI.Visible then return end
+	dirty = false
+	-- Build/update only the category being viewed. Opening the inventory menu
+	-- never creates every knife/revolver/emote preview at once.
+	for _, page in ipairs(pages) do
+		if page.Frame.Visible then
+			if page.Dirty then page.Refresh(); page.Dirty = false end
+			if page.RevealPending then
+				page.RevealPending = false
+				task.defer(function()
+					if inventoryAlive and InventoryFrameUI.Visible and page.Frame.Visible then
+						page.Reveal.Play()
+					end
+				end)
+			end
+		end
 	end
-end)
+	updateEmotePlayback()
+end
+local function scheduleRefresh()
+	if not pending and InventoryFrameUI.Visible then pending = true; task.defer(refreshDirty) end
+end
+local function markDirty()
+	if not inventoryAlive then return end
+	dirty = true
+	for _, page in ipairs(pages) do page.Dirty = true end
+	scheduleRefresh()
+end
+for _, page in ipairs(pages) do
+	table.insert(inventoryConnections, page.Frame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if page.Frame.Visible then page.RevealPending = true; dirty = true; scheduleRefresh()
+		else page.Reveal.Cancel() end
+	end))
+end
+local function observeValue(item)
+	if item:IsA("ValueBase") and not valueConnections[item] then
+		valueConnections[item] = item.Changed:Connect(markDirty)
+	end
+end
+for _, name in ipairs({"Inventory", "RevolverInventory", "Emotes"}) do
+	local source = inventoryStats:WaitForChild(name)
+	for _, item in ipairs(source:GetDescendants()) do observeValue(item) end
+	table.insert(inventoryConnections, source.DescendantAdded:Connect(function(item) observeValue(item); markDirty() end))
+	table.insert(inventoryConnections, source.DescendantRemoving:Connect(function(item)
+		local connection = valueConnections[item]
+		if connection then connection:Disconnect(); valueConnections[item] = nil end
+		markDirty()
+	end))
+end
+for _, name in ipairs({"EquippedKnife", "EquippedGun"}) do observeValue(inventoryStats:WaitForChild(name)) end
+table.insert(inventoryConnections, InventoryFrameUI:GetPropertyChangedSignal("Visible"):Connect(function()
+	if InventoryFrameUI.Visible then
+		for _, page in ipairs(pages) do page.RevealPending = true end
+		dirty = true; scheduleRefresh()
+	else
+		for _, page in ipairs(pages) do page.Reveal.Cancel() end
+	end
+	updateEmotePlayback()
+end))
+table.insert(inventoryConnections, emotesPage:GetPropertyChangedSignal("Visible"):Connect(updateEmotePlayback))
+table.insert(inventoryConnections, EmotesFrame:GetPropertyChangedSignal("Visible"):Connect(updateEmotePlayback))
+table.insert(inventoryConnections, InventoryFrameUI.Destroying:Connect(function()
+	inventoryAlive = false
+	for _, connection in ipairs(inventoryConnections) do connection:Disconnect() end
+	for _, connection in pairs(valueConnections) do connection:Disconnect() end
+	for _, track in pairs(emoteTracks) do track:Stop(0); track:Destroy() end
+	for _, page in ipairs(pages) do page.Reveal.Destroy() end
+	table.clear(inventoryConnections); table.clear(valueConnections); table.clear(emoteTracks)
+end))
 
 
 
@@ -442,9 +539,7 @@ end)
 
 
 basics()
-RefreshEmotesInventory()
-RefreshKnivesInventory()
-RefreshRevolversInventory()
+markDirty()
 
 
 

@@ -17,6 +17,7 @@ local function restore()
 	hasApplied = false
 	-- A spectating/custom camera may have taken ownership since our last frame.
 	-- Only remove values that still match the camera values we assigned.
+	if previous.camera.CameraType ~= Enum.CameraType.Custom then return end
 	if previous.camera.CFrame == previous.frame then previous.camera.CFrame = previous.base end
 	if previous.camera.Focus == previous.focus then previous.camera.Focus = previous.baseFocus end
 end

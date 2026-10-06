@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 
 
 -- // LOCALPLAYER // --
@@ -18,6 +19,10 @@ local RandomItem = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChil
 local KnivesInfo = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("KnivesInfo"))
 local ProductINFO = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ProductIDS"))
 local SoundHandlerModule = require(script.Parent:WaitForChild("Modules"):WaitForChild("SoundHandler"))
+local CaseViewportPool = require(script.Parent.Modules.CaseViewportPool)
+local DailyShopClient = require(script.Parent.Modules.DailyShopClient)
+local ShopTransitions = require(script.Parent.Modules.ShopTransitions)
+local UITransitions = require(script.Parent.Modules.UITransitions)
 
 
 local EmotesModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Emotes"))
@@ -59,22 +64,116 @@ local FramesFolder = MainGUI:WaitForChild("Frames")
 local ShopFrameUI = FramesFolder:WaitForChild("Shop")
 local MenuFrame = ShopFrameUI:WaitForChild("Menu")
 local OtherFramesFolder = ShopFrameUI:WaitForChild("Holders")
+local ShopHeader = ShopFrameUI:WaitForChild("Top"):WaitForChild("Text")
 local CloseButton = ShopFrameUI:WaitForChild("Close")
 local GoBackButton = ShopFrameUI:WaitForChild("Back")
 
 
 -- // CASE OPENING FRAMES // --
-local CasesFrame = OtherFramesFolder:WaitForChild("Cases")
+local CasesFrame = OtherFramesFolder:FindFirstChild("KnivesCases") or OtherFramesFolder:WaitForChild("Cases")
 local CaseTemplate = CaseOpeningTemplatesFolder:WaitForChild("CaseTemplate")
 local CasesPopUpFrame = ShopFrameUI:WaitForChild("CasesPopup")
 
 
-local EmotesFrame = OtherFramesFolder:WaitForChild("Emotes")
+local EmotesFrame = OtherFramesFolder:FindFirstChild("EmotesCases") or OtherFramesFolder:WaitForChild("Emotes")
 -- Optional dedicated tab. If you haven't built "RevolverCases" in Studio yet,
 -- revolver cases simply show up in the normal Cases frame.
-local RevolverCasesFrame = OtherFramesFolder:FindFirstChild("RevolverCases") or CasesFrame
-
-
+local RevolverCasesFrame = OtherFramesFolder:FindFirstChild("RevolversCases")
+	or OtherFramesFolder:FindFirstChild("RevolverCases") or CasesFrame
+local CratesTabSelection = ShopFrameUI:FindFirstChild("CratesTabSelection", true)
+if CratesTabSelection then CratesTabSelection:SetAttribute("UIAnimationDisabled", true) end
+local activeCaseTab = "Revolvers"
+local caseButtons = {}
+local caseTabTweens = {}
+local shopTransition = ShopTransitions.Attach(ShopFrameUI)
+local caseReveals = {}
+local function getCaseReveal(container)
+	if not caseReveals[container] then
+		caseReveals[container] = UITransitions.Collection(container)
+	end
+	return caseReveals[container]
+end
+getCaseReveal(CasesFrame)
+getCaseReveal(EmotesFrame)
+getCaseReveal(RevolverCasesFrame)
+local DailyFrame = OtherFramesFolder:WaitForChild("Daily")
+local DailyOthers = DailyFrame:WaitForChild("Others")
+local DailyMain = DailyFrame:WaitForChild("Main")
+local DailyTemplates = ClientTemplatesFolder:WaitForChild("DailyShopTemplates")
+local SmallItemTemplate = DailyTemplates:WaitForChild("SmallItemTemplate")
+local LargeItemTemplate = DailyTemplates:WaitForChild("LargeItemTemplate")
+local SmallDivider = SmallItemTemplate:WaitForChild("Divider")
+local LargeDivider = LargeItemTemplate:WaitForChild("Divider")
+local dailyShopLayout = {
+	{
+		Parent = DailyOthers,
+		Template = SmallItemTemplate,
+		Position = UDim2.new(0, 0, 0, 0),
+		AnchorPoint = Vector2.new(0, 0),
+		Fields = {
+			Owned = SmallItemTemplate:WaitForChild("AlreadyOwned"),
+			Image = SmallItemTemplate:WaitForChild("ItemImage"),
+			Name = SmallDivider:WaitForChild("ProductName"),
+			Price = SmallDivider:WaitForChild("Price"),
+		},
+	},
+	{
+		Parent = DailyOthers,
+		Template = SmallItemTemplate,
+		Position = UDim2.new(0, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Fields = {
+			Owned = SmallItemTemplate:WaitForChild("AlreadyOwned"),
+			Image = SmallItemTemplate:WaitForChild("ItemImage"),
+			Name = SmallDivider:WaitForChild("ProductName"),
+			Price = SmallDivider:WaitForChild("Price"),
+		},
+	},
+	{
+		Parent = DailyOthers,
+		Template = SmallItemTemplate,
+		Position = UDim2.new(0, 0, 1, 0),
+		AnchorPoint = Vector2.new(0, 1),
+		Fields = {
+			Owned = SmallItemTemplate:WaitForChild("AlreadyOwned"),
+			Image = SmallItemTemplate:WaitForChild("ItemImage"),
+			Name = SmallDivider:WaitForChild("ProductName"),
+			Price = SmallDivider:WaitForChild("Price"),
+		},
+	},
+	{
+		Parent = DailyMain,
+		Template = LargeItemTemplate,
+		Position = UDim2.new(0, 0, 0, 0),
+		AnchorPoint = Vector2.new(0, 0),
+		Fields = {
+			Owned = LargeItemTemplate:WaitForChild("AlreadyOwned"),
+			Image = LargeItemTemplate:WaitForChild("ItemImage"),
+			Name = LargeDivider:WaitForChild("ProductName"),
+			Price = LargeItemTemplate:WaitForChild("ItemPrice"):WaitForChild("Text"),
+		},
+	},
+	{
+		Parent = DailyMain,
+		Template = LargeItemTemplate,
+		Position = UDim2.new(1, 0, 0, 0),
+		AnchorPoint = Vector2.new(1, 0),
+		Fields = {
+			Owned = LargeItemTemplate:WaitForChild("AlreadyOwned"),
+			Image = LargeItemTemplate:WaitForChild("ItemImage"),
+			Name = LargeDivider:WaitForChild("ProductName"),
+			Price = LargeItemTemplate:WaitForChild("ItemPrice"):WaitForChild("Text"),
+		},
+	},
+}
+local dailyShop = DailyShopClient.New(Player, DailyFrame, PurchaseGoldRemote, ShopFrameUI, dailyShopLayout, nil, nil, ShopHeader)
+local robuxReveals = {}
+local function getRobuxReveal(frame)
+	if not robuxReveals[frame] then
+		robuxReveals[frame] = UITransitions.Collection(frame)
+	end
+	return robuxReveals[frame]
+end
 -- // CASE ANIMATION FRAMES // --
 local SpinnerFrame = FramesFolder:WaitForChild("Spinner")
 local SpinnerContainer = SpinnerFrame:WaitForChild("Container")
@@ -97,6 +196,11 @@ local GoldShopFrame = RobuxShopFrame:WaitForChild("Gold")
 local PasssesShopFrame = RobuxShopFrame:WaitForChild("Passes")
 local VIPShopFrame = RobuxShopFrame:WaitForChild("VIP")
 local ShopTabsSelectionFrame = RobuxShopFrame:WaitForChild("TabSelection")
+RobuxShopFrame:SetAttribute("UIAnimationDisabled", true)
+ShopTabsSelectionFrame:SetAttribute("UIAnimationDisabled", true)
+getRobuxReveal(GoldShopFrame)
+getRobuxReveal(PasssesShopFrame)
+getRobuxReveal(VIPShopFrame)
 
 
 -- // Purchase Gold SHOP UI // --
@@ -110,6 +214,23 @@ local OpenFrame
 local PurchaseGold
 local SetRobuxTab
 local ActiveRobuxTabName
+local spinGeneration = 0
+local spinDestroyed = false
+local spinRemoteConnection
+local spinTween, spinFinishTween, spinRarityTween, spinSkipTimer, spinPreviews
+local spinConnections = {}
+
+local function cancelSpin(clearCards)
+	spinGeneration += 1
+	for _, connection in ipairs(spinConnections) do connection:Disconnect() end
+	table.clear(spinConnections)
+	if spinSkipTimer then task.cancel(spinSkipTimer); spinSkipTimer = nil end
+	if spinPreviews then spinPreviews:Destroy(); spinPreviews = nil end
+	for _, animation in pairs({spinTween, spinFinishTween, spinRarityTween}) do animation:Cancel(); animation:Destroy() end
+	spinTween, spinFinishTween, spinRarityTween = nil, nil, nil
+	SpinnerSkipButton.Visible = false
+	if clearCards then SpinFrame:ClearAllChildren() end
+end
 
 local function getDefaultRobuxTabName(): string
 	for _, button in pairs(ShopTabsSelectionFrame:GetChildren()) do
@@ -370,6 +491,9 @@ local function LoadCases()
 		CaseFrame.Bottom.CaseCost.Text = tostring(AbbreviateModule.WithCommas(v.Price))
 		CaseFrame.Visible = true
 		CaseFrame.LayoutOrder = v.Order or 999
+		CaseFrame:SetAttribute("CaseCategory", v.EmoteCase and "Emotes" or v.ItemType == "Revolver" and "Revolvers" or "Knives")
+		CaseFrame.Visible = CaseFrame:GetAttribute("CaseCategory") == activeCaseTab
+		table.insert(caseButtons, CaseFrame)
 		if v.EmoteCase then
 			CaseFrame.Parent = EmotesFrame
 		elseif v.ItemType == "Revolver" then
@@ -377,7 +501,7 @@ local function LoadCases()
 		else
 			CaseFrame.Parent = CasesFrame
 		end
-		CaseFrame.MouseButton1Up:Connect(function()
+		CaseFrame.Activated:Connect(function()
 			CasePopUp(i)
 		end)
 	end
@@ -389,13 +513,17 @@ end
 
 
 local function CloseFrame()
-	ShopFrameUI.Visible = false
-	Lighting.Blur.Enabled = false
+	ShopHeader.Text = "Shop"
+	shopTransition.Close(function()
+		if not SpinnerFrame.Visible then Lighting.Blur.Enabled = false end
+	end)
 end
 
 local function BackFrame()
+	ShopHeader.Text = "Shop"
+	if CratesTabSelection then CratesTabSelection.Visible = false end
 	for i , v in pairs(OtherFramesFolder:GetChildren()) do
-		if v:IsA("Frame") or v:IsA("ScrollingFrame") then 
+		if v:IsA("GuiObject") then
 			v.Visible = false
 		end
 	end
@@ -408,19 +536,21 @@ local function BackFrame()
 end
 
 local function basics()
-	GoBackButton.MouseButton1Up:Connect(function()
+	GoBackButton.Activated:Connect(function()
 		BackFrame()
 	end)
 	
-	CloseButton.MouseButton1Up:Connect(function()
+	CloseButton.Activated:Connect(function()
 		CloseFrame()
 	end)
 	
 end
 
-function HideAllFrames()
+local function HideAllFrames()
+	if CratesTabSelection then CratesTabSelection.Visible = false end
+	CasesPopUpFrame.Visible = false
 	for i , v in pairs(OtherFramesFolder:GetChildren()) do
-		if v:IsA("Frame") or v:IsA("ScrollingFrame") then
+		if v:IsA("GuiObject") then
 			v.Visible = false
 		end
 	end 
@@ -432,13 +562,65 @@ end
 
 
 
+local function SetCaseTab(tabName: string)
+	if tabName ~= "Knives" and tabName ~= "Revolvers" and tabName ~= "Emotes" then return end
+	activeCaseTab = tabName
+	HideAllFrames()
+	local selectedFrame = tabName == "Emotes" and EmotesFrame or tabName == "Revolvers" and RevolverCasesFrame or CasesFrame
+	selectedFrame.Visible = true
+	if CratesTabSelection then
+		CratesTabSelection.Visible = true
+		for _, button in ipairs(CratesTabSelection:GetDescendants()) do
+			if button:IsA("ImageButton") then
+				local previous = caseTabTweens[button]
+				if previous then previous:Cancel(); previous:Destroy() end
+				button.AutoButtonColor = false
+				local color = button.Name == tabName and Color3.fromRGB(71, 81, 95) or Color3.fromRGB(46, 53, 63)
+				local tween = TweenService:Create(button, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = color})
+				caseTabTweens[button] = tween
+				tween:Play()
+			end
+		end
+	end
+	-- The legacy GUI may share a single scrolling frame for knives/revolvers.
+	for _, button in ipairs(caseButtons) do button.Visible = button:GetAttribute("CaseCategory") == tabName end
+	ShopTransitions.Attach(selectedFrame).Open()
+	local reveal = getCaseReveal(selectedFrame)
+	reveal.Cancel()
+	task.defer(function()
+		if selectedFrame.Visible then reveal.Play() end
+	end)
+end
+
 OpenFrame = function(FrameName : string)
+	if FrameName == "Cases" or FrameName == "Crates" then
+		ShopHeader.Text = "Shop"
+		SetCaseTab("Revolvers"); return
+	elseif FrameName == "KnivesCases" or FrameName == "Knives" then
+		ShopHeader.Text = "Shop"
+		SetCaseTab("Knives"); return
+	elseif FrameName == "RevolverCases" or FrameName == "RevolversCases" or FrameName == "Revolvers" then
+		ShopHeader.Text = "Shop"
+		SetCaseTab("Revolvers"); return
+	elseif FrameName == "Emotes" or FrameName == "EmotesCases" then
+		ShopHeader.Text = "Shop"
+		SetCaseTab("Emotes"); return
+	elseif FrameName == "Daily" or FrameName == "DailyShop" then
+		HideAllFrames(); dailyShop.Frame.Visible = true
+		ShopTransitions.Attach(dailyShop.Frame).Open()
+		dailyShop.Open()
+		return
+	end
 	local Frame : Frame = OtherFramesFolder:FindFirstChild(FrameName)
 	if Frame then
+		ShopHeader.Text = "Shop"
 		HideAllFrames()
 		Frame.Visible = true
+		if Frame ~= RobuxShopFrame then
+			ShopTransitions.Attach(Frame).Open()
+		end
 		if FrameName == "Robux" and SetRobuxTab then
-			SetRobuxTab(ActiveRobuxTabName or getDefaultRobuxTabName())
+			SetRobuxTab(ActiveRobuxTabName or getDefaultRobuxTabName(), true)
 		end
 	else
 		--print("couldnt find")
@@ -448,13 +630,28 @@ end
 
 
 for i , v in pairs(MenuFrame:GetDescendants()) do
-	if v:IsA("ImageButton") then
-		v.MouseButton1Up:Connect(function()
+	if v:IsA("GuiButton") then
+		v.Activated:Connect(function()
 			OpenFrame(v.Name)
 		--	print(v.Name)
 		end)
 	end
 end
+
+if CratesTabSelection then
+	CratesTabSelection.Visible = false
+	for _, button in ipairs(CratesTabSelection:GetDescendants()) do
+		if button:IsA("ImageButton") then
+			button.Activated:Connect(function() SetCaseTab(button.Name) end)
+		end
+	end
+end
+
+ShopFrameUI.Destroying:Connect(function()
+	for _, tween in pairs(caseTabTweens) do tween:Cancel(); tween:Destroy() end
+	table.clear(caseTabTweens)
+	dailyShop.Destroy()
+end)
 
 
 PurchaseGold = function(productid : number)
@@ -475,171 +672,108 @@ end
 
 
 
-OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails : SharedTable, duration, hasskip, casename)
+spinRemoteConnection = OpenCaseAnimation.OnClientEvent:Connect(function(KnifeDetails: SharedTable, duration, hasskip, casename)
+	if spinDestroyed then return end
+	local caseInfo = CaseInfoModule[casename]
+	if type(KnifeDetails) ~= "table" or not caseInfo or type(duration) ~= "number"
+		or duration ~= duration or duration < 0 or duration == math.huge then return end
+	cancelSpin(true)
+	local token = spinGeneration
+	local function current()
+		return spinGeneration == token and SpinnerFrame.Parent ~= nil and SpinnerFrame.Visible
+	end
 	ShopFrameUI.Visible = false
 	SpinnerFrame.Visible = true
-	for i , v in pairs(SpinFrame:GetChildren()) do
-		if v:IsA("ImageButton") then
-			v:Destroy()
-		end
-	end
-	
-	SpinFrame:ClearAllChildren()
-	
-	
-	
-	--print(KnifeDetails)
+	SpinnerOpenAgain.Visible, SpinnerExit.Visible = false, false
 	HeaderText.Text = "Opening " .. KnifeDetails.Case
 	LastCase = KnifeDetails.Case
-
-	local Winner = KnifeDetails["Knife"]
-	local currentposition = UDim2.new(-0.991, 0,0.5, 0)
 	Lighting.Blur.Enabled = true
-	
-	local FRAMETOMOVEPOSITION = SpinnerFrame:WaitForChild("Container"):WaitForChild("SpinFrame")
-	
+	SpinFrame.Position = UDim2.new(5, 0, 0.5, 0)
+	local currentposition = UDim2.new(-0.991, 0, 0.5, 0)
 	local randomXScale = Random.new():NextNumber(-4.055, -3.92)
 	local tweenGoal = UDim2.new(randomXScale, 0, 0.5, 0)
-	local tweenInfo = TweenInfo.new(
-		duration, 
-		Enum.EasingStyle.Quint, 
-		Enum.EasingDirection.Out 
-	)
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 	local WinnerText
-	local layoutcount = 0
-	SpinnerOpenAgain.Visible = false
-	SpinnerExit.Visible = false
-
-	
-	for i = 1, 150 do
-		
-		if CaseInfoModule[casename].EmoteCase then
-			local ItemTemplate = CaseSpinnerTemplateEmote:Clone()
-			local itemData
-			
-			if i == 139 then
-				itemData = KnifeDetails
-				WinnerText = tostring(KnifeDetails.Knife)
-			else
-				itemData = RandomItem.RandomItem(casename)
-			end
-			
-			ItemTemplate.Name = tostring(i)
-			ItemTemplate.Rarity.Image = RarityColorModule[itemData.Rarity].Image
-			ItemTemplate.LayoutOrder = layoutcount
-			layoutcount += 1
-			
-			
-			if i == 1 then
-				ItemTemplate.Position = currentposition
-			else
-				ItemTemplate.Position = UDim2.new((currentposition.X.Scale + 0.014), 0, 0.5, 0)
-				currentposition= UDim2.new((currentposition.X.Scale + 0.014), 0, 0.5, 0)
-			end
-
-			
-			ItemTemplate.Parent = SpinFrame
-			local SkinName = itemData.SkinName
-			
-			
-			
-			local ViewportFrame1 = ItemTemplate:WaitForChild("EmoteViewport")
-			local World1 = ViewportFrame1:WaitForChild("World")
-			local Rig1 = World1:WaitForChild("Rig")
-			local RigHumanoid1 = Rig1:WaitForChild("Humanoid")
-
-			local AnimationRig1:Animation = Instance.new("Animation")
-			AnimationRig1.AnimationId = EmotesModule[tostring(SkinName)].EmoteId
-
-
-
-			local AnimationTrack1 = RigHumanoid1:LoadAnimation(AnimationRig1)
-			AnimationTrack1.Looped = true
-			AnimationTrack1:Play()
+	for index = 1, 150 do
+		if not current() then return end
+		local itemData
+		if index == 139 then
+			itemData = KnifeDetails
+			WinnerText = tostring(KnifeDetails.Knife)
 		else
-			
-
-			local ItemTemplate = CaseSpinnerTemplate:Clone()
-			local knifeData
-
-			if i == 139 then
-				knifeData = KnifeDetails
-				WinnerText = tostring(KnifeDetails.Knife)
-			else
-				knifeData = RandomItem.RandomItem(casename)
-			end
-
-
-			ItemTemplate.Name = tostring(i)
-			ItemTemplate.KnifeImage.Image = knifeData.Image
-			ItemTemplate.Rarity.Image = RarityColorModule[knifeData.Rarity].Image
-			ItemTemplate.LayoutOrder = layoutcount
-			layoutcount += 1
-			if i == 1 then
-				ItemTemplate.Position = currentposition
-			else
-				ItemTemplate.Position = UDim2.new((currentposition.X.Scale + 0.014), 0, 0.5, 0)
-				currentposition= UDim2.new((currentposition.X.Scale + 0.014), 0, 0.5, 0)
-			end
-
-			ItemTemplate.Parent = SpinFrame
-
+			itemData = RandomItem.RandomItem(casename)
+		end
+		local item
+		if caseInfo.EmoteCase then
+			local sourceWorld
+			item, sourceWorld = CaseViewportPool.CloneCard(CaseSpinnerTemplateEmote)
+			if not spinPreviews then spinPreviews = CaseViewportPool.New(sourceWorld, SpinnerContainer, current) end
+		else
+			item = CaseSpinnerTemplate:Clone()
+			item.KnifeImage.Image = itemData.Image
+		end
+		item.Name = tostring(index)
+		item.Rarity.Image = RarityColorModule[itemData.Rarity].Image
+		item.LayoutOrder = index - 1
+		if index > 1 then currentposition = UDim2.new(currentposition.X.Scale + 0.014, 0, 0.5, 0) end
+		item.Position = currentposition
+		item.Parent = SpinFrame
+		if caseInfo.EmoteCase then
+			local emote = EmotesModule[tostring(itemData.SkinName)]
+			if emote then spinPreviews:Add(item, emote.EmoteId) end
+		end
+		-- Spread lightweight card creation across frames. The preview world is
+		-- excluded before cloning; at most ten visible previews are ever live.
+		if index % CaseViewportPool.CardBatchSize == 0 and index < 150 then
+			RunService.Heartbeat:Wait()
+			if not current() then return end
 		end
 	end
-	
-	FRAMETOMOVEPOSITION.Position = UDim2.new(5, 0,0.5, 0)
-	
-	
-	local tween = TweenService:Create(FRAMETOMOVEPOSITION, tweenInfo, {Position = tweenGoal})
-	SoundHandlerModule.PlaySound("CaseOpen")
-	tween:Play()
-	task.spawn(function()
-		if hasskip then
-			
-		else
-			SpinnerSkipButton.Visible = true
-			task.wait(6)
-			SpinnerSkipButton.Visible = false
-		end
-	end)
-
-	tween.Completed:Connect(function()
-		local finishTween = TweenService:Create(
-			SpinFrame,
+	if not current() then return end
+	spinTween = TweenService:Create(SpinFrame, tweenInfo, {Position = tweenGoal})
+	local tween = spinTween
+	table.insert(spinConnections, tween.Completed:Connect(function(playbackState)
+		if not current() or playbackState ~= Enum.PlaybackState.Completed then return end
+		spinFinishTween = TweenService:Create(SpinFrame,
 			TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Position = UDim2.new(-3.99, 0, 0.5, 0) }
-		)
-
+			{Position = UDim2.new(-3.99, 0, 0.5, 0)})
 		local winnerFrame = SpinFrame:FindFirstChild("139")
-		local winnerRarityImage = winnerFrame and winnerFrame:FindFirstChild("Rarity")
-
-
-		local rarityTween, knifeTween
-
-		if winnerRarityImage then
-			rarityTween = TweenService:Create(
-				winnerRarityImage,
-				TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-				{ ImageTransparency = 0 }
-			)
+		local rarity = winnerFrame and winnerFrame:FindFirstChild("Rarity")
+		if rarity then
+			spinRarityTween = TweenService:Create(rarity,
+				TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {ImageTransparency = 0})
+			spinRarityTween:Play()
 		end
-
-
-
-		finishTween:Play()
-		if rarityTween then rarityTween:Play() end
-
-		finishTween.Completed:Connect(function()
-			SpinnerExit.Visible = true
+		table.insert(spinConnections, spinFinishTween.Completed:Connect(function(state)
+			if not current() or state ~= Enum.PlaybackState.Completed then return end
+			SpinnerExit.Visible, SpinnerOpenAgain.Visible = true, true
+			SpinnerSkipButton.Visible = false
 			HeaderText.Text = "You Unboxed: " .. tostring(WinnerText)
-			SpinnerOpenAgain.Visible = true
+		end))
+		spinFinishTween:Play()
+	end))
+	if not hasskip then
+		SoundHandlerModule.PlaySound("CaseOpen")
+	end
+	tween:Play()
+	if not hasskip then
+		SpinnerSkipButton.Visible = true
+		spinSkipTimer = task.delay(6, function()
+			if not current() then return end
+			spinSkipTimer = nil
+			SpinnerSkipButton.Visible = false
 		end)
-	end)
-	
-
-	
+	end
 end)
 
+SpinnerFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+	if not spinDestroyed and not SpinnerFrame.Visible then cancelSpin(true) end
+end)
+SpinnerFrame.Destroying:Connect(function()
+	spinDestroyed = true
+	if spinRemoteConnection then spinRemoteConnection:Disconnect(); spinRemoteConnection = nil end
+	cancelSpin(false)
+end)
 
 SpinnerOpenAgain.MouseButton1Up:Connect(function()
 	if LastCase then
@@ -653,18 +787,12 @@ SpinnerSkipButton.MouseButton1Up:Connect(function()
 end)
 
 SpinnerExit.MouseButton1Up:Connect(function()
+	cancelSpin(true)
 	ShopFrameUI.Visible = true
 	SpinnerFrame.Visible = false
 	SpinnerExit.Visible = false
 	SpinnerOpenAgain.Visible = false
 	SpinFrame.Position = UDim2.new(5, 0,0.5, 0)
-	for i , v in pairs(SpinFrame:GetChildren()) do
-		if v:IsA("ImageButton") then
-			v:Destroy()
-		end
-	end
-	
-	SpinFrame:ClearAllChildren()
 end)
 
 
@@ -672,8 +800,26 @@ local function RobuxShopFrameTabs()
 	local selectedColor = Color3.fromRGB(71, 81, 95)
 	local defaultColor = Color3.fromRGB(46, 53, 63)
 
-	local function setTab(tabName: string)
-		if ActiveRobuxTabName == tabName then
+	local function playReveal(tabName: string)
+		local selectedFrame = RobuxShopFrame:FindFirstChild(tabName)
+		if not selectedFrame then
+			return
+		end
+		local reveal = getRobuxReveal(selectedFrame)
+		reveal.Cancel()
+		task.defer(function()
+			if selectedFrame.Visible and RobuxShopFrame.Visible then
+				reveal.Play()
+			end
+		end)
+	end
+
+	local function setTab(tabName: string, replayReveal: boolean?)
+		local changed = ActiveRobuxTabName ~= tabName
+		if not changed then
+			if replayReveal then
+				playReveal(tabName)
+			end
 			return
 		end
 
@@ -692,6 +838,7 @@ local function RobuxShopFrameTabs()
 		end
 
 		ActiveRobuxTabName = tabName
+		playReveal(tabName)
 	end
 
 	SetRobuxTab = setTab
@@ -710,10 +857,12 @@ local function RobuxShopFrameTabs()
 end
 
 local function HandleRobuxGamepassButtons()
-	for i , v in pairs(RobuxShopFrame:WaitForChild("Passes"):GetChildren()) do
-		if v:IsA("ImageButton") then
-			v.MouseButton1Up:Connect(function()
-				GamePass:FireServer(tostring(v.Name))
+	local passesFrame = RobuxShopFrame:WaitForChild("Passes")
+	for _, button in ipairs(passesFrame:GetDescendants()) do
+		if button:IsA("ImageButton") or button:IsA("TextButton") then
+			button.MouseButton1Up:Connect(function()
+				local passKey = button:GetAttribute("GamePassKey") or button:GetAttribute("GamePassId") or button.Name
+				GamePass:FireServer(tostring(passKey))
 			end)
 		end
 	end
@@ -792,4 +941,4 @@ HandleRobuxGamepassButtons()
 
 
 
-return {} 
+return {}

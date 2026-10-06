@@ -8,7 +8,7 @@ local vipExpiryCache: {[number]: number} = {}
 
 local function normalizeExpiry(value: any): number
 	local n = tonumber(value)
-	if not n then
+	if not n or n ~= n or math.abs(n) == math.huge then
 		return 0
 	end
 	return math.max(0, math.floor(n))
@@ -80,7 +80,7 @@ function VIPService.SetVIPExpiry(userId: number, expiresAt: number): boolean
 	end
 
 	local player = Players:GetPlayerByUserId(userId)
-	if player then
+	if ok and player then
 		VIPService.ApplyToPlayer(player, expiresAt)
 	end
 

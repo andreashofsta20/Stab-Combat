@@ -12,6 +12,7 @@ local HEAL_INTERVAL = 3 -- seconds between self-heal checks
 
 local activeHitboxes: {[number]: BasePart} = {}
 local characterConnections: {[number]: {RBXScriptConnection}} = {}
+local boundCharacters: {[number]: Model} = {}
 local playerConnections = {}
 local initialized = false
 
@@ -73,6 +74,7 @@ end
 -- ─── Per-player wiring ────────────────────────────────────────────────
 
 local function cleanupConnections(userId: number)
+    boundCharacters[userId] = nil
     local conns = characterConnections[userId]
     if conns then
         for _, c in ipairs(conns) do
@@ -85,18 +87,11 @@ end
 local function onCharacterAdded(player: Player, character: Model)
     cleanupConnections(player.UserId)
     local conns = {}
+    boundCharacters[player.UserId] = character
     characterConnections[player.UserId] = conns
 
     -- Immediately try to attach (HRP may already exist)
     task.spawn(safeAttach, player, character)
-
-    -- Re-attach if Humanoid respawns inside the same character (custom respawn systems)
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        table.insert(conns, humanoid.Died:Connect(function()
-            -- Hitbox stays on corpse intentionally — new CharacterAdded will create a fresh one
-        end))
-    end
 
     -- If something destroys the hitbox mid-life, recreate it immediately
     table.insert(conns, character.ChildRemoved:Connect(function(child)
@@ -116,9 +111,16 @@ end
 
 local function onPlayerAdded(player: Player)
     if player.Parent ~= Players or playerConnections[player] then return end
-    playerConnections[player] = player.CharacterAdded:Connect(function(character)
-        onCharacterAdded(player, character)
-    end)
+    playerConnections[player] = {
+        player.CharacterAdded:Connect(function(character) onCharacterAdded(player, character) end),
+        player.CharacterRemoving:Connect(function(character)
+            if boundCharacters[player.UserId] == character then cleanupConnections(player.UserId) end
+            local hitbox = activeHitboxes[player.UserId]
+            if hitbox and hitbox.Parent == character then
+                hitbox:Destroy(); activeHitboxes[player.UserId] = nil
+            end
+        end),
+    }
 
     -- Handle already-spawned character
     if player.Character then
@@ -127,7 +129,8 @@ local function onPlayerAdded(player: Player)
 end
 
 local function onPlayerRemoving(player: Player)
-    if playerConnections[player] then playerConnections[player]:Disconnect(); playerConnections[player] = nil end
+    for _, connection in ipairs(playerConnections[player] or {}) do connection:Disconnect() end
+    playerConnections[player] = nil
     cleanupConnections(player.UserId)
     local hitbox = activeHitboxes[player.UserId]
     if hitbox then

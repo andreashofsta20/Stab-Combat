@@ -60,7 +60,9 @@ local function object(class, name, parent)
 end
 function methods:IsA(class)
 	return self.ClassName == class or class == "Instance" or (class == "BasePart" and (self.ClassName == "Part" or self.ClassName == "MeshPart"))
+		or (class == "GuiButton" and (self.ClassName == "TextButton" or self.ClassName == "ImageButton"))
 		or (class == "GuiObject" and (self.ClassName == "Frame" or self.ClassName == "ImageLabel"))
+		or (class == "LayerCollector" and self.ClassName == "ScreenGui")
 end
 function methods:GetChildren() return table.clone(self._children) end
 function methods:GetDescendants()
@@ -613,7 +615,7 @@ return function(load)
 		f.modules[child(f.dataFolder, "ModuleScript", "ProfileManager")] = {
 			LoadProfile = function(player)
 				f.profileLoads[player] = (f.profileLoads[player] or 0) + 1
-				return {Data = {Cash = 700, XP = 150, Inventory = {}, KeyBinds = {}}, IsActive = function() return true end}
+				return {Data = f.savedPlayerData or {Cash = 700, XP = 150, Inventory = {}, KeyBinds = {}}, IsActive = function() return true end}
 			end,
 			EndSession = function(player) f.ended = player end, SaveProfile = function() end}
 		f.modules[child(f.dataFolder, "ModuleScript", "LeaderboardsHandler")] = {UpdatePlayer = function(player)
@@ -656,6 +658,16 @@ return function(load)
 		f.Players.PlayerRemoving:Fire(player); player.Parent = nil; equal(f.ended, player)
 		for _, thread in ipairs(f.paused) do assert(coroutine.resume(thread)); equal(coroutine.status(thread), "dead") end
 		equal(f.characterHooks[existing], 1); equal(f.characterHooks[player], nil)
+	end)
+	test("player setup disconnects prior death hooks on respawn and every player hook on leave", function()
+		local f=playerStartupFixture(); local player=f:newPlayer(1); f:start()
+		for _=1,30 do
+			local old=player.Character; f:character(player)
+			equal(old.Humanoid.Died:Count(),0); equal(player.Character.Humanoid.Died:Count(),1)
+		end
+		f.Players.PlayerRemoving:Fire(player)
+		equal(player.CharacterAdded:Count(),0); equal(player.CharacterRemoving:Count(),0)
+		equal(player.Character.Humanoid.Died:Count(),0)
 	end)
 	test("PlayerAdded and startup snapshot overlap cannot duplicate scaffolding or load a profile twice", function()
 		local f = playerStartupFixture(); local player = f:newPlayer(1)
@@ -825,12 +837,12 @@ return function(load)
 		local ok, err = pcall(function() f:load("MapCatalog", f.gameFolder) end)
 		equal(ok, false); assert(string.find(err, "ServerStorage.Cargo Port"))
 	end)
-	local function profileFixture()
+	local function profileFixture(validation)
 		local f = fixture(); f.player = f:createPlayer(1)
 		f:load("StartupConfig", f.modulesFolder); f:load("StartupLoader", f.modulesFolder)
 		f:load("DataConfig", f.modulesFolder)
 		child(child(f.RS, "Folder", "KeyBinds"), "ModuleScript", "KeybindValidation")
-		f.modules[f.RS.KeyBinds.KeybindValidation] = { GetDefaults = function() return {} end }
+		f.modules[f.RS.KeyBinds.KeybindValidation] = validation or { GetDefaults = function() return {} end }
 		local profileModule = child(child(f.SSS, "Folder", "Packages"), "ModuleScript", "ProfileStore")
 		f.profile = { active = true, Data = { MigrationComplete = true, Cash = 500, Inventory = { { Name = "SavedKnife", Quantity = 2 } }, ProcessedPurchases = {} }, LastSavedData = { ProcessedPurchases = {} }, OnSave = signal(), OnSessionEnd = signal(), saveCalls = 0 }
 		function f.profile:IsActive() return self.active end
@@ -849,6 +861,18 @@ return function(load)
 		local f = profileFixture(); f.player:SetAttribute("DataReady", false)
 		f.profile.OnSave:Fire()
 		equal(f.profile.Data.Cash, 500); equal(f.profile.Data.Inventory[1].Name, "SavedKnife")
+	end)
+	test("profile save captures daily-shop marker, cash and inventory in the same player record", function()
+		local f = profileFixture(); f.player:SetAttribute("DataReady", true)
+		f.profile.Data.DailyShop = {RotationId = "1:20833", Purchased = {["Knife:Bowie"] = true}}
+		f.player.leaderstats.Cash.Value = 350
+		local item = child(f.player.leaderstats.Inventory, "StringValue", "Bowie")
+		child(item, "IntValue", "Quantity", 1); child(item, "StringValue", "Rarity", "Common")
+		child(item, "StringValue", "Image", "asset"); child(item, "BoolValue", "Tradeable", true)
+		f.profiles.SaveProfile(f.player)
+		equal(f.profile.pending.Cash, 350); equal(f.profile.pending.DailyShop.RotationId, "1:20833")
+		equal(f.profile.pending.DailyShop.Purchased["Knife:Bowie"], true)
+		equal(f.profile.pending.Inventory[1].Name, "Bowie"); equal(f.profile.pending.Inventory[1].Quantity, 1)
 	end)
 	test("purchase acknowledgement waits for LastSavedData rather than queued Save", function()
 		local f = profileFixture(); f.profile.Data.ProcessedPurchases.receipt = true
@@ -1137,9 +1161,11 @@ return function(load)
 	local function bindingFixture()
 		local f = fixture()
 		local keys = {}
-		for _, name in ipairs({"W","A","S","D","Space","Tab","Slash","Escape","Backspace","Return","KeypadEnter","I","O","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","LeftMeta","RightMeta","Unknown","ButtonR2","DPadUp","Thumbstick1","E","G","LeftShift","LeftControl","C","One","Two","Three","Q","R","T","Y","H","J","K","L","U","B"}) do keys[name] = {Name = name} end
+		for _, name in ipairs({"W","A","S","D","Space","Tab","Slash","Escape","Backspace","Return","KeypadEnter","I","O","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","LeftMeta","RightMeta","Unknown","ButtonR2","DPadUp","Thumbstick1","E","G","LeftShift","LeftControl","C","One","Two","Three","Q","R","T","X","Y","H","J","K","L","U","B","Z","N","M","V","F","P"}) do keys[name] = {Name = name, EnumType = keys} end
 		function keys:GetEnumItems() local result = {}; for _, value in pairs(keys) do if type(value) == "table" then table.insert(result, value) end end; return result end
 		f.env.Enum.KeyCode, f.env.Enum.UserInputType = keys, {Keyboard = {Name = "Keyboard"}, MouseButton1 = {Name = "MouseButton1"}, MouseButton2 = {Name = "MouseButton2"}, MouseButton3 = {Name = "MouseButton3"}}
+		local originalTypeof = f.env.typeof
+		f.env.typeof = function(value) return type(value) == "table" and value.EnumType == keys and "EnumItem" or originalTypeof(value) end
 		f.validation = f:load("KeybindValidation", f.modulesFolder)
 		f.player = f:createPlayer(1)
 		local folder = child(f.player.leaderstats, "Folder", "KeyBinds")
@@ -1148,7 +1174,7 @@ return function(load)
 	end
 	test("keybind repair rejects unknown/reserved/controller keys and unsupported mouse actions", function()
 		local f = bindingFixture()
-		for _, value in ipairs({"ThisIsNotAKey", "Unknown", "R", "ButtonR2", "DPadUp", "Thumbstick1", "W"}) do equal(f.validation.Normalize(value), nil) end
+		for _, value in ipairs({"ThisIsNotAKey", "Unknown", "ButtonR2", "DPadUp", "Thumbstick1", "W"}) do equal(f.validation.Normalize(value), nil) end
 		equal(f.validation.NormalizeForAction("Sprint", "MouseButton1"), nil)
 		equal(f.validation.NormalizeForAction("ThrowKnife", "MouseButton3"), "MouseButton3")
 		local repaired = f.validation.ValidateAndRepair({ThrowKnife = "G", Stab = "Q", Emote = "G", Sprint = "MouseButton2"})
@@ -1160,9 +1186,288 @@ return function(load)
 		f.modules[child(child(f.RS, "Folder", "KeyBinds"), "ModuleScript", "KeybindValidation")] = f.validation
 		local remote = child(child(f.remotes, "Folder", "Keybinds"), "RemoteEvent", "ChangeKeybind")
 		f:load("KeybindServer", f.dataFolder)
-		remote.OnServerEvent:Fire(f.player, "Stab", "Q"); equal(f.player.leaderstats.KeyBinds.Stab.Value, "Q")
-		f.time += 1; remote.OnServerEvent:Fire(f.player, "ThrowKnife", "Q"); equal(f.player.leaderstats.KeyBinds.ThrowKnife.Value, "E")
+		remote.OnServerEvent:Fire(f.player, "Stab", "T"); equal(f.player.leaderstats.KeyBinds.Stab.Value, "T")
+		f.time += 1; remote.OnServerEvent:Fire(f.player, "ThrowKnife", "T"); equal(f.player.leaderstats.KeyBinds.ThrowKnife.Value, "E")
 		f.time += 1; remote.OnServerEvent:Fire(f.player, "Sprint", "R"); equal(f.player.leaderstats.KeyBinds.Sprint.Value, "LeftShift")
+	end)
+	test("fixed F inspect cannot collide with saved combat or movement bindings", function()
+		local f = bindingFixture()
+		for _, action in ipairs(f.validation.GetActions()) do
+			equal(f.validation.NormalizeForAction(action, "F"), nil)
+		end
+		local repaired = f.validation.ValidateAndRepair({ThrowKnife = "F", Reload = "T", ToogleCam = "Q"})
+		equal(repaired.Reload, "T"); equal(repaired.ToogleCam, "Q")
+		for _, key in pairs(repaired) do assert(key ~= "F") end
+		f.modules[child(child(f.RS, "Folder", "KeyBinds"), "ModuleScript", "KeybindValidation")] = f.validation
+		local remote = child(child(f.remotes, "Folder", "Keybinds"), "RemoteEvent", "ChangeKeybind")
+		f:load("KeybindServer", f.dataFolder)
+		remote.OnServerEvent:Fire(f.player, "Reload", "F"); equal(f.player.leaderstats.KeyBinds.Reload.Value, "R")
+	end)
+	test("Reload and ToogleCam defaults migrate old profiles without losing a conflicting saved Q", function()
+		local f = bindingFixture(); local defaults = f.validation.GetDefaults()
+		equal(defaults.Reload, "R"); equal(defaults.ToogleCam, "Q")
+		equal(f.validation.NormalizeForAction("Reload", "R"), "R")
+		equal(f.validation.NormalizeForAction("ToogleCam", "MouseButton2"), nil)
+		local migrated = f.validation.ValidateAndRepair({ThrowKnife = "Q"})
+		equal(migrated.ThrowKnife, "Q"); equal(migrated.Reload, "R"); assert(migrated.ToogleCam ~= "Q")
+		local seen = {}; for action, value in pairs(migrated) do assert(not seen[value], action); seen[value] = true end
+	end)
+	test("new keybind actions use server validation rate limits and the requesting player's values", function()
+		local f = bindingFixture(); local other = f:createPlayer(2)
+		f.modules[child(child(f.RS, "Folder", "KeyBinds"), "ModuleScript", "KeybindValidation")] = f.validation
+		local remote = child(child(f.remotes, "Folder", "Keybinds"), "RemoteEvent", "ChangeKeybind")
+		f:load("KeybindServer", f.dataFolder)
+		remote.OnServerEvent:Fire(f.player, "Reload", "T"); equal(f.player.leaderstats.KeyBinds.Reload.Value, "T")
+		remote.OnServerEvent:Fire(f.player, "ToogleCam", "Y"); equal(f.player.leaderstats.KeyBinds.ToogleCam.Value, "Q")
+		f.time += 0.25; remote.OnServerEvent:Fire(f.player, "ToogleCam", "Y"); equal(f.player.leaderstats.KeyBinds.ToogleCam.Value, "Y")
+		f.time += 1; remote.OnServerEvent:Fire(f.player, "ToogleCam", "T"); equal(f.player.leaderstats.KeyBinds.ToogleCam.Value, "Y")
+		f.time += 1; remote.OnServerEvent:Fire(f.player, "ToogleCam", "MouseButton1"); equal(f.player.leaderstats.KeyBinds.ToogleCam.Value, "Y")
+		f.time += 1; remote.OnServerEvent:Fire(f.player, "Reload", "W"); equal(f.player.leaderstats.KeyBinds.Reload.Value, "T")
+		f.time += 1; f.player:SetAttribute("DataReady", false)
+		remote.OnServerEvent:Fire(f.player, "Reload", "R"); equal(f.player.leaderstats.KeyBinds.Reload.Value, "T")
+		remote.OnServerEvent:Fire(other, "Reload", "R"); equal(f.player.leaderstats.KeyBinds.Reload.Value, "T")
+	end)
+	test("repair stays unique even when every previous fallback key is already assigned", function()
+		local validation = bindingFixture().validation
+		local saved, occupied = {}, {"Q", "T", "Y", "H", "J", "K", "L", "U", "B", "X", "X"}
+		for i, action in ipairs(validation.GetActions()) do saved[action] = occupied[i] end
+		local repaired, seen = validation.ValidateAndRepair(saved), {}
+		for action, value in pairs(repaired) do
+			assert(validation.NormalizeForAction(action,value) == value, action .. " unsupported")
+			assert(not seen[value], action .. " duplicate"); seen[value] = true
+		end
+		equal(repaired.ToogleCam, "Z")
+	end)
+	test("Reload and ToogleCam flow through profile saves and join hydration", function()
+		local validation = bindingFixture().validation
+		local f = profileFixture(validation)
+		local binds = child(f.player.leaderstats, "Folder", "KeyBinds")
+		for action, value in pairs(validation.GetDefaults()) do child(binds, "StringValue", action, value) end
+		binds.Reload.Value, binds.ToogleCam.Value = "T", "Y"
+		f.profiles.SaveProfile(f.player)
+		equal(f.profile.pending.KeyBinds.Reload, "T"); equal(f.profile.pending.KeyBinds.ToogleCam, "Y")
+		local rejoin = playerStartupFixture(); rejoin.savedPlayerData = copyTable(f.profile.pending)
+		rejoin.modules[rejoin.RS.KeyBinds.DefaultKeybinds] = validation.GetDefaults()
+		rejoin.modules[rejoin.RS.KeyBinds.KeybindValidation] = validation
+		local player = rejoin:newPlayer(1); rejoin:start()
+		equal(player.leaderstats.KeyBinds.Reload.Value, "T"); equal(player.leaderstats.KeyBinds.ToogleCam.Value, "Y")
+	end)
+	test("joining migrates old X defaults once while preserving custom keys and Q conflicts", function()
+		local validation = bindingFixture().validation
+		for _, case in ipairs({{old = "X", expected = "Q"}, {old = "Y", expected = "Y"},
+			{old = "X", version = 1, expected = "X"}, {old = "X", stab = "Q", expected = "X"}}) do
+			local f = playerStartupFixture()
+			f.savedPlayerData = {Cash = 700, XP = 150, Inventory = {},
+				KeyBinds = {ToogleCam = case.old, Stab = case.stab}, KeybindDefaultsVersion = case.version}
+			f.modules[f.RS.KeyBinds.DefaultKeybinds] = validation.GetDefaults()
+			f.modules[f.RS.KeyBinds.KeybindValidation] = validation
+			local player = f:newPlayer(1); f:start()
+			equal(player.leaderstats.KeyBinds.ToogleCam.Value, case.expected)
+			equal(f.savedPlayerData.KeyBinds.ToogleCam, case.expected); equal(f.savedPlayerData.KeybindDefaultsVersion, 1)
+			if case.stab then equal(player.leaderstats.KeyBinds.Stab.Value, case.stab) end
+		end
+	end)
+	local function cameraToggleFixture()
+		local f = bindingFixture(); f.Players.LocalPlayer = f.player
+		f.ui = {InputBegan = signal(), MouseIconEnabled = true, GetFocusedTextBox = function() return f.focused end}
+		f.guiService, f.vr = {MenuIsOpen = false}, {VREnabled = false}
+		f.bindings, f.bindCalls, f.nominalZoom = {}, 0, 8
+		f.run = {}
+		function f.run:BindToRenderStep(name, priority, fn)
+			assert(not f.bindings[name]); f.bindings[name] = {priority = priority, fn = fn}; f.bindCalls += 1
+		end
+		function f.run:UnbindFromRenderStep(name) f.bindings[name] = nil end
+		local originalService = f.game.GetService
+		f.game.GetService = function(self, name)
+			local services = {UserInputService = f.ui, GuiService = f.guiService, RunService = f.run, VRService = f.vr}
+			return services[name] or originalService(self, name)
+		end
+		local positionMeta = {__sub = function(a, b) return {Magnitude = math.abs(a.distance - b.distance)} end}
+		f.camera = {CameraType = "Custom", CameraSubject = f.player.Character.Humanoid,
+			CFrame = {Position = setmetatable({distance = 8}, positionMeta)}, Focus = {Position = setmetatable({distance = 0}, positionMeta)}}
+		f.workspace.CurrentCamera = f.camera
+		f.cameraChanged = signal()
+		f.workspace.GetPropertyChangedSignal = function() return f.cameraChanged end
+		f.env.Enum.CameraMode, f.env.Enum.CameraType = {Classic = "Classic", LockFirstPerson = "LockFirstPerson"}, {Custom = "Custom"}
+		f.env.Enum.RenderPriority = {Camera = {Value = 200}}
+		f.player.CameraMode, f.player.CameraMinZoomDistance, f.player.CameraMaxZoomDistance = "Classic", 0.5, 16
+		f.player.Character.Humanoid.Health = 100
+		local function nativeClamp()
+			f.nominalZoom = f.player.CameraMode == "LockFirstPerson" and 0.5
+				or math.clamp(f.nominalZoom, f.player.CameraMinZoomDistance, f.player.CameraMaxZoomDistance)
+		end
+		for _, property in ipairs({"CameraMode", "CameraMinZoomDistance", "CameraMaxZoomDistance"}) do
+			f.player:GetPropertyChangedSignal(property):Connect(nativeClamp)
+		end
+		f.config = f:load("CameraToggleConfig", f.modulesFolder)
+		f.env.UDim2 = {fromOffset = function(x,y) return {X=x,Y=y} end}
+		local client = child(f.RS, "Folder", "ToggleClient")
+		f.clientModules = child(client, "Folder", "Modules")
+		f:load("MouseVisibility", f.modulesFolder, "MouseCursorVisibility")
+		f.menuCamera = f:load("MenuCamera", f.clientModules, "MenuCamera")
+		f.toggle = f:load("CameraToggle", f.clientModules, "FirstPersonToggle"); f.toggle.Init()
+		function f.press(key, processed)
+			f.ui.InputBegan:Fire({UserInputType = f.env.Enum.UserInputType.Keyboard, KeyCode = f.env.Enum.KeyCode[key]}, processed or false)
+		end
+		function f.step()
+			nativeClamp()
+			for _, entry in pairs(table.clone(f.bindings)) do entry.fn() end
+		end
+		return f
+	end
+	test("camera toggle locks native first person blocks zoom-out and unlocks after exactly half a second", function()
+		local f = cameraToggleFixture(); local cameraFrame = f.camera.CFrame
+		f.press("Q"); equal(f.player.CameraMode, "LockFirstPerson"); equal(f.nominalZoom, 0.5)
+		f.nominalZoom = 16; f.step(); equal(f.nominalZoom, 0.5); equal(f.player.CameraMinZoomDistance, 0.5)
+		f.time += 0.499; f.press("Q"); equal(f.player.CameraMode, "LockFirstPerson")
+		f.time += 0.001; f.press("Q"); equal(f.player.CameraMode, "Classic"); equal(f.nominalZoom, 8)
+		equal(f.bindings.FirstPersonToggleZoomRestore.priority, 204)
+		f.step(); equal(f.player.CameraMinZoomDistance, 0.5); equal(next(f.bindings), nil)
+		f.nominalZoom = 12; f.step(); equal(f.nominalZoom, 12)
+		equal(f.camera.CFrame, cameraFrame); equal(f.bindCalls, 1)
+	end)
+	test("camera toggle follows saved binding changes immediately while remaining locked", function()
+		local f = cameraToggleFixture(); f.press("Q"); f.time += 1
+		f.player.leaderstats.KeyBinds.ToogleCam.Value = "Y"
+		f.press("Q"); equal(f.player.CameraMode, "LockFirstPerson")
+		f.press("Y"); equal(f.player.CameraMode, "Classic"); f.step()
+		f.time += 1; f.press("Y"); equal(f.player.CameraMode, "LockFirstPerson")
+	end)
+	local function cameraMenu(f)
+		local gui=f.player.PlayerGui or child(f.player,"PlayerGui","PlayerGui")
+		local main=child(gui,"ScreenGui","Main"); main.Enabled=true
+		local frames=child(main,"Folder","Frames")
+		local menu=child(frames,"Frame","Inventory"); menu.Visible=false
+		return main,frames,menu
+	end
+	test("menus temporarily unlock first person and restore the camera preference on close", function()
+		local f=cameraToggleFixture(); local main,_,menu=cameraMenu(f); f.press("Q")
+		menu.Visible=true; equal(f.player.CameraMode,"Classic","menu opening"); equal(f.nominalZoom,8)
+		-- Roblox can defer property signals until after the assignment returns.
+		f.player:GetPropertyChangedSignal("CameraMode"):Fire()
+		equal(main.MenuCursorRelease.Visible,true); equal(main.MenuCursorRelease.Modal,true); equal(f.ui.MouseIconEnabled,true)
+		f.step(); equal(f.player.CameraMinZoomDistance,.5); f.nominalZoom=12; f.step(); equal(f.nominalZoom,12)
+		menu.Visible=false; equal(f.player.CameraMode,"LockFirstPerson"); equal(main.MenuCursorRelease.Visible,false)
+		f.time+=1; f.press("Q"); equal(f.player.CameraMode,"Classic","toggle after menu closing")
+	end)
+	test("manually zoomed first person can zoom out immediately after a menu opens", function()
+		local f=cameraToggleFixture(); local _,_,menu=cameraMenu(f)
+		f.camera.CFrame.Position.distance=.5; f.nominalZoom=.5; menu.Visible=true
+		equal(f.player.CameraMode,"Classic"); equal(f.nominalZoom,8); f.step()
+		f.nominalZoom=15; f.step(); equal(f.nominalZoom,15)
+		menu.Visible=false; equal(f.player.CameraMode,"Classic"); equal(f.player.CameraMinZoomDistance,.5)
+	end)
+	test("overlapping and replaced menus keep one listener each and release on teardown", function()
+		local f=cameraToggleFixture(); local main,frames,menu=cameraMenu(f); f.press("Q"); menu.Visible=true
+		local trade=child(frames,"Frame","Trade"); trade.Visible=true; menu.Visible=false
+		equal(f.player.CameraMode,"Classic"); equal(trade:GetPropertyChangedSignal("Visible"):Count(),1)
+		main.Enabled=false; equal(f.player.CameraMode,"LockFirstPerson"); main.Enabled=true; equal(f.player.CameraMode,"Classic")
+		f.toggle.Destroy(); equal(trade:GetPropertyChangedSignal("Visible"):Count(),0)
+		equal(main:FindFirstChild("MenuCursorRelease"),nil); equal(f.player.CameraMinZoomDistance,.5)
+	end)
+	test("menu cursor visibility wins over weapon cursor owners and restores after release", function()
+		local f=cameraToggleFixture(); local _,_,menu=cameraMenu(f)
+		local cursor=f.modules[f.modulesFolder.MouseCursorVisibility]
+		cursor.Acquire("weapon"); equal(f.ui.MouseIconEnabled,false)
+		menu.Visible=true; equal(f.ui.MouseIconEnabled,true)
+		cursor.Acquire("aim"); cursor.Release("weapon"); equal(f.ui.MouseIconEnabled,true)
+		menu.Visible=false; equal(f.ui.MouseIconEnabled,false); cursor.Release("aim"); equal(f.ui.MouseIconEnabled,true)
+	end)
+	test("menus leave dead scripted spectator and VR camera zoom limits untouched", function()
+		for _,reason in ipairs({"dead","scripted","spectator","vr"}) do
+			local f=cameraToggleFixture(); local _,_,menu=cameraMenu(f)
+			if reason=="dead" then f.player.Character.Humanoid.Health=0
+			elseif reason=="scripted" then f.camera.CameraType="Scriptable"
+			elseif reason=="spectator" then f.camera.CameraSubject={}
+			else f.vr.VREnabled=true end
+			f.player.CameraMode="LockFirstPerson"; menu.Visible=true
+			equal(f.player.CameraMode,"LockFirstPerson"); equal(f.player.CameraMinZoomDistance,.5); equal(next(f.bindings),nil)
+		end
+	end)
+	test("camera input ignores chat menus settings capture processed input and unready profiles", function()
+		for _, gate in ipairs({"processed", "chat", "menu", "settings", "unready"}) do
+			local f = cameraToggleFixture()
+			if gate == "chat" then f.focused = {} elseif gate == "menu" then f.guiService.MenuIsOpen = true
+			elseif gate == "unready" then f.player:SetAttribute("DataReady", false)
+			elseif gate == "settings" then
+				local main = child(child(f.player, "PlayerGui", "PlayerGui"), "ScreenGui", "Main")
+				child(child(main, "Folder", "Frames"), "Frame", "KeybindEdit").Visible = true
+			end
+			f.press("Q", gate == "processed"); equal(f.player.CameraMode, "Classic"); equal(f.bindCalls, 0)
+		end
+	end)
+	test("camera toggle leaves VR scripted spectator dead and ragdolled views alone", function()
+		for _, gate in ipairs({"vr", "scripted", "spectating", "dead", "ragdoll"}) do
+			local f = cameraToggleFixture()
+			if gate == "vr" then f.vr.VREnabled = true elseif gate == "scripted" then f.camera.CameraType = "Scriptable"
+			elseif gate == "spectating" then f.camera.CameraSubject = {}
+			elseif gate == "dead" then f.player.Character.Humanoid.Health = 0
+			else f.player.Character:SetAttribute("Ragdolled", true) end
+			f.press("Q"); equal(f.player.CameraMode, "Classic"); equal(next(f.bindings), nil)
+		end
+	end)
+	test("native first-person lock persists across respawn and adds no ordinary render work", function()
+		local f = cameraToggleFixture(); f.press("Q")
+		local root = child(f.player.Character, "Part", "HumanoidRootPart")
+		root.CFrame, root.AssemblyLinearVelocity = "original", "original"
+		f:character(f.player); f.camera.CameraSubject = f.player.Character.Humanoid
+		f.player.Character.Humanoid.Health = 100
+		for _ = 1, 100 do f.step() end
+		equal(f.player.CameraMode, "LockFirstPerson"); equal(f.bindCalls, 0)
+		equal(root.CFrame, "original"); equal(root.AssemblyLinearVelocity, "original")
+		f.time += 1; f.press("Q"); equal(f.player.CameraMode, "Classic")
+	end)
+	test("unlock respects new zoom caps external zoom ownership and manual first-person entry", function()
+		local f = cameraToggleFixture(); f.camera.CFrame.Position.distance = 0.5
+		f.press("Q"); f.player.CameraMaxZoomDistance = 5; f.time += 1; f.press("Q")
+		equal(f.nominalZoom, 5); equal(f.player.CameraMaxZoomDistance, 5)
+		f.player.CameraMinZoomDistance = 2; f.step(); equal(f.player.CameraMinZoomDistance, 2)
+	end)
+	test("camera takeover cleanup and repeated initialization do not fight other camera controllers", function()
+		local f = cameraToggleFixture(); f.toggle.Init(); equal(f.ui.InputBegan:Count(), 1)
+		f.press("Q"); f.player.CameraMode = "Classic"
+		f.toggle.Destroy(); equal(f.ui.InputBegan:Count(), 0); equal(f.player.CameraMode, "Classic")
+		f.toggle.Init(); f.press("Q"); equal(f.player.CameraMode, "LockFirstPerson")
+		f.toggle.Destroy(); equal(f.player.CameraMode, "Classic"); equal(next(f.bindings), nil)
+	end)
+	test("camera unlock during spectator takeover changes no scripted camera or zoom limits", function()
+		local f = cameraToggleFixture(); f.press("Q"); f.time += 1
+		f.camera.CameraType = "Scriptable"; local frame = f.camera.CFrame
+		f.press("Q"); equal(f.player.CameraMode, "Classic"); equal(f.camera.CameraType, "Scriptable")
+		equal(f.camera.CFrame, frame); equal(f.player.CameraMinZoomDistance, 0.5); equal(next(f.bindings), nil)
+	end)
+	test("standalone camera toggle initializer starts once and cleans up on destruction", function()
+		local f = cameraToggleFixture(); f.toggle.Destroy()
+		local initializer = child(f.clientModules.Parent, "LocalScript", "InitializeFirstPersonToggle")
+		f.env.script = initializer; load("CameraToggleInitialize", f.env)
+		equal(f.ui.InputBegan:Count(), 1); f.press("Q"); equal(f.player.CameraMode, "LockFirstPerson")
+		initializer.Destroying:Fire(); equal(f.ui.InputBegan:Count(), 0); equal(f.player.CameraMode, "Classic")
+	end)
+	test("settings rows display and edit Reload and ToogleCam using the existing remote", function()
+		local f = cameraToggleFixture(); f.ui.WindowFocusReleased = signal()
+		local main = child(child(f.player, "PlayerGui", "PlayerGui"), "ScreenGui", "Main")
+		local frames = child(main, "Folder", "Frames"); child(frames, "Frame", "Settings").Visible = false
+		local frame = child(frames, "Frame", "KeybindEdit"); frame.Visible = true
+		local container, editor = child(frame, "Frame", "Container"), child(frame, "Frame", "EditKeybindFrame")
+		child(frame, "TextButton", "Exit"); child(frame, "TextButton", "Back")
+		for _, action in ipairs({"Reload", "ToogleCam"}) do
+			local row = child(container, "Frame", action); child(row, "TextButton", "EditKeybind")
+			child(child(row, "Frame", "KeybindFrame"), "TextLabel", "TextLabel")
+		end
+		local remote = child(child(f.remotes, "Folder", "Keybinds"), "RemoteEvent", "ChangeKeybind")
+		local originalService = f.game.GetService
+		f.game.GetService = function(self, name) if name == "Lighting" then return object("Lighting") end; return originalService(self, name) end
+		f.modules[child(child(f.RS, "Folder", "KeyBinds"), "ModuleScript", "KeybindValidation")] = f.validation
+		f:load("KeybindServer", f.dataFolder)
+		remote.OnSend = function(...) remote.OnServerEvent:Fire(f.player, ...) end
+		f:load("KeybindClient", f.clientModules.Parent)
+		equal(container.Reload.KeybindFrame.TextLabel.Text, "R"); equal(container.ToogleCam.KeybindFrame.TextLabel.Text, "Q")
+		container.Reload.EditKeybind.Activated:Fire(); f.press("T")
+		equal(f.player.leaderstats.KeyBinds.Reload.Value, "T"); equal(container.Reload.KeybindFrame.TextLabel.Text, "T")
+		equal(editor.Visible, false); equal(f.player.CameraMode, "Classic")
+		f.time += 1; container.ToogleCam.EditKeybind.Activated:Fire(); f.press("Y")
+		equal(f.player.leaderstats.KeyBinds.ToogleCam.Value, "Y"); equal(container.ToogleCam.KeybindFrame.TextLabel.Text, "Y")
+		equal(f.player.CameraMode, "Classic"); frame.Visible = false; f.press("Y"); equal(f.player.CameraMode, "LockFirstPerson")
 	end)
 	test("knife input honors stab bind and processed release; rebinding cancels held charge", function()
 		local f = bindingFixture(); f.Players.LocalPlayer = f.player
@@ -1601,10 +1906,21 @@ return function(load)
 	end)
 	local function movementFixture(unloadedWalk)
 		local f, gui = interactionFixture()
+		f.events.PreSimulation = signal()
 		f:load("MovementConfig", f.modulesFolder); f:load("MovementState", f.modulesFolder, "MovementAnimationState")
 		f:load("FirstPersonCameraConfig", f.modulesFolder)
 		f.sprint = f:load("SprintState", f.modulesFolder)
 		f.modules[child(f.modulesFolder, "ModuleScript", "KeybindValidation")] = {ToEnum = function(value) return value end}
+		-- Terrain/constraint behavior is exercised by movement-slide.spec.luau;
+		-- this fixture covers the animation/input controller's integration.
+		f.modules[child(f.modulesFolder, "ModuleScript", "SlideController")] = {new = function()
+			f.slide = {Speed = 32, Active = false}
+			function f.slide:Start() self.Active = true; return true end
+			function f.slide:Step() return self.Active end
+			function f.slide:Stop() self.Active = false end
+			function f.slide:Destroy() self.Active, self.Destroyed = false, true end
+			return f.slide
+		end}
 		local binds = child(f.player.leaderstats, "Folder", "KeyBinds")
 		child(binds, "StringValue", "Sprint", "LeftShift"); child(binds, "StringValue", "Crouch", "LeftControl"); child(binds, "StringValue", "Slide", "C")
 		child(child(child(gui, "Frame", "MobileFrame"), "Frame", "BasicControls"), "ImageButton", "Sprint")
@@ -1617,6 +1933,7 @@ return function(load)
 		function animator:LoadAnimation(animation)
 			local track = {Length = (unloadedWalk and animation.AnimationId == "rbxassetid://79598872056948") and 0 or 1, IsPlaying = false, id = animation.AnimationId, plays = 0}
 			function track:Play() self.IsPlaying = true; self.plays += 1 end
+			function track:AdjustSpeed(speed) self.PlaybackSpeed = speed end
 			function track:Stop() self.IsPlaying = false end
 			function track:Destroy() self.IsPlaying, self.destroyed = false, true end
 			f.loaded[animation.AnimationId] = track
@@ -1639,6 +1956,7 @@ return function(load)
 		f.actions.SprintAction("SprintAction", "Begin"); equal(run.IsPlaying, true); equal(f.humanoid.WalkSpeed, 32)
 		run.IsPlaying = false; f.events.Heartbeat:Fire(0.25); equal(run.IsPlaying, true)
 		f.humanoid.Died:Fire(); equal(next(f.actions), nil); equal(run.destroyed, true); equal(f.events.Heartbeat:Count(), 0)
+		equal(f.slide.Destroyed, true); equal(f.events.PreSimulation:Count(), 0)
 	end)
 	test("movement publishes crouch and slide camera posture from the selected animation and clears it on air death and focus loss", function()
 		local f = movementFixture(); local attribute = "FirstPersonMovementPosture"
@@ -1652,6 +1970,18 @@ return function(load)
 		f.actions.SprintAction("SprintAction", "Begin"); f.actions.SlideAction("SlideAction", "Begin")
 		equal(f.player.Character:GetAttribute(attribute), "Slide")
 		f.humanoidState = "Dead"; f.humanoid.Died:Fire(); equal(f.player.Character:GetAttribute(attribute), "Stand")
+	end)
+	test("movement blends a small step through Freefall but jump cancels slide immediately", function()
+		local f = movementFixture(); local attribute = "FirstPersonMovementPosture"
+		f.actions.SprintAction("SprintAction", "Begin"); f.actions.SlideAction("SlideAction", "Begin")
+		equal(f.slide.Active, true)
+		local track = f.loaded["rbxassetid://75213495477739"]
+		equal(track.PlaybackSpeed, track.Length / 0.8)
+		f.humanoidState, f.humanoid.FloorMaterial = "Freefall", "Air"; f.humanoid.StateChanged:Fire()
+		equal(f.player.Character:GetAttribute(attribute), "Slide")
+		f.humanoidState = "Jumping"; f.humanoid.StateChanged:Fire()
+		equal(f.slide.Active, false); equal(f.player.Character:GetAttribute(attribute), "Stand")
+		equal(f.humanoid.WalkSpeed, 32)
 	end)
 	test("movement retries unloaded custom assets then uses a bounded R6 fallback", function()
 		local f = movementFixture(true)
@@ -1752,6 +2082,29 @@ return function(load)
 			equal(f.progress.KILLS, 1); equal(f.rewardCalls, nil); equal(#f.deferred, 1); equal(#f.delayed, 1)
 		end
 	end)
+	test("death presentation and quest failures cannot block FFA or BR respawn and killcam", function()
+		for _,respawns in ipairs({false,true}) do
+			for _,failure in ipairs({"ragdoll","quests"}) do
+				local f=roundFixture(); f.prepare(respawns)
+				if failure=="ragdoll" then
+					f.modules[f.server.CharacterDeath.RagdollService].OnDeath=function() error("simulated ragdoll failure") end
+				else
+					f.modules[f.servicesFolder.QuestsHandler].AddProgress=function() error("simulated quest failure") end
+				end
+				f.main.DamagePlayer(f.player,f.victim,f.victim.Character.Humanoid,100)
+				equal(#f.delayed,1); equal(f.remotes.KillCam.ClientCalls,1)
+				f.delayed[1].fn(); equal(f.victim.loads,1)
+			end
+		end
+	end)
+	test("an eliminated player dying again in the lobby still receives one manual respawn", function()
+		local f=roundFixture(); f.prepare(false)
+		f.main.DamagePlayer(f.player,f.victim,f.victim.Character.Humanoid,100)
+		f.delayed[1].fn(); equal(f.victim.loads,1)
+		f.victim.Character.Humanoid.Health=0; f.main.OnDeath(f.victim,f.victim.Character)
+		f.main.OnDeath(f.victim,f.victim.Character); equal(#f.delayed,2)
+		f.delayed[2].fn(); equal(f.victim.loads,2)
+	end)
 	test("nonlethal, blocked, protected, stale-character and nonparticipant damage cannot grant kills", function()
 		local f = roundFixture(); f.prepare(true)
 		equal(f.main.DamagePlayer(f.player, f.victim, f.victim.Character.Humanoid, 50), 50)
@@ -1766,6 +2119,31 @@ return function(load)
 		equal(protected.main.DamagePlayer(protected.player, protected.victim, old.Humanoid, 100), 0)
 		protected.main.PlayersInGame[2] = nil
 		equal(protected.main.DamagePlayer(protected.player, protected.victim, protected.victim.Character.Humanoid, 100), 0)
+	end)
+	test("kill UI identifies the victim immediately and reports only actual deferred XP once", function()
+		for _, awarded in ipairs({0, 25, 37}) do
+			local f = roundFixture(); f.prepare(true)
+			f.rewards.XpReward = function(target, action)
+				return target == f.player and action == "kill" and awarded or 0
+			end
+			f.main.DamagePlayer(f.player, f.victim, f.victim.Character.Humanoid, 100)
+			local immediate = f.killSound.LastClientArgs
+			equal(immediate[1], f.player); equal(immediate[2], "Kill")
+			equal(immediate[3].VictimUserId, f.victim.UserId); equal(immediate[3].VictimUsername, f.victim.Name)
+			assert(type(immediate[3].KillId) == "string")
+			f.main.OnDeath(f.victim, f.victim.Character); equal(f.killSound.ClientCalls, 1)
+			f.deferred[1]()
+			local reward = f.killSound.LastClientArgs
+			equal(reward[2], "KillReward"); equal(reward[3].KillId, immediate[3].KillId)
+			equal(reward[3].XpEarned, awarded); equal(f.killSound.ClientCalls, 2)
+		end
+	end)
+	test("deferred kill XP feedback skips a killer who disconnected after credit", function()
+		local f = roundFixture(); f.prepare(true)
+		f.main.DamagePlayer(f.player, f.victim, f.victim.Character.Humanoid, 100)
+		f.player.Parent = nil
+		f.deferred[1]()
+		equal(f.killSound.ClientCalls, 1)
 	end)
 	test("weapon death prepares joints and impact before inline or deferred death handling", function()
 		for _, inline in ipairs({false,true}) do
@@ -2074,43 +2452,72 @@ return function(load)
 		f.zoneActual.StopZone(); f.SS.Zone:Destroy(); equal(f.zoneActual.SpawnZone(), false)
 		assert(coroutine.resume(damage)); equal(coroutine.status(damage), "dead")
 	end)
+	test("zone warnings send on visibility changes instead of every damage tick", function()
+		local f=zoneFixture(); local remote=f.remotes.Zone.RecieveClient; local initial=remote.ClientCalls or 0
+		for _=1,30 do f.zoneActual.NotifyPlayer(f.player,true) end
+		equal(remote.ClientCalls,initial+1)
+		f.zoneActual.NotifyPlayer(f.player,false); equal(remote.ClientCalls,initial+2)
+		f.zoneActual.StopZone(); f.zoneActual.NotifyPlayer(f.player,false)
+		equal(remote.ClientCalls,initial+4)
+	end)
 	local function hitFixture()
 		local f = fixture(); f.audio = f:load("CombatAudioConfig", f.modulesFolder)
-		f.soundService = object("SoundService", "SoundService"); f.debris = {}
+		f.player = f:createPlayer(1); f.Players.LocalPlayer = f.player
+		child(f.player, "PlayerGui", "PlayerGui")
+		f.victim = f:createPlayer(2).Character; child(f.victim, "Part", "Head")
+		local function constructor(...) return {...} end
+		f.env.Vector2, f.env.Vector3, f.env.Color3 = vec, vec, {fromRGB = constructor}
+		f.env.UDim, f.env.UDim2 = {new = constructor}, {new = constructor, fromScale = constructor, fromOffset = constructor}
+		f.env.Enum.Font = {GothamBold = "Bold", GothamBlack = "Black"}
+		f.env.Enum.TextXAlignment, f.env.Enum.TextTruncate = {Left = "Left"}, {AtEnd = "AtEnd"}
+		f.env.Enum.ZIndexBehavior = {Sibling = "Sibling"}
+		f.env.Enum.EasingStyle, f.env.Enum.EasingDirection = {Quad = "Quad", Back = "Back"}, {Out = "Out"}
+		f.env.TweenInfo = {new = constructor}
+		f.workspace.CurrentCamera = object("Camera", "Camera"); f.workspace.CurrentCamera.ViewportSize = vec.new(1280, 720)
+		f.workspace.GetPropertyChangedSignal = function() return signal() end
+		f.env.task.delay = function(delay, fn) local job = {delay = delay, fn = fn}; table.insert(f.delayed, job); return job end
+		f.env.task.cancel = function(job) job.cancelled = true end
+		f:load("CombatFeedbackConfig", f.modulesFolder)
+		f.soundService = object("SoundService", "SoundService")
+		f.tweenService = {Create = function(_, target, _, goal)
+			return {Play = function() for name, value in pairs(goal) do target[name] = value end end, Cancel = function() end, Destroy = function() end}
+		end}
 		local getService = f.game.GetService
 		f.game.GetService = function(self, name)
 			if name == "SoundService" then return f.soundService end
-			if name == "Debris" then return {AddItem = function(_, item, lifetime) table.insert(f.debris, {item = item, lifetime = lifetime}) end} end
+			if name == "TweenService" then return f.tweenService end
 			return getService(self, name)
 		end
-		f.damage = child(child(f.remotes, "Folder", "Knife"), "RemoteEvent", "DamageDealtClient")
+		local knife = child(f.remotes, "Folder", "Knife")
+		f.damage = child(knife, "RemoteEvent", "DamageDealtClient"); child(knife, "RemoteEvent", "PlayerGotKilledRemote")
 		f.hit = f:load("HitFeedback", f.modulesFolder); f.hit.Init()
 		return f
 	end
 	test("confirmed gun and thrown knife damage each play one quiet hit sound", function()
 		local f = hitFixture(); f.hit.Init(); equal(f.damage.OnClientEvent:Count(), 1)
-		for _, kind in ipairs({"Revolver", "KnifeThrow"}) do f.damage.OnClientEvent:Fire(nil, 50, kind) end
-		equal(#f.soundService:GetChildren(), 2)
+		for _, kind in ipairs({"Revolver", "KnifeThrow"}) do f.damage.OnClientEvent:Fire(f.victim, 50, kind) end
+		equal(#f.soundService:GetChildren(), f.audio.Hit.MaxActiveSounds)
+		local plays = 0
 		for _, audio in ipairs(f.soundService:GetChildren()) do
-			equal(audio.SoundId, "rbxassetid://79414317792890"); equal(audio.Volume, 0.22); equal(audio.plays, 1)
+			equal(audio.SoundId, "rbxassetid://79414317792890"); equal(audio.Volume, 0.22); plays += audio.plays or 0
 			equal(audio.Looped, false)
 		end
-		equal(f.debris[1].lifetime, 3)
-		local first = f.soundService:GetChildren()[1]; first.Ended:Fire(); equal(first.Parent, nil)
+		equal(plays, 2)
 	end)
 	test("misses blocked damage invalid damage and stab do not play throw hit feedback", function()
 		local f = hitFixture()
-		for _, amount in ipairs({0, -1, math.huge, -math.huge, 0/0, "50"}) do f.damage.OnClientEvent:Fire(nil, amount, "KnifeThrow") end
-		f.damage.OnClientEvent:Fire(nil, 50); f.damage.OnClientEvent:Fire(nil, 50, "KnifeStab")
-		equal(#f.soundService:GetChildren(), 0)
+		for _, amount in ipairs({0, -1, math.huge, -math.huge, 0/0, "50"}) do f.damage.OnClientEvent:Fire(f.victim, amount, "KnifeThrow") end
+		f.damage.OnClientEvent:Fire(f.victim, 50); f.damage.OnClientEvent:Fire(f.victim, 50, "KnifeStab")
+		for _, audio in ipairs(f.soundService:GetChildren()) do equal(audio.plays, nil) end
 	end)
 	test("hit audio has a bounded voice budget and completed sounds release their slots", function()
 		local f = hitFixture()
-		for _ = 1, 20 do f.damage.OnClientEvent:Fire(nil, 50, "Revolver") end
-		equal(#f.soundService:GetChildren(), 12); equal(f.debris[1].item.Parent, nil)
-		local completed = f.soundService:GetChildren()[1]; completed.Ended:Fire()
-		f.damage.OnClientEvent:Fire(nil, 50, "Revolver"); equal(#f.soundService:GetChildren(), 12)
-		equal(completed.Ended:Count(), 0)
+		for _ = 1, 20 do f.damage.OnClientEvent:Fire(f.victim, 50, "Revolver") end
+		equal(#f.soundService:GetChildren(), 12)
+		local completed = f.soundService:GetChildren()[1]; completed.IsPlaying = false
+		local plays = completed.plays
+		f.damage.OnClientEvent:Fire(f.victim, 50, "Revolver"); equal(#f.soundService:GetChildren(), 12)
+		equal(completed.plays, plays + 1)
 	end)
 	test("requested match song uses configured volume and mutes through the Music setting", function()
 		local cfg = load("MusicConfig"); equal(cfg.Round.SoundId, "rbxassetid://103700954012183")
@@ -2125,6 +2532,7 @@ return function(load)
 		child(f.binds, "StringValue", "Stab", "MouseButton1"); child(f.binds, "StringValue", "ThrowKnife", "E")
 		f.config = f:load("KnifeConfig", f.modulesFolder)
 		f.modules[child(f.modulesFolder, "ModuleScript", "KeybindValidation")] = {ToDisplay = function(key) return key == "MouseButton1" and "LClick" or key end}
+		f.modules[child(f.modulesFolder, "ModuleScript", "HitFeedback")] = {SetAimPosition = function(position) f.markerPosition = position end}
 		local function constructor(...) return {...} end
 		f.env.Vector2, f.env.UDim2, f.env.Color3 = {new = constructor}, {fromScale = constructor, fromOffset = constructor}, {new = constructor, fromRGB = constructor}
 		f.env.Enum.Font = {GothamBold = "GothamBold"}; f.workspace.CurrentCamera = {ViewportSize = {X = 320}}
@@ -2149,24 +2557,18 @@ return function(load)
 		f.hint.Update(true, false, 10); equal(f.label.Text, "THROW CHARGE 100%  |  RELEASE TO THROW")
 		f.config.Presentation.HintEnabled = false; f.hint.Update(true, false); equal(f.gui.KnifeHUD.Enabled, false)
 	end)
-	test("knife hit marker matches revolver style, expires and works with hint disabled", function()
-		local f = hintFixture(); local marker = f.gui.KnifeHUD.HitMarker
-		equal(marker.Visible, false); equal(marker.Text, "X"); equal(marker.TextSize, 32)
-		equal(marker.TextColor3[1], 255); equal(marker.TextColor3[2], 210); equal(marker.TextColor3[3], 80)
-		f.config.Presentation.HintEnabled = false; f.hint.ShowHitMarker()
+	test("knife aim positions reach shared hit feedback even with the hint disabled", function()
+		local f = hintFixture()
+		f.config.Presentation.HintEnabled = false
 		f.hint.Update(true, false, nil, {X = 123, Y = 234})
-		equal(marker.Visible, true); equal(marker.Position[1], 123); equal(marker.Position[2], 234)
-		equal(f.gui.KnifeHUD.Enabled, true); equal(f.label.Visible, false)
-		f.time += 0.16; f.hint.Update(true, false, nil, {X = 123, Y = 234})
-		equal(marker.Visible, false); equal(f.gui.KnifeHUD.Enabled, false)
+		equal(f.markerPosition.X, 123); equal(f.markerPosition.Y, 234)
+		equal(f.gui.KnifeHUD.Enabled, false); equal(f.label.Visible, false)
+		equal(f.gui.KnifeHUD:FindFirstChild("HitMarker"), nil)
 	end)
-	test("knife hit marker clears on hiding and does not return on re-equip", function()
-		local f = hintFixture(); f.hint.ShowHitMarker(); f.hint.Update(true, true, nil, {X = 160, Y = 300})
-		equal(f.gui.KnifeHUD.HitMarker.Visible, true)
-		f.hint.Update(false, true); equal(f.gui.KnifeHUD.HitMarker.Visible, false)
-		f.hint.Update(true, true, nil, {X = 160, Y = 300}); equal(f.gui.KnifeHUD.HitMarker.Visible, false)
-		f.config.Presentation.HitMarkerEnabled = false; f.hint.ShowHitMarker()
-		f.hint.Update(true, false, nil, {X = 160, Y = 300}); equal(f.gui.KnifeHUD.HitMarker.Visible, false)
+	test("hidden knife hints do not overwrite another weapon's shared aim position", function()
+		local f = hintFixture(); f.hint.Update(true, true, nil, {X = 160, Y = 300})
+		f.hint.Update(false, true, nil, {X = 999, Y = 999})
+		equal(f.markerPosition.X, 160); equal(f.markerPosition.Y, 300)
 	end)
 	test("map spawn markers remain valid with CanQuery disabled", function()
 		local f = mapFixture(); f.SS.MapA.Geometry.Spawns["1"].CanQuery = false
@@ -2393,6 +2795,22 @@ return function(load)
 		f.player:SetAttribute("DataReady", true); equal(f.player.leaderstats.Kills.Changed:Count(), 1)
 		f.player.leaderstats.Kills.Value = 15; equal(f.request.LastClientArgs[1].Kills[1].Value, 15)
 		f.Players.PlayerRemoving:Fire(f.player); equal(f.player.leaderstats.Kills.Changed:Count(), 0)
+	end)
+	test("yielding leaderboard writes coalesce updates and disconnect departure hooks before backend completion", function()
+		local f=leaderboardServerFixture(); local writes=0
+		for _,store in ipairs(f.stores) do
+			function store:SetAsync(key,value) writes+=1; coroutine.yield(); self.values[key]=value end
+		end
+		local first=coroutine.create(f.background[1]); assert(coroutine.resume(first)); equal(writes,1)
+		for value=1,20 do
+			f.player.leaderstats.Cash.Value=value; f.boards.UpdatePlayer(f.player)
+			local latest=coroutine.create(f.background[#f.background]); assert(coroutine.resume(latest)); equal(coroutine.status(latest),"dead")
+		end
+		equal(writes,1)
+		f.Players.PlayerRemoving:Fire(f.player); equal(f.player.leaderstats.Cash.Changed:Count(),0)
+		for _=1,8 do if coroutine.status(first)=="suspended" then assert(coroutine.resume(first)) end end
+		equal(coroutine.status(first),"dead"); assert(writes<=6)
+		for _,store in ipairs(f.stores) do if store.name:find("Gold") then equal(store.values["1"],20) end end
 	end)
 	local function leaderboardClientFixture()
 		local f = fixture(); f.player = f:createPlayer(1); f.Players.LocalPlayer = f.player

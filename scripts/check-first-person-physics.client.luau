@@ -86,6 +86,12 @@ local function sample(dt)
 				if part:IsA("BasePart") and (part.CanCollide or part.CanTouch or not part.Massless) then
 					fail("tool:" .. path(part), "Live weapon has unsafe physics: " .. flags(part))
 				end
+				if part:IsA("FaceInstance") then
+					local supported, modifier = pcall(function() return part.LocalTransparencyModifier end)
+					if part.Transparency < 1 and (not supported or modifier < 1) then
+						fail("face:" .. path(part), "Real weapon face remains visible in first person: " .. path(part))
+					end
+				end
 			end
 		end
 	end
@@ -117,7 +123,11 @@ local function sample(dt)
 			end
 		elseif item:IsA("ParticleEmitter") or item:IsA("Beam") or item:IsA("Trail") or item:IsA("Light")
 			or item:IsA("Fire") or item:IsA("Smoke") or item:IsA("Sparkles") then
-			fail("effect:" .. path(item), "First-person weapon contains unwanted VFX: " .. path(item))
+			local muzzleFeedback = item:IsA("ParticleEmitter") and item:GetAttribute("FirstPersonShotEffect") == true
+			if not muzzleFeedback then fail("effect:" .. path(item), "First-person weapon contains unwanted skin VFX: " .. path(item))
+			elseif item.Enabled or item.Rate ~= 0 or item.Lifetime.Max > 0.15 then
+				fail("shot:" .. path(item), "Camera muzzle feedback exceeds its bounded burst settings: " .. path(item))
+			end
 		elseif item:IsA("Humanoid") then
 			if not renderHumanoids[item] then
 				renderHumanoids[item] = true
@@ -144,5 +154,5 @@ local move = humanoid and humanoid.MoveDirection or Vector3.zero
 print(string.format("[FirstPersonPhysicsCheck] Finished: %d ticks, %d model ticks, %d collision pairs checked, %d distinct failures. Max horizontalSpeed=%.3f, max idleSpeed=%.3f, max positionStepSpeed=%.3f; final MoveDirection=(%.3f, %.3f, %.3f)",
 	ticks, modelTicks, checks, failures, maximumSpeed, maximumIdleSpeed, maximumStepSpeed, move.X, move.Y, move.Z))
 if failures == 0 and modelTicks > 0 then
-	print("[FirstPersonPhysicsCheck] PASS: viewmodel contacts/assembly references blocked, geometry contains no VFX, and live weapon flags safe throughout this sample.")
+	print("[FirstPersonPhysicsCheck] PASS: viewmodel contacts/assembly references blocked, real weapon textures hidden, only bounded shot feedback present, and live weapon flags safe throughout this sample.")
 end

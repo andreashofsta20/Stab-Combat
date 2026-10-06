@@ -32,7 +32,13 @@ local Shot = getOrCreate(folder, "Shot", "RemoteEvent")
 local Aim = getOrCreate(folder, "Aim", "UnreliableRemoteEvent")
 local sessions, buckets, connections = {}, {}, {}
 local poseBuckets = {}
-local poseTunings = {}
+local tunings = {}
+
+local function getTuning(name)
+	local tuning = tunings[name]
+	if not tuning then tuning = Config.Get(name); tunings[name] = tuning end
+	return tuning
+end
 
 local function now() return workspace:GetServerTimeNow() end
 local function heldRevolver(player)
@@ -117,11 +123,10 @@ local function candidates(shooter, time, tuning)
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			if root and root:IsA("BasePart") and Math.IsFiniteVector(root.Position, Config.Security.MaxCoordinate)
 				and humanoid and not character:FindFirstChildOfClass("ForceField") then
-				local frame = History.GetFrame(victim, character, MainGame.RoundStats, time, root.CFrame, Config.LagCompensation)
-				table.insert(result, {
-					player = victim, humanoid = humanoid, character = character,
-					frame = frame * CFrame.new(table.unpack(tuning.HitboxOffset)),
-				})
+				local snapshot = History.GetSnapshot(victim, character, MainGame.RoundStats, time, root.CFrame, Config.LagCompensation)
+				snapshot.player, snapshot.humanoid, snapshot.character = victim, humanoid, character
+				snapshot.frame = snapshot.frame * CFrame.new(table.unpack(tuning.HitboxOffset))
+				table.insert(result, snapshot)
 			end
 		end
 	end
@@ -153,7 +158,7 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 		sendState(player, session, "Unavailable")
 		return
 	end
-	local tuning = Config.Get(tool.Name)
+	local tuning = getTuning(tool.Name)
 	if session.reloadEnd > 0 and session.reloadTool ~= tool then State.CancelReload(session) end
 	State.Advance(session, time, Config.Capacity)
 	if action == "Reload" then
@@ -184,21 +189,13 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 		return
 	end
 	local cast = worldCaster()
-	local cameraVector = cameraOrigin - head.Position
-	local obstruction = cast(head.Position, cameraVector)
-	if obstruction and obstruction.Distance < cameraVector.Magnitude - 0.02 then
-		sendState(player, session, "CameraBlocked")
-		return
-	end
-	local muzzle = Raycast.GetMuzzle(tool, head, tuning, Config.Security.MaxMuzzleDistance)
-	local barrelVector = muzzle - head.Position
-	local barrelBlocked = cast(head.Position, barrelVector)
-	-- A muzzle poking through a wall may not shoot from beyond it.
-	if barrelBlocked and barrelBlocked.Distance < barrelVector.Magnitude - 0.02 then
-		muzzle = head.Position
-	end
+	-- The animated Tool can dip behind a ledge while the cursor stays clear.
+	-- Resolve gameplay from the trusted eye/head position; barrel motion is visual.
+	-- Cover is checked head-to-target, not head-to-camera: a valid rear target
+	-- can itself be the part between the camera and character.
+	local origin = head.Position
 	local rewind = Math.RewindTime(time, timestamp, ping, Config.LagCompensation)
-	local result = Raycast.Resolve(cameraOrigin, cameraDirection.Unit, muzzle, tuning, candidates(player, rewind, tuning), cast, head.Position)
+	local result = Raycast.Resolve(cameraOrigin, cameraDirection.Unit, origin, tuning, candidates(player, rewind, tuning), cast)
 	if not result then sendState(player, session, "InvalidAim"); return end
 	local accepted, reason = State.Fire(session, time, tuning.FireIntervalMs / 1000, Config.Capacity)
 	if not accepted then sendState(player, session, reason); return end
@@ -207,14 +204,16 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 	local hit = false
 	if victim and canPlay(victim.player) and victim.player.Character == victim.character
 		and victim.humanoid.Health > 0 and not victim.character:FindFirstChildOfClass("ForceField") then
-        local dealt = MainGame.DamagePlayer(player, victim.player, victim.humanoid, tuning.Damage,
-			{ Kind = "Revolver", Direction = result.position - muzzle })
-		if dealt > 0 then DamageRemote:FireClient(player, victim.character, dealt, "Revolver", tool.Name); hit = true end
+		local headshot = result.headshot == true
+        local dealt = MainGame.DamagePlayer(player, victim.player, victim.humanoid, headshot and tuning.HeadshotDamage or tuning.Damage,
+			{ Kind = "Revolver", Direction = result.position - origin })
+		if dealt > 0 then DamageRemote:FireClient(player, victim.character, dealt, "Revolver", tool.Name, headshot); hit = true end
 	end
 	sendState(player, session, "Fired")
 	Shot:FireAllClients({
 		ShooterId = player.UserId, Session = session.id, Sequence = sequence,
-		Weapon = tool.Name, Origin = muzzle, Position = result.position, Normal = result.normal, Hit = hit,
+		Weapon = tool.Name, Origin = origin, Position = result.position, Normal = result.normal,
+		Surface = result.surface, Hit = hit,
 	})
 end)
 
@@ -232,8 +231,7 @@ Aim.OnServerEvent:Connect(function(player, sessionId, sequence, pitch, yaw, aimi
 		or session.round ~= MainGame.RoundStats or not canPresent(player) then return end
 	local tool = heldRevolver(player)
 	if not tool then return end
-	local tuning = poseTunings[tool.Name]
-	if not tuning then tuning = Config.Get(tool.Name); poseTunings[tool.Name] = tuning end
+	local tuning = getTuning(tool.Name)
 	if not tuning.Pose.Enabled or not PoseMath.AcceptPacket(session, sequence, pitch, yaw, tuning.Pose, aiming) then return end
 	Aim:FireAllClients(player.UserId, session.character, session.id, sequence, pitch, yaw,
 		aiming and tuning.Aim.Enabled, canPlay(player) and session.reloadEnd > time, time)

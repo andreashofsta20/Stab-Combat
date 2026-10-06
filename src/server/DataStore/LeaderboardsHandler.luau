@@ -16,9 +16,12 @@ local KillsStore = DataStoreService:GetOrderedDataStore("Leaderboard_Kills_Datas
 local GoldStore = DataStoreService:GetOrderedDataStore("Leaderboard_Gold_Datastore1.0", scope)
 
 local NAME_CACHE = {}
+local nameOrder = {}
+local NAME_CACHE_LIMIT = 256
+local writeJobs = {}
 local UPDATE_COOLDOWN_SECONDS = 60
 local DEFAULT_TOP_COUNT = 50
-local liveUpdateDebounces: {[number]: boolean} = {}
+local broadcastQueued = false
 local lastWrittenStats = {}
 local requestCooldowns = {}
 local playerConnections = {}
@@ -40,13 +43,15 @@ local function getPlayerName(userId: number)
     
     if success and name then
         NAME_CACHE[userId] = name
+        table.insert(nameOrder, userId)
+        while #nameOrder > NAME_CACHE_LIMIT do NAME_CACHE[table.remove(nameOrder, 1)] = nil end
         return name
     end
 
     return "Unknown"
 end
 
-local function updateOrderedStores(player: Player)
+local function updateOrderedStores(player: Player, leaving: boolean?)
     if player:GetAttribute("DataReady") ~= true then return end
     local userId = player.UserId
     -- These server values are current; Profile.Data is refreshed at save time.
@@ -54,15 +59,29 @@ local function updateOrderedStores(player: Player)
     local kills, cash, xp = stats and stats:FindFirstChild("Kills"), stats and stats:FindFirstChild("Cash"), stats and stats:FindFirstChild("XP")
     if not kills or not cash or not xp then return end
     local values = { Kills = kills.Value, Gold = cash.Value, Levels = CalculateLevelModule.GetLevel(xp.Value) }
+    local job = writeJobs[player]
+    if job then
+        job.pending = values -- one latest snapshot, never one task per stat change
+        job.leaving = job.leaving or leaving == true
+        return
+    end
     local previous = lastWrittenStats[userId] or {}
-    lastWrittenStats[userId] = previous
-    for name, store in pairs({ Kills = KillsStore, Gold = GoldStore, Levels = LevelsStore }) do
-        local value = values[name]
-        if previous[name] ~= value then
-            local ok = pcall(function() store:SetAsync(tostring(userId), value) end)
-            if ok then previous[name] = value end -- failed writes retry next cycle
+    job = {pending = values, leaving = leaving == true}
+    writeJobs[player] = job
+    if not leaving then lastWrittenStats[userId] = previous end
+    while job.pending do
+        local snapshot = job.pending
+        job.pending = nil
+        for name, store in pairs({ Kills = KillsStore, Gold = GoldStore, Levels = LevelsStore }) do
+            local value = snapshot[name]
+            if previous[name] ~= value then
+                local ok = pcall(function() store:SetAsync(tostring(userId), value) end)
+                if ok then previous[name] = value end -- failed writes retry next cycle
+            end
         end
     end
+    writeJobs[player] = nil
+    if job.leaving then lastWrittenStats[userId] = nil end
 end
 
 local function getLeaderboardData(orderedStore: OrderedDataStore, count: number)
@@ -146,13 +165,7 @@ local function bindLiveUpdates(player: Player)
             table.insert(playerConnections[player], stat.Changed:Connect(function()
                 if player:GetAttribute("DataReady") ~= true then return end
                 updateCachedPlayer(player)
-                if not liveUpdateDebounces[player.UserId] then
-                    liveUpdateDebounces[player.UserId] = true
-                    Leaderboards.Broadcast()
-                    task.delay(0.25, function()
-                        liveUpdateDebounces[player.UserId] = nil
-                    end)
-                end
+                Leaderboards.QueueBroadcast()
             end))
         end
     end
@@ -160,6 +173,15 @@ end
 
 function Leaderboards.Broadcast()
     RequestLeaderboardsRemote:FireAllClients(CachedLeaderboards)
+end
+
+function Leaderboards.QueueBroadcast()
+    if broadcastQueued then return end
+    broadcastQueued = true
+    task.delay(0.25, function()
+        broadcastQueued = false
+        Leaderboards.Broadcast()
+    end)
 end
 
 -- Allow other modules to force a fresh write
@@ -173,11 +195,13 @@ end
 
 -- Save right as they leave to capture final stats
 Players.PlayerRemoving:Connect(function(player)
-    updateOrderedStores(player)
-    liveUpdateDebounces[player.UserId] = nil
-    lastWrittenStats[player.UserId], requestCooldowns[player.UserId] = nil, nil
     for _, connection in ipairs(playerConnections[player] or {}) do connection:Disconnect() end
     playerConnections[player], boundPlayers[player] = nil, nil
+    requestCooldowns[player.UserId] = nil
+    -- Disconnect before the backend write yields, including if another worker
+    -- is already writing. That worker gets just this final snapshot.
+    updateOrderedStores(player, true)
+    lastWrittenStats[player.UserId] = nil
 end)
 
 local function onPlayer(player)

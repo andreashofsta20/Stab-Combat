@@ -26,7 +26,7 @@ end
 
 function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 	if player:GetAttribute("DataReady") ~= true then return false, "Player data is still loading" end
-	if type(items) ~= "table" then
+	if type(items) ~= "table" or #items > 32 then
 		return false, "Invalid trade items"
 	end
 
@@ -69,6 +69,7 @@ function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 		end
 		
 		local quantityValue = itemInstance:FindFirstChild("Quantity")
+		if quantityValue and not quantityValue:IsA("IntValue") then return false, "Invalid inventory quantity" end
 		local ownedQuantity = quantityValue and quantityValue.Value or 1
 		
 		if totals[itemKey] > ownedQuantity then
@@ -108,165 +109,106 @@ function TradeValidator.ValidateTrade(session: any)
 	return true
 end
 
--- Remove items from a player's inventory
-local function RemoveItems(player: Player, items: {any})
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return false end
-
-	for _, item in ipairs(items) do
-		local folder = leaderstats:FindFirstChild(item.Type)
-		local itemInstance = folder and folder:FindFirstChild(item.Name)
-		if not itemInstance then
-			return false
-		end
-		local quantityValue = itemInstance:FindFirstChild("Quantity")
-		if quantityValue and quantityValue.Value < item.Quantity then
-			return false
-		end
+-- Prepare both final inventories before publishing either side. Detached
+-- originals are retained until both commits succeed, allowing full rollback.
+local function preparePlayer(player, outgoing, incoming, replacements)
+	local stats = player:FindFirstChild("leaderstats")
+	if not stats then return false, "Player inventory unavailable" end
+	local entries = {}
+	local function entry(item)
+		local key = item.Type .. "\0" .. item.Name
+		if entries[key] then return entries[key] end
+		local folder = stats:FindFirstChild(item.Type)
+		if not folder then return nil end
+		local original = folder:FindFirstChild(item.Name)
+		if original and not original:IsA("StringValue") then return nil end
+		local quantity = original and original:FindFirstChild("Quantity")
+		if quantity and not quantity:IsA("IntValue") then return nil end
+		local owned = original and (quantity and quantity.Value or 1) or 0
+		if owned < 0 or owned % 1 ~= 0 or owned > 2147483647 then return nil end
+		local result = {folder = folder, original = original, owned = owned, outgoing = 0, incoming = 0, metadata = item}
+		entries[key] = result
+		return result
 	end
-	
-	for _, item in ipairs(items) do
-		local folder = leaderstats:FindFirstChild(item.Type)
-		if folder then
-			local itemInstance = folder:FindFirstChild(item.Name)
-			if itemInstance then
-				local quantityValue = itemInstance:FindFirstChild("Quantity")
-				if quantityValue then
-					quantityValue.Value -= item.Quantity
-					
-					-- Remove if quantity is 0
-					if quantityValue.Value <= 0 then
-						itemInstance:Destroy()
-					end
-				else
-					-- No quantity value, just remove the item
-					itemInstance:Destroy()
+	for _, item in ipairs(outgoing) do
+		local record = entry(item)
+		if not record then return false, "Invalid offered inventory" end
+		record.outgoing += item.Quantity
+	end
+	for _, item in ipairs(incoming) do
+		local record = entry(item)
+		if not record then return false, "Invalid receiving inventory" end
+		record.incoming += item.Quantity
+	end
+	for _, record in pairs(entries) do
+		local final = record.owned - record.outgoing + record.incoming
+		if record.outgoing > record.owned or final < 0 or final > 2147483647 then return false, "Invalid resulting quantity" end
+		table.insert(replacements, record)
+		if final > 0 then
+			local item = record.original and record.original:Clone() or Instance.new("StringValue")
+			record.replacement = item
+			item.Name = record.metadata.Name
+			if not record.original then
+				local metadata = record.metadata
+				item.Value = metadata.Type == "Emotes" and (metadata.EmoteId or "") or ""
+				local rarity = Instance.new("StringValue")
+				rarity.Name, rarity.Value, rarity.Parent = "Rarity", metadata.Rarity or "Common", item
+				if metadata.Type == "Inventory" then
+					local image = Instance.new("StringValue")
+					image.Name, image.Value, image.Parent = "Image", metadata.Image or "", item
+					local tradeable = Instance.new("BoolValue")
+					tradeable.Name, tradeable.Value, tradeable.Parent = "Tradeable", metadata.Tradeable ~= false, item
 				end
 			end
+			local quantity = item:FindFirstChild("Quantity") or Instance.new("IntValue")
+			quantity.Name, quantity.Value, quantity.Parent = "Quantity", final, item
 		end
 	end
-	
 	return true
 end
 
--- Add items to a player's inventory
-local function GiveItems(player: Player, items: {any})
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then return false end
-
-	for _, item in ipairs(items) do
-		local folder = leaderstats:FindFirstChild(item.Type)
-		if not folder then
-			return false
-		end
-		local existingItem = folder:FindFirstChild(item.Name)
-		if existingItem and not existingItem:FindFirstChild("Quantity") then
-			return false
-		end
-	end
-	
-	for _, item in ipairs(items) do
-		local folder = leaderstats:FindFirstChild(item.Type)
-		if not folder then
-			return false
-		end
-
-		local existingItem = folder:FindFirstChild(item.Name)
-		if existingItem then
-				-- Item exists, add to quantity
-				local quantityValue = existingItem:FindFirstChild("Quantity")
-				if quantityValue then
-					quantityValue.Value += item.Quantity
-				else
-					return false
-				end
-		else
-				-- Create new item
-				local newItem = Instance.new("StringValue")
-				newItem.Name = item.Name
-				newItem.Parent = folder
-				
-				local quantity = Instance.new("IntValue")
-				quantity.Name = "Quantity"
-				quantity.Value = item.Quantity
-				quantity.Parent = newItem
-
-				if item.Type == "Emotes" then
-					newItem.Value = item.EmoteId or ""
-				end
-				
-				local rarity = Instance.new("StringValue")
-				rarity.Name = "Rarity"
-				rarity.Value = item.Rarity or "Common"
-				rarity.Parent = newItem
-				
-				-- Add image if it's inventory type
-				if item.Type == "Inventory" then
-					local image = Instance.new("StringValue")
-					image.Name = "Image"
-					image.Value = item.Image or "1"
-					image.Parent = newItem
-
-					local tradeable = Instance.new("BoolValue")
-					tradeable.Name = "Tradeable"
-					tradeable.Value = item.Tradeable ~= false
-					tradeable.Parent = newItem
-				end
-		end
-	end
-	
-	return true
-end
-
--- Execute the trade atomically with rollback safety
 function TradeValidator.ExecuteTrade(session: any)
 	if not session or session.ExecutionStarted or session.State ~= "LOCKED" then
 		return false, "Trade is not ready for execution"
 	end
 	session.ExecutionStarted = true
+	local valid, reason = TradeValidator.ValidateTrade(session)
+	if not valid then session.ExecutionStarted = false; return false, reason end
 
-	-- Re-validate ownership right before execution (TOCTOU protection)
-	local valid1, err1 = TradeValidator.ValidatePlayerItems(session.Player1, session.Player1Items)
-	if not valid1 then
-		session.ExecutionStarted = false
-		return false, "Trade failed: " .. err1
+	local replacements = {}
+	local function discard()
+		for _, record in ipairs(replacements) do
+			if record.replacement then record.replacement:Destroy() end
+		end
 	end
-	local valid2, err2 = TradeValidator.ValidatePlayerItems(session.Player2, session.Player2Items)
-	if not valid2 then
-		session.ExecutionStarted = false
-		return false, "Trade failed: " .. err2
+	local prepared, result, err = pcall(function()
+		local ok, why = preparePlayer(session.Player1, session.Player1Items, session.Player2Items, replacements)
+		if not ok then return false, why end
+		return preparePlayer(session.Player2, session.Player2Items, session.Player1Items, replacements)
+	end)
+	if not prepared or not result then
+		discard()
+		return false, prepared and err or "Trade preparation failed"
 	end
 
-	-- Remove items from both players
-	local removed1 = RemoveItems(session.Player1, session.Player1Items)
-	local removed2 = RemoveItems(session.Player2, session.Player2Items)
-	
-	if not removed1 or not removed2 then
-		-- Rollback: give back any items that were removed
-		if removed1 then
-			GiveItems(session.Player1, session.Player1Items)
+	-- No yields between validation, preparation, and committing both players.
+	local committed = pcall(function()
+		for _, record in ipairs(replacements) do
+			if record.original then record.original.Parent = nil end
+			if record.replacement then record.replacement.Parent = record.folder end
 		end
-		if removed2 then
-			GiveItems(session.Player2, session.Player2Items)
+	end)
+	if not committed then
+		for _, record in ipairs(replacements) do
+			if record.replacement then record.replacement.Parent = nil end
+			if record.original then record.original.Parent = record.folder end
 		end
-		return false, "Failed to remove items — trade rolled back"
+		discard()
+		return false, "Trade commit failed; original inventories restored"
 	end
-	
-	-- Give items to both players
-	local given1 = GiveItems(session.Player1, session.Player2Items)
-	local given2 = GiveItems(session.Player2, session.Player1Items)
-	
-	if not given1 or not given2 then
-		-- Critical failure — items removed but can't give. Attempt rollback.
-		if not given1 then
-			GiveItems(session.Player1, session.Player1Items)
-		end
-		if not given2 then
-			GiveItems(session.Player2, session.Player2Items)
-		end
-		return false, "Failed to give items — trade rolled back"
+	for _, record in ipairs(replacements) do
+		if record.original then record.original:Destroy() end
 	end
-	
 	return true
 end
 
