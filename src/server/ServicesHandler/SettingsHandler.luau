@@ -23,6 +23,8 @@ local ALLOWED_SETTINGS = {
     LobbyMode = true,
     Notifications = true,
     Trades = true,
+    ReducedEffects = true,
+    HighContrastCrosshair = true,
 }
 local settingCooldowns: {[number]: number} = {}
 local SETTING_COOLDOWN = 0.5

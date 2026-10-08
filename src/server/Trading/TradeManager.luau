@@ -16,6 +16,7 @@ local CancelCallbacks = {}
 local initialized = false
 local function canTrade(player)
     if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+    if player:GetAttribute("InventoryLocked") == true then return false end
     local stats = player:FindFirstChild("leaderstats")
     local settings = stats and stats:FindFirstChild("Settings")
     local enabled = settings and settings:FindFirstChild("Trades")
@@ -247,26 +248,31 @@ function TradeManager.SetAcceptStatus(player: Player, accepted: boolean)
 end
 
 function TradeManager.ExecuteTrade(session: any)
+    if session.ExecutionStarted then return false, "Trade is already being saved" end
     local valid, err = TradeValidator.ValidateTrade(session)
     if not valid then
         TradeManager.CancelTrade(session, "VALIDATION_FAILED")
         return false, "Trade validation failed: " .. err
     end
     
+    session.ExecutionStarted = true
+    session.State = "SAVING"
     local ok, executeResult = pcall(function()
-        return TradeValidator.ExecuteTrade(session)
+        return require(script.Parent.TradePersistence).Execute(session)
     end)
     
     if not ok then
         warn("Trade execution error:", executeResult)
+        session.State = "LOCKED"
         TradeManager.CancelTrade(session, "EXECUTION_FAILED")
         return false, "Trade failed to execute"
     end
     
     if not executeResult then
         warn("Trade execution returned false")
+        session.State = "LOCKED"
         TradeManager.CancelTrade(session, "EXECUTION_FAILED")
-        return false, "Trade failed to execute"
+        return false, "Trade pending recovery. Reserved items remain protected; rejoin to retry."
     end
     
     session:Complete()
@@ -279,6 +285,7 @@ end
 
 function TradeManager.CancelTrade(session: any, reason: string?)
     if not session or session.State == "CANCELLED" or session.State == "COMPLETED" then return end
+    if session.State == "SAVING" then return end -- durable coordinator resolves disconnects/timeouts
 
     session:Cancel()
     

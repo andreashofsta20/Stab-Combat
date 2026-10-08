@@ -147,7 +147,7 @@ local function base()
 	f.env = {game = {GetService = function(_, key) return services[key] end}, task = f.clock.task, os = {clock = function() return f.clock.now end},
 		Enum = {UserInputType = {Keyboard = "Keyboard"}, KeyCode = {Tab = "Tab"}, EasingStyle = {Quad = "Quad"}, EasingDirection = {Out = "Out"}},
 		Color3 = {fromRGB = function(...) return {...} end}, TweenInfo = {new = function(...) return {...} end},
-		UDim2 = {new = function(...) return {...} end}}
+		UDim2 = {new = function(...) return {...} end}, Vector2 = {new = function(...) return {...} end}}
 	f.env.game.Players, f.env.game.ReplicatedStorage = f.players, f.rs
 	f.env.Instance = {new = function(class, parent) return object(class, class, parent) end}
 	f.env.require = function(module)
@@ -186,6 +186,16 @@ local function playerListFixture(load)
 end
 local function inventoryFixture(load)
 	local f = base()
+	-- Animation behavior is covered by daily-shop; this fixture owns inventory lifecycle.
+	f.env.script = {Parent = {Modules = {WaitForChild = function(_, name) return {Name = name} end}}}
+	local requireBase = f.env.require
+	f.env.require = function(module)
+		if module.Name == "UITransitions" then return {
+			Attach = function(frame) return {Close = function(after) frame.Visible = false; if after then after() end end} end,
+			Collection = function() return {Play = function() end, Cancel = function() end, Destroy = function() end} end,
+		} end
+		return requireBase(module)
+	end
 	f.inventory, f.revolvers, f.emotes = object("Folder", "Inventory", f.stats), object("Folder", "RevolverInventory", f.stats), object("Folder", "Emotes", f.stats)
 	f.equippedKnife = object("StringValue", "EquippedKnife", f.stats, "A"); object("StringValue", "EquippedGun", f.stats, "Gun")
 	local remotes = object("Folder", "Inventory", f.remotes); object("RemoteEvent", "EquipKnife", remotes); object("RemoteEvent", "EquipRevolver", remotes)
@@ -255,7 +265,63 @@ local function tradeListFixture(load)
 	local stats = object("Folder", "leaderstats", f.other)
 	f.otherXP = object("IntValue", "XP", stats, 120)
 	f.trades = object("BoolValue", "Trades", object("Folder", "Settings", stats), true)
-	load("TradeList", f.env); return f
+	f.controller = load("TradeList", f.env); return f
+end
+
+local function profileViewFixture(load)
+	local f = base(); f.xp.Value = 150
+	f.remote = object("RemoteEvent", "ViewProfileClient", object("Folder", "ProfileHandler", f.remotes))
+	f.tradeRemote = object("RemoteEvent", "TradeUpdate", object("Folder", "Trading", f.remotes))
+	object("Frame", "Spinner", f.frames); object("Frame", "Trade", f.frames)
+	f.frame = object("Frame", "PlayerInfo", f.frames)
+	f.close = object("ImageButton", "Close", f.frame); object("ImageButton", "Back", f.frame)
+	f.header = object("TextLabel", "Text", object("Frame", "Top", f.frame))
+	object("ScrollingFrame", "Scroll", object("Frame", "Knives", f.frame))
+	local container = object("Frame", "Container", f.frame)
+	local player = object("Frame", "PlayerFrame", container)
+	f.username = object("TextLabel", "Username", player); object("TextLabel", "Level", player)
+	f.image = object("ImageLabel", "ProfileImg", object("Frame", "ProfileContainer", player))
+	local levelBar = object("Frame", "LevelBar", player)
+	object("TextLabel", "NextLevel", levelBar); object("Frame", "ProgressBar", levelBar)
+	local buttons = object("Frame", "Buttons", player)
+	object("ImageButton", "Inventory", buttons); f.trade = object("ImageButton", "Trade", buttons)
+	f.blocked = object("Frame", "NotAbleTo", f.trade)
+	local stats = object("Frame", "StatsFrame", container)
+	for name, label in pairs({Wins = "Win#", Kills = "Kill#", Deaths = "Death#", KDR = "KDR#"}) do
+		object("TextLabel", label, object("Frame", name, stats))
+	end
+	f.history = object("ScrollingFrame", "Scroll", object("Frame", "RoundHistory", container))
+	object("ImageButton", "KnifeInventoryTemplate", object("Folder", "InventoryTemplates", f.templates))
+	local history = object("Frame", "BattleHistory", object("Folder", "BattleHistoryPlayerTemplates", f.templates))
+	local content = object("Frame", "Container", history)
+	local rowStats = object("Frame", "Stats", content)
+	object("TextLabel", "Kills#", rowStats); object("TextLabel", "Placement#", rowStats)
+	local people = object("Frame", "Players", content)
+	object("ImageLabel", "PlayerImage", people)
+	object("TextLabel", "PlayerAmount", object("Frame", "OtherPlayers", people))
+	object("TextLabel", "GameMode", object("Frame", "Divider", content))
+	local requireBase = f.env.require
+	f.thumbnailCalls = 0
+	f.env.require = function(module)
+		if module.Name == "CalculateLevel" then return {GetLevel = function(xp) return math.floor(xp / 10), 0, 10 end} end
+		if module.Name == "GetThumbnail" then return {GetThumbnail = function(id)
+			f.thumbnailCalls += 1
+			if f.thumbnailDelay and id == 2 then f.clock.task.wait(f.thumbnailDelay) end
+			if f.thumbnailError then error("Thumbnail unavailable") end
+			if f.thumbnailNil then return nil end
+			return "head-" .. id
+		end} end
+		return requireBase(module)
+	end
+	f.controller = load("Profile", f.env)
+	function f:show(id, extra)
+		local info = {UserId = id, Name = "Player" .. id, XP = 150, RoundHistory = {
+			{Placement = 1, Kills = 2, Opponents = 2, GameMode = "Battle Royale"}, {Placement = 2, Kills = 1},
+		}}
+		for key, value in pairs(extra or {}) do info[key] = value end
+		self.remote.OnClientEvent:Fire(info, {})
+	end
+	return f
 end
 
 local function emoteFixture(load)
@@ -390,6 +456,39 @@ return function(load)
 	check(f.image.Image == "" and f.username.Text == "New winner", "Old thumbnail cannot overwrite new winner")
 	f.results:Destroy(); check(f.remote.OnClientEvent:Count() == 0, "Destroying result UI removes remote subscription")
 	f.clock:step(10); check(f.results.Destroyed, "Destroyed result UI has no late work")
+	-- Profile rendering must not wait on avatar services or retain closed views.
+	for _, failure in ipairs({"thumbnailError", "thumbnailNil"}) do
+		local profile = profileViewFixture(load); profile[failure] = true
+		profile:show(2); profile.clock:step(0)
+		check(profile.username.Text == "Player2" and #profile.history:GetChildren() == 2 and profile.image.Image == "",
+			"Thumbnail failures preserve profile fields and history with a safe fallback")
+		check(profile.thumbnailCalls == 1, "All history rows share one thumbnail request")
+	end
+	local profile = profileViewFixture(load); profile.thumbnailDelay = 10
+	profile.clock.task.cancel = function() end -- force late completion to exercise the generation guard
+	profile:show(2); profile.clock:step(0); profile:show(3); profile.clock:step(0)
+	check(profile.username.Text == "Player3" and profile.image.Image == "head-3", "New profile renders while old thumbnail waits")
+	profile.clock:step(10)
+	check(profile.username.Text == "Player3" and profile.image.Image == "head-3" and #profile.history:GetChildren() == 2,
+		"Late old thumbnail cannot overwrite the newer profile or add stale history")
+	for _, history in ipairs(profile.history:GetChildren()) do
+		check(history.Container.Players.PlayerImage.Image == "head-3", "History uses the current profile portrait")
+	end
+	profile:show(2); profile.clock:step(0); profile.close.MouseButton1Up:Fire(); profile.clock:step(10)
+	check(not profile.frame.Visible and not profile.blur.Enabled and profile.image.Image == "", "Closing blocks delayed profile work")
+	profile:show(3, {TradesEnabled = false}); profile.tradeRemote.OnClientEvent:Fire("ACTION_RESULT",
+		{action = "SEND_REQUEST", success = false, extra = {targetUserId = 3}})
+	check(profile.blocked.Visible, "Trade rejection cannot enable a target whose trades are disabled")
+	profile:show(3, {Unavailable = true}); check(profile.header.Text == "Profile unavailable" and profile.blocked.Visible,
+		"Unavailable profiles have an explicit state and disable trading")
+	profile:show(3, {Loading = true}); check(profile.header.Text == "Profile loading...", "Loading profiles have an explicit state")
+	profile = profileViewFixture(load); profile.thumbnailDelay = 10
+	profile:show(2); profile.clock:step(0); profile.trade.MouseButton1Up:Fire(); profile.frame:Destroy(); profile.controller.Destroy()
+	check(profile.remote.OnClientEvent:Count() == 0 and profile.tradeRemote.OnClientEvent:Count() == 0,
+		"Profile teardown disconnects remote listeners")
+	for _, job in ipairs(profile.clock.queue) do check(job.cancelled or job.dead, "Profile teardown cancels thumbnail and cooldown jobs") end
+	profile.clock:step(60)
+	-- Resume player-list checks with their own metrics owner.
 	f = playerListFixture(load); local row = f.rows:FindFirstChild("Owner")
 	check(row and row.Level.Text == "1", "Player list shows current level")
 	check(f.xp:GetPropertyChangedSignal("Value"):Count() == 1, "One XP subscription per row")
@@ -404,9 +503,11 @@ return function(load)
 	f = inventoryFixture(load); clones = f.metrics.clones; f.clock:step(30)
 	check(f.metrics.clones == clones and #f.metrics.tracks == 0, "Hidden inventory builds no rows or animated rigs")
 	f.frame.Visible = true; f.clock:step(0)
-	check(f.knifeRows.A and f.knifeRows.B and f.gunRows.Gun and f.emoteRows.Dance, "Opening inventory builds current rows")
-	check(f.knifeRows.A.KnifeSelected.Visible and not f.knifeRows.B.KnifeSelected.Visible, "Only equipped knife is selected")
+	check(not f.knifeRows.A and not f.gunRows.Gun and f.emoteRows.Dance, "Opening inventory builds only the visible category")
 	check(f.metrics.tracks[1].IsPlaying, "Visible emote page animates viewport")
+	f.emotesPage.Visible = false; f.knifeRows.Parent.Visible = true; f.clock:step(0)
+	check(f.knifeRows.A and f.knifeRows.B and not f.gunRows.Gun, "Switching category builds its rows lazily")
+	check(f.knifeRows.A.KnifeSelected.Visible and not f.knifeRows.B.KnifeSelected.Visible, "Only equipped knife is selected")
 	clones = f.metrics.clones; local rowA = f.knifeRows.A; f.quantity.Value = 2; f.quantity.Value = 3; f.clock:step(0)
 	check(rowA.Quantity.Text == "x3" and f.metrics.clones == clones, "Inventory burst updates existing row without cloning")
 	f.equippedKnife.Value = "B"; f.clock:step(0); check(not rowA.KnifeSelected.Visible and f.knifeRows.B.KnifeSelected.Visible, "Server equip update clears old selection")
@@ -414,6 +515,7 @@ return function(load)
 	f.emotesPage.Visible = true; f.frame.Visible = false; check(not f.metrics.tracks[1].IsPlaying, "Closing inventory stops all viewport animation")
 	clones = f.metrics.clones; f.quantity.Value = 9; f.clock:step(30); check(rowA.Quantity.Text == "x3" and f.metrics.clones == clones, "Hidden inventory change defers UI work")
 	f.frame.Visible = true; f.clock:step(0); check(rowA.Quantity.Text == "x9", "Reopening catches hidden inventory changes")
+	f.knifeRows.Parent.Visible = false; f.emotesPage.Visible = true; f.clock:step(0)
 	local track = f.metrics.tracks[1]; f.emotes.Dance:Destroy(); f.clock:step(0)
 	check(track.Destroyed and not f.emoteRows:FindFirstChild("Dance"), "Removed emote destroys its track and row")
 	f.frame:Destroy(); check(f.quantity.Changed:Count() == 0 and f.inventory.DescendantAdded:Count() == 0, "Inventory teardown disconnects source listeners")
@@ -444,6 +546,20 @@ return function(load)
 	f = tradeListFixture(load); f.xp.Value = 0
 	check(not f.rows:FindFirstChild("2") and f.otherXP:GetPropertyChangedSignal("Value"):Count() == 0 and f.trades:GetPropertyChangedSignal("Value"):Count() == 0,
 		"Losing the trade level requirement disconnects all player row watchers")
+	for _ = 1, 3 do
+		f = tradeListFixture(load)
+		local remote = f.remotes.Trading.TradeUpdate
+		remote.OnClientEvent:Fire("ACTION_RESULT", {action = "SEND_REQUEST", success = true, extra = {targetUserId = 2}})
+		f.frame:Destroy()
+		check(f.players.PlayerAdded:Count() == 0 and f.players.PlayerRemoving:Count() == 0 and remote.OnClientEvent:Count() == 0,
+			"Trade GUI destruction disconnects all global listeners; repeated teardown is safe")
+		check(f.otherXP:GetPropertyChangedSignal("Value"):Count() == 0 and f.xp:GetPropertyChangedSignal("Value"):Count() == 0
+			and f.trades:GetPropertyChangedSignal("Value"):Count() == 0, "Trade GUI destruction releases all stat listeners")
+		f.controller.Destroy()
+		for _, job in ipairs(f.clock.queue) do check(job.cancelled or job.dead, "Trade refresh and cooldown tasks are cancelled") end
+		clones = f.metrics.clones; f.clock:step(60)
+		check(f.metrics.clones == clones, "Destroyed trade GUI cannot recreate rows")
+	end
 	f = emoteFixture(load); local firstTrack = f:play("Dance"); f.clock:step(0.4)
 	local replacement = f:play("Wave")
 	check(firstTrack.Destroyed and not firstTrack.IsPlaying, "Replacing an avatar emote destroys its loaded track")

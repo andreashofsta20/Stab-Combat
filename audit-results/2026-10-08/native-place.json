@@ -1,0 +1,19 @@
+{
+  "AssetCount": 281,
+  "CatalogCounts": {
+    "Knives": 15,
+    "Revolvers": 57
+  },
+  "LiveBackend": {
+    "Available": true,
+    "Namespace": "BetaAudit_20261008_Probe"
+  },
+  "MaxPlayers": 60,
+  "MissingTemplates": [],
+  "Properties": {
+    "AuthorityMode": "The current thread cannot read 'AuthorityMode' (lacking capability RobloxScript)",
+    "PhysicsSteppingMethod": "PhysicsSteppingMethod is not a valid member of Workspace \"Workspace\"",
+    "SignalBehavior": "SignalBehavior is not a valid member of Workspace \"Workspace\"",
+    "StreamingEnabled": "true"
+  }
+}

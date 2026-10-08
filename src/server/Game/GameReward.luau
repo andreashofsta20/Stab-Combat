@@ -17,6 +17,16 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passI
     if passId == IncreasedXPGamepassId and purchased then xpPass[player] = true end
 end)
 for _, player in ipairs(Players:GetPlayers()) do task.spawn(ownsXpPass, player) end
+
+-- These attributes are written by the server's VIP service. Eligibility must
+-- expire even when the client never asks the shop to refresh its status.
+local function hasActiveVIP(player: Player): boolean
+    if player:GetAttribute("HasVIP") ~= true then return false end
+    local expiresAt = player:GetAttribute("VIPExpiresAt")
+    local active = type(expiresAt) == "number" and expiresAt < math.huge and expiresAt > os.time()
+    if not active then player:SetAttribute("HasVIP", false) end
+    return active
+end
 function Module.XpReward(player: Player, action: string, totalPlayers: number?, rewardMultiplier: number?)
 	if not player or player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return 0 end
 	local xp = 0
@@ -25,9 +35,6 @@ function Module.XpReward(player: Player, action: string, totalPlayers: number?, 
 
 	if action == "kill" then
 		xp = 25
-		if player:GetAttribute("HasVIP") == true then
-			xp += 10
-		end
 	elseif action == "win" then
 		local baseWin = 175
 		if totalPlayers then
@@ -52,11 +59,13 @@ function Module.XpReward(player: Player, action: string, totalPlayers: number?, 
     if xp <= 0 or (type(rewardMultiplier) == "number" and rewardMultiplier <= 0) then
 		return 0
 	end
-    if ownsXpPass(player) then xp = math.floor(xp * 1.5) end
-    if type(rewardMultiplier) == "number" then xp = math.floor(xp * math.max(0, rewardMultiplier)) end
-    -- Ownership lookup can yield on a cache miss. Never mutate a departed
-    -- player's old leaderstats/session after it returns.
+    local hasXpPass = ownsXpPass(player)
+    -- Ownership lookup can yield on a cache miss. Recheck the session before
+    -- changing VIP presentation or the departed player's old stats.
     if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true or not xpValue.Parent then return 0 end
+    if action == "kill" and hasActiveVIP(player) then xp += 10 end
+    if hasXpPass then xp = math.floor(xp * 1.5) end
+    if type(rewardMultiplier) == "number" then xp = math.floor(xp * math.max(0, rewardMultiplier)) end
 	xpValue.Value += xp
 	return xp
 end
@@ -70,7 +79,7 @@ function Module.CashReward(player: Player, action: string, totalPlayers: number?
 
 	if action == "kill" then
 		cash = 50
-		if player:GetAttribute("HasVIP") == true then
+		if hasActiveVIP(player) then
 			cash += 10
 		end
 	elseif action == "win" then

@@ -16,8 +16,11 @@ $shopModules = [ordered]@{
     Products = 'src/Modules/ProductIDS.luau'
     Server = 'src/server/ServicesHandler/DailyShopHandler.luau'
     Purchases = 'src/server/ServicesHandler/PurchaseHandler.luau'
+    ReceiptArchive = 'src/server/ServicesHandler/ReceiptArchive.luau'
     Client = 'src/PlayerClient/Modules/DailyShopClient.luau'
     Transitions = 'src/PlayerClient/Modules/UITransitions.luau'
+    Reveal = 'src/PlayerClient/Modules/UIReveal.luau'
+    ShopTransitions = 'src/PlayerClient/Modules/ShopTransitions.luau'
     Assets = 'src/PlayerClient/Modules/ShopAssets.luau'
     ShopGUI = 'src/PlayerClient/ShopGUI.luau'
     FramesHandler = 'src/PlayerClient/FramesHandler.luau'
@@ -30,6 +33,7 @@ foreach ($shopEntry in $shopModules.GetEnumerator()) {
     [void]$shopBundle.AppendLine('local task, os, Enum = env.task, env.os or os, env.Enum')
     [void]$shopBundle.AppendLine('local typeof, warn = env.typeof or nativeTypeof, env.warn or function() end')
     [void]$shopBundle.AppendLine('local Color3, UDim2, UDim, TweenInfo = env.Color3, env.UDim2, env.UDim, env.TweenInfo')
+    [void]$shopBundle.AppendLine('local Vector2 = env.Vector2')
     [void]$shopBundle.AppendLine('local CFrame = env.CFrame or {new = function() return {} end}')
     [void]$shopBundle.AppendLine([System.IO.File]::ReadAllText((Join-Path $shopRoot $shopEntry.Value)))
     [void]$shopBundle.AppendLine('end')

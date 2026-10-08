@@ -10,6 +10,7 @@ $uiTestModules = [ordered]@{
     Health = 'src/PlayerCharacterClient/HealthBar.client.lua'
     Trading = 'src/PlayerClient/TradingClient.luau'
     TradeList = 'src/PlayerClient/TradePlayerList.luau'
+    Profile = 'src/PlayerClient/ViewProfile.luau'
     Emote = 'src/PlayerClient/Emote.luau'
     Overhead = 'src/PlayerClient/PlayerOverHead.luau'
     LobbyLighting = 'src/PlayerClient/Modules/LobbyLighting.luau'

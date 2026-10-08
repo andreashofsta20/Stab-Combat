@@ -153,7 +153,8 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 	end
 	if not State.AcceptSequence(session, sequence) then return end
 	local tool = heldRevolver(player)
-	if not canPlay(player) or not tool then
+	if player:GetAttribute("MovementAdmitted") ~= nil and not require(script.Parent.MovementAuthority).Admit(player) then return end
+	if not canPlay(player) or not tool or player:GetAttribute("InventoryLocked") == true or player:GetAttribute("MovementAdmitted") == false then
 		State.CancelReload(session)
 		sendState(player, session, "Unavailable")
 		return

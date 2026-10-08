@@ -1,0 +1,27 @@
+{
+  "Result": {
+    "Backend": "real DataStores in unique disposable namespaces",
+    "Clients": {
+      "Player1": {
+        "Errors": [],
+        "FrameP50": 66.6922926902771,
+        "FrameP95": 67.89662688970566,
+        "Instances": 22477,
+        "LuaKB": 5088,
+        "MemoryMB": 2577.425048828125
+      }
+    },
+    "ConnectedPlayers": 1,
+    "Errors": [],
+    "Fatal": "ServerScriptService.BetaAuditTests:18: Timed out: multiplayer connections",
+    "MaxPlayers": 60,
+    "Namespace": "BetaAudit_20261008_64d53713",
+    "PlaceId": 119874582058419,
+    "Players": 2,
+    "StartupFailed": "",
+    "StartupPending": "",
+    "StartupState": "Ready",
+    "Tests": []
+  },
+  "Started": true
+}

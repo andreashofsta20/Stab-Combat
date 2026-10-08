@@ -148,6 +148,7 @@ return function(load)
 		local f=fixture(); local gameFolder=Mock.object("Folder","Game",f.server)
 		f.register(gameFolder,"SendNotification",{SendNotification=function() end})
 		f.register(f.servicesFolder,"VIPService",{})
+		f.register(f.servicesFolder,"ReceiptArchive",load("ReceiptArchive", {}))
 		f:load("Purchases",f.servicesFolder,"PurchaseHandler")
 		f.remote.OnServerEvent:Fire(f.player,Config.Protocol.Request); local offer=f.remote.LastPayload.Offers[1]
 		f.remote.OnServerEvent:Fire(f.player,Config.Protocol.Buy,f.remote.LastPayload.RotationId,offer.Id)
@@ -186,6 +187,7 @@ return function(load)
 		f.remote.OnReply=function(_,payload) f.remote.OnClientEvent:Fire(payload) end
 		f.client=f:load("Client",nil).New(f.player,f.frame,f.remote,f.shopFrame,f.layout)
 		f.frame.Visible=true
+		f.client.Open()
 		if prepare~=false then f:tickFrames(12) end
 		return f
 	end
@@ -275,6 +277,7 @@ return function(load)
 		f.shopFrame=add("Frame","Shop",f.frames); f.menu=add("Frame","Menu",f.shopFrame)
 		f.holders=add("Folder","Holders",f.shopFrame)
 		f.close=add("ImageButton","Close",f.shopFrame); f.back=add("ImageButton","Back",f.shopFrame)
+		add("TextLabel","Text",add("Frame","Top",f.shopFrame))
 		f.knifeFrame=add("ScrollingFrame",legacy and "Cases" or "KnivesCases",f.holders)
 		f.revFrame=not legacy and add("ScrollingFrame","RevolversCases",f.holders) or f.knifeFrame
 		f.emoteFrame=add("ScrollingFrame","Emotes",f.holders)
@@ -307,7 +310,9 @@ return function(load)
 		local client=add("Folder","CLIENT"); local modules=add("Folder","Modules",client)
 		f.register(modules,"SoundHandler",{PlaySound=function() end}); f.register(modules,"CaseViewportPool",{})
 		f.register(modules,"DailyShopClient",f:load("Client",nil))
-		f.register(modules,"UITransitions",f:load("Transitions",nil))
+		f:load("Reveal",modules,"UIReveal")
+		f:load("Transitions",modules,"UITransitions")
+		f:load("ShopTransitions",modules,"ShopTransitions")
 		f.register(modules,"ShopAssets",f:load("Assets",nil))
 		f:load("ShopGUI",client)
 		f.clientFolder,f.clientModules=client,modules
@@ -354,12 +359,11 @@ return function(load)
 		button.MouseButton1Up:Fire(); closeTween.Completed:Fire("Completed")
 		eq(f.shopFrame.Visible,true); eq(f.services.Lighting.Blur.Enabled,true)
 	end)
-	test("UI image warming is bounded, deduplicated, runs outside opening, and tolerates missing assets",function()
+	test("shop images display without preloading or background scan listeners",function()
 		local f=fixture(); local root=Mock.object("Frame","Shop")
 		for i=1,30 do local image=Mock.object("ImageLabel","Image"..i,root); image.Image="rbxassetid://"..(i%7+1) end
 		local warmer=f:load("Assets",nil).New(root); f.failPreload=true; f:tickFrames(20)
-		local seen={}; for _,batch in ipairs(f.preloads) do assert(#batch<=4); for _,id in ipairs(batch) do assert(not seen[id]); seen[id]=true end end
-		local count=#f.preloads; warmer.QueueImage("rbxassetid://1"); f:tickFrames(6); eq(#f.preloads,count)
+		eq(#f.preloads,0); warmer.QueueImage("rbxassetid://1"); f:tickFrames(6); eq(#f.preloads,0)
 		eq(f.heartbeat:Count(),0); warmer.Destroy()
 	end)
 	print(string.format("Passed %d daily shop checks",passed))

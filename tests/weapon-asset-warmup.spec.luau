@@ -88,11 +88,12 @@ return function(load)
 		end
 		return f
 	end
-	test("configured bullet hole images warm in the background before the first accepted miss", function()
+	test("textures load normally without explicit preload requests", function()
 		local f = fixture({holeTexture = "rbxassetid://8765"}); f.warmup.Init()
-		equal(#f.calls, 0); f.run(); assert(f.requested("rbxassetid://8765"))
-		local disabled = fixture({holeTexture = "rbxassetid://8765", holeEnabled = false}); disabled.warmup.Init(); disabled.run()
-		assert(not disabled.requested("rbxassetid://8765"))
+		for _, class in ipairs({"Decal", "Texture", "ParticleEmitter", "Trail", "Beam"}) do
+			f.node(class, class, f.selected).Texture = "rbxassetid://8765"
+		end
+		equal(#f.calls, 0); f.run(); assert(not f.requested("rbxassetid://8765"))
 	end)
 	test("configured empty click audio warms as a Sound while a blank slot queues nothing", function()
 		local f = fixture({emptySound = "rbxassetid://9876"}); f.warmup.Init()

@@ -30,6 +30,15 @@ local levelRequirementFrame = nil
 local noPlayersFrame = nil
 local MIN_TRADE_LEVEL = 10
 local SEND_COOLDOWN_TIME = 15
+local alive = true
+local connections, cooldownTasks = {}, {}
+local refreshTask
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(connections, connection)
+    return connection
+end
 
 local function getLocalLevel()
     local leaderstats = plr:FindFirstChild("leaderstats")
@@ -143,7 +152,7 @@ local function updateEntryState(frame: Frame, player: Player)
 end
 
 local function AddPlayer(plr : Player)
-    if not hasRequiredTradeLevel() then
+    if not alive or not hasRequiredTradeLevel() then
         return
     end
 
@@ -187,17 +196,22 @@ local function AddPlayer(plr : Player)
     if plr == Players.LocalPlayer then
         template.Visible = false
     end
-    template.SendTrade.MouseButton1Click:Connect(function()
+    table.insert(connections, template.SendTrade.MouseButton1Click:Connect(function()
         TradeRemote:FireServer("SEND_REQUEST", plr.UserId)
-    end)
+    end))
 end
 
 local function RemovePlayer(player: Player)
     RemoveEntry(player.UserId)
     activeCooldowns[player.UserId] = nil
+    if cooldownTasks[player.UserId] then
+        task.cancel(cooldownTasks[player.UserId])
+        cooldownTasks[player.UserId] = nil
+    end
 end
 
 local function RefreshPlayerList()
+    if not alive then return end
     if not hasRequiredTradeLevel() then
         ClearPlayerEntries()
         showLevelRequirementOnly()
@@ -226,34 +240,53 @@ local function ApplyTradeLevelGate()
 end
 
 local function StartAutoRefresh()
-    task.spawn(function()
-        while true do
+    refreshTask = task.spawn(function()
+        while alive do
             task.wait(30)
             RefreshPlayerList()
         end
     end)
 end
 
-Players.PlayerAdded:Connect(function(player)
+local function destroy()
+    if not alive then return end
+    alive = false
+    for _, connection in ipairs(connections) do connection:Disconnect() end
+    table.clear(connections)
+    if refreshTask then
+        if refreshTask ~= coroutine.running() then task.cancel(refreshTask) end
+        refreshTask = nil
+    end
+    for _, thread in pairs(cooldownTasks) do task.cancel(thread) end
+    table.clear(cooldownTasks)
+    table.clear(activeCooldowns)
+    ClearPlayerEntries()
+    if levelRequirementFrame then levelRequirementFrame:Destroy(); levelRequirementFrame = nil end
+    if noPlayersFrame then noPlayersFrame:Destroy(); noPlayersFrame = nil end
+end
+connect(TradePlayerList.Destroying, destroy)
+
+connect(Players.PlayerAdded, function(player)
     AddPlayer(player)
     updateNoPlayersMessage()
 end)
 
-Players.PlayerRemoving:Connect(function(player)
+connect(Players.PlayerRemoving, function(player)
     RemovePlayer(player)
     updateNoPlayersMessage()
 end)
 
 local localLeaderstats = plr:WaitForChild("leaderstats")
 local localXP = localLeaderstats:WaitForChild("XP")
-localXP:GetPropertyChangedSignal("Value"):Connect(function()
+if not alive then return {Destroy = destroy} end
+connect(localXP:GetPropertyChangedSignal("Value"), function()
     ApplyTradeLevelGate()
 end)
 
 ApplyTradeLevelGate()
 StartAutoRefresh()
 
-TradeRemote.OnClientEvent:Connect(function(eventName, data)
+connect(TradeRemote.OnClientEvent, function(eventName, data)
     if eventName == "ACTION_RESULT" and data.action == "SEND_REQUEST" then
         if data.success and data.extra and data.extra.targetUserId then
             local targetId = data.extra.targetUserId
@@ -265,7 +298,11 @@ TradeRemote.OnClientEvent:Connect(function(eventName, data)
                 updateEntryState(entry.frame, p)
             end
             
-            task.delay(SEND_COOLDOWN_TIME, function()
+            if cooldownTasks[targetId] then task.cancel(cooldownTasks[targetId]) end
+            cooldownTasks[targetId] = task.delay(SEND_COOLDOWN_TIME, function()
+                cooldownTasks[targetId] = nil
+                if not alive then return end
+                activeCooldowns[targetId] = nil
                 local p2 = Players:GetPlayerByUserId(targetId)
                 local entry2 = playerEntries[targetId]
                 if p2 and entry2 and entry2.frame then
@@ -276,10 +313,10 @@ TradeRemote.OnClientEvent:Connect(function(eventName, data)
     end
 end)
 
-ExitButton.MouseButton1Click:Connect(function()
+connect(ExitButton.MouseButton1Click, function()
     local Lighting = game:GetService("Lighting")
     Lighting.Blur.Enabled = false
     TradePlayerList.Visible = false
 end)
 
-return {}
+return {Destroy = destroy}

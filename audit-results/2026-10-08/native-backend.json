@@ -1,0 +1,68 @@
+{
+  "EvidenceScope": "Retained audit behavior only. Run predates final removal of an optional mode and the death-listener race fix. The final native rerun failed to connect both clients.",
+  "Result": {
+    "Backend": "real DataStores in unique disposable namespaces",
+    "Clients": {
+      "Player1": {
+        "Errors": [],
+        "FrameP50": 66.55175238847733,
+        "FrameP95": 67.53683090209961,
+        "Instances": 14199,
+        "LuaKB": 6018,
+        "MemoryMB": 2574.487548828125,
+        "PracticeUI": false
+      },
+      "Player2": {
+        "Errors": [],
+        "FrameP50": 66.56933575868607,
+        "FrameP95": 67.45895743370056,
+        "Instances": 14199,
+        "LuaKB": 6264,
+        "MemoryMB": 2614.300048828125,
+        "PracticeUI": false
+      }
+    },
+    "ConnectedPlayers": 2,
+    "Errors": [],
+    "InstanceCount": 46887,
+    "MaxPlayers": 60,
+    "MovementRejections": 1,
+    "Namespace": "BetaAudit_20261008_66f0f498",
+    "PlaceId": 119874582058419,
+    "Players": 2,
+    "ProfileBytes_Player1": 1780,
+    "ProfileBytes_Player2": 1885,
+    "ServerMemoryMB": 2428.0341796875,
+    "StartupFailed": "",
+    "StartupPending": "",
+    "StartupState": "Ready",
+    "Tests": [
+      {
+        "Name": "required startup and independent profiles",
+        "Passed": true
+      },
+      {
+        "Name": "authorized teleports and excessive displacement",
+        "Passed": true
+      },
+      {
+        "Name": "native durable trade acknowledgements",
+        "Passed": true
+      },
+      {
+        "Name": "real backend profile and receipt acknowledgements",
+        "Passed": true
+      },
+      {
+        "Error": "ServerScriptService.BetaAuditTests:18: Timed out: FFA respawn",
+        "Name": "FFA death respawn and lobby forfeit",
+        "Passed": false
+      },
+      {
+        "Name": "BR elimination and cleanup",
+        "Passed": true
+      }
+    ]
+  },
+  "Started": true
+}

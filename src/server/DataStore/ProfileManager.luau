@@ -36,6 +36,8 @@ local PROFILE_TEMPLATE = {
 		LobbySetting = false,
 		Notifications = true,
 		Trades = true,
+		ReducedEffects = false,
+		HighContrastCrosshair = false,
 	},
 	Inventory = {},
 	RevolverInventory = {},
@@ -55,11 +57,16 @@ local PROFILE_TEMPLATE = {
 		ExpiresAt = 0,
 	},
 	ProcessedPurchases = {},
+	TradeJournal = {},
+	InventoryQuarantine = {},
+	DataSchemaVersion = 0,
+	CompetitiveStats = {Version = 0},
 	MigrationComplete = false,
 	FirstTimePlaying = false,
 }
 
 local PlayerStore = ProfileStore.New(STORE_NAME, PROFILE_TEMPLATE)
+if DataConfig.UseMockProfiles then PlayerStore = PlayerStore.Mock end
 
 local Profiles: {[Player]: any} = {}
 
@@ -90,6 +97,8 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 	local settingsFolder = leaderstats:FindFirstChild("Settings")
 	if settingsFolder then
 		data.Settings = {
+			ReducedEffects = settingsFolder:FindFirstChild("ReducedEffects") and settingsFolder.ReducedEffects.Value or false,
+			HighContrastCrosshair = settingsFolder:FindFirstChild("HighContrastCrosshair") and settingsFolder.HighContrastCrosshair.Value or false,
 			DaySetting = settingsFolder:FindFirstChild("Day") and settingsFolder.Day.Value,
 			LobbySetting = settingsFolder:FindFirstChild("LobbyMode") and settingsFolder.LobbyMode.Value,
 			Notifications = settingsFolder:FindFirstChild("Notifications") and settingsFolder.Notifications.Value,
@@ -102,6 +111,9 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 		if data.Settings.Trades == nil then data.Settings.Trades = true end
 	end
 
+	-- Escrow owns inventory while saves/recovery yield. Stats/cash continue to
+	-- serialize normally; temporary Value objects must not overwrite escrow.
+	if player:GetAttribute("InventoryLocked") ~= true then
 	-- Inventory
 	local inventoryFolder = leaderstats:FindFirstChild("Inventory")
 	local inventoryData = {}
@@ -173,6 +185,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 		end
 	end
 	data.Emotes = emotesData
+	end
 
 	-- KeyBinds
 	local keybindsFolder = leaderstats:FindFirstChild("KeyBinds")
@@ -213,6 +226,7 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 		data.LastRound.Opponents = tonumber(player:GetAttribute("LastRoundOpponents")) or 0
 		data.LastRound.Kills = tonumber(player:GetAttribute("LastRoundKills")) or 0
 		data.LastRound.Placement = placement
+		data.LastRound.GameMode = player:GetAttribute("LastRoundGameMode") or player:GetAttribute("CurrentRoundMode") or "FFA"
 	end
 end
 
@@ -359,6 +373,25 @@ function ProfileManager.SaveProfile(player: Player)
 		syncValueObjectsToProfile(player, profile)
 		profile:Save()
 	end
+end
+
+function ProfileManager.SyncProfile(player: Player)
+	local profile = Profiles[player]
+	if profile then syncValueObjectsToProfile(player, profile) end
+end
+
+function ProfileManager.ConfirmSave(player, profile, predicate, timeoutSeconds)
+	if not player or Profiles[player] ~= profile or not profile:IsActive() then return false end
+	profile:Save()
+	local deadline = os.clock() + (timeoutSeconds or 20)
+	repeat
+		if profile.LastSavedData and predicate(profile.LastSavedData) then return true end
+		if Profiles[player] ~= profile or not profile:IsActive() then return false end
+		task.wait(0.1)
+	until os.clock() >= deadline
+	local replicated = game:GetService("ReplicatedStorage")
+	replicated:SetAttribute("ProfileSaveTimeoutCount", (replicated:GetAttribute("ProfileSaveTimeoutCount") or 0) + 1)
+	return profile.LastSavedData and predicate(profile.LastSavedData) == true or false
 end
 
 -- Profile:Save() queues asynchronous work; pcall(Save) is not a durable receipt

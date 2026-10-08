@@ -21,6 +21,8 @@ local dot = Instance.new("Frame")
 dot.Name, dot.AnchorPoint, dot.Size = "WhiteDot", Vector2.new(0.5, 0.5), UDim2.fromOffset(Config.WhiteDotSize, Config.WhiteDotSize)
 dot.BackgroundColor3, dot.BorderSizePixel, dot.Parent = Color3.new(1, 1, 1), 0, gui
 dot.ZIndex = 2
+local outline = Instance.new("UIStroke")
+outline.Color, outline.Thickness, outline.Enabled, outline.Parent = Color3.new(0, 0, 0), 2, false, dot
 local character, humanoid, heldTool, weaponType
 local connections = {}
 local bound
@@ -53,6 +55,10 @@ local function menuOpen()
 end
 
 local function update()
+	local stats = player:FindFirstChild("leaderstats")
+	local settings = stats and stats:FindFirstChild("Settings")
+	local contrast = settings and settings:FindFirstChild("HighContrastCrosshair")
+	outline.Enabled = contrast and contrast.Value == true or false
 	local input = UserInputService:GetLastInputType()
 	local touch = input == Enum.UserInputType.Touch
 	local gamepad = input.Name:match("^Gamepad") ~= nil

@@ -20,6 +20,8 @@ local function reject(player, id)
 	return false
 end
 function ThrowKnife.Throw(player, id, origin, direction, charge)
+	if player:GetAttribute("MovementAdmitted") ~= nil and not require(script.Parent.MovementAuthority).Admit(player) then return reject(player, id) end
+	if player:GetAttribute("InventoryLocked") == true or player:GetAttribute("MovementAdmitted") == false then return reject(player, id) end
 	if not validId(id) or not Math.IsFiniteVector(origin) or not Math.IsFiniteVector(direction)
 		or not Math.IsFiniteNumber(charge) then return reject(player, id) end
 	local now = os.clock()

@@ -112,8 +112,7 @@ local function enqueueItem(item)
 		if mesh or texture then enqueue("mesh:" .. (mesh or "") .. "|" .. (texture or ""), item) end
 	elseif item:IsA("Animation") then local key = id(item.AnimationId); if key then enqueue(key, item) end
 	elseif item:IsA("Sound") then local key = id(item.SoundId); if key then enqueue(key, item) end
-	elseif item:IsA("Decal") or item:IsA("Texture") or item:IsA("ParticleEmitter")
-		or item:IsA("Trail") or item:IsA("Beam") then enqueueId(item.Texture) end
+	end
 	-- SurfaceAppearance/MaterialVariant texture packs are streamed by the
 	-- engine; ContentProvider does not support preloading these Instances.
 end
@@ -207,13 +206,12 @@ local function refresh()
 		for _, name in ipairs({"EquipSoundId", "FireSoundId", "ReloadSoundId", "EmptySoundId", "FireAnimationId", "ReloadAnimationId"}) do
 			enqueueId(effects[name], name:find("AnimationId") and "Animation" or "Sound")
 		end
-		if effects.BulletHoleEnabled ~= false then enqueueId(effects.BulletHoleTextureId) end
 	end
 	local combat = RS:FindFirstChild("CombatAnimations")
 	if currentKnife ~= "" then
 		if combat then for name in pairs(combatNames) do local clip = combat:FindFirstChild(name); if clip then enqueueItem(clip) end end end
 		local effects = KnifeEffectsConfig.Get(currentKnife)
-		enqueueId(effects.ThrowSoundId, "Sound"); enqueueId(effects.ImpactSoundId, "Sound"); enqueueId(effects.TrailTexture)
+		enqueueId(effects.ThrowSoundId, "Sound"); enqueueId(effects.ImpactSoundId, "Sound")
 	end
 	if currentKnife ~= "" or currentGun ~= "" then
 		enqueueId(AudioConfig.Hit.SoundId, "Sound")

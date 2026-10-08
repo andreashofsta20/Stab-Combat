@@ -1,0 +1,51 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download pinned tools and verify checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolDir = Join-Path $env:RUNNER_TEMP 'stab-tools'
+          New-Item -ItemType Directory -Path $toolDir -Force | Out-Null
+          $assets = @(
+            @{
+              Name = 'luau'
+              Url = 'https://github.com/luau-lang/luau/releases/download/0.741/luau-windows.zip'
+              Hash = 'be90c3223f3dc26777ef234244c2b1eae16b3c574f1ab7d1446972f72c28cab1'
+            },
+            @{
+              Name = 'rojo'
+              Url = 'https://github.com/rojo-rbx/rojo/releases/download/v7.7.0-rc.1/rojo-7.7.0-rc.1-windows-x86_64.zip'
+              Hash = '77333f04b933e832605a581a8bb5562e0a06003bf2d179f671779e9b5919506b'
+            }
+          )
+          foreach ($asset in $assets) {
+            $archive = Join-Path $toolDir ($asset.Name + '.zip')
+            Invoke-WebRequest -Uri $asset.Url -OutFile $archive
+            if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $asset.Hash) { throw 'Tool checksum mismatch' }
+            Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $toolDir $asset.Name)
+          }
+          "STAB_TOOLS=$toolDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Run native PowerShell suites
+        shell: pwsh
+        run: ./scripts/test-performance-polish.ps1 -LuauPath "$env:STAB_TOOLS/luau/luau.exe"
+      - name: Verify portable runner, syntax and Rojo build
+        shell: pwsh
+        run: |
+          python scripts/test-all.py --luau "$env:STAB_TOOLS/luau/luau.exe" --compile "$env:STAB_TOOLS/luau/luau-compile.exe" --rojo "$env:STAB_TOOLS/rojo/rojo.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable verification failed' }
