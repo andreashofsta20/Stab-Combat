@@ -1,0 +1,43 @@
+{
+  "EvidenceScope": "Retained audit behavior only. Run predates final removal of an optional mode and the death-listener race fix. The final native rerun failed to connect both clients.",
+  "Result": {
+    "Backend": "isolated in-memory adapter and ProfileStore.Mock",
+    "BackendWrites": 17,
+    "ConnectedPlayers": 2,
+    "Errors": [],
+    "InstanceCount": 46876,
+    "MaxPlayers": 60,
+    "MovementRejections": 1,
+    "PlaceId": 119874582058419,
+    "Players": 2,
+    "ProfileBytes_Player1": 1893,
+    "ProfileBytes_Player2": 1998,
+    "ServerMemoryMB": 2387.1123046875,
+    "StartupFailed": "",
+    "StartupPending": "",
+    "StartupState": "Ready",
+    "Tests": [
+      {
+        "Name": "required startup and independent profiles",
+        "Passed": true
+      },
+      {
+        "Name": "authorized teleports and excessive displacement",
+        "Passed": true
+      },
+      {
+        "Name": "native durable trade acknowledgements",
+        "Passed": true
+      },
+      {
+        "Name": "FFA death respawn and lobby forfeit",
+        "Passed": true
+      },
+      {
+        "Name": "BR elimination and cleanup",
+        "Passed": true
+      }
+    ]
+  },
+  "Started": true
+}

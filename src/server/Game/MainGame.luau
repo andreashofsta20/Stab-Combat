@@ -669,7 +669,7 @@ function MainGame.CleanupRound(respawn: boolean?)
 end
 
 local function wantsRound(player)
-    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true or player:GetAttribute("PracticeActive") == true then return false end
+    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
     local stats = player:FindFirstChild("leaderstats")
     local settings = stats and stats:FindFirstChild("Settings")
     local lobbyMode = settings and settings:FindFirstChild("LobbyMode")

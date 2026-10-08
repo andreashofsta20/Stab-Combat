@@ -29,7 +29,8 @@ local VIP_PRODUCT_DURATIONS = {
 }
 local PURCHASE_PROMPT_COOLDOWN = 0.75
 local lastPromptAt: {[number]: number} = {}
-local processingReceipts: {[string]: boolean} = {}
+local processingReceipts: {[string]: number} = {}
+local maintainingUsers: {[number]: boolean} = {}
 
 local function canPrompt(player: Player): boolean
 	local now = os.clock()
@@ -160,12 +161,11 @@ end
 
 MarketPlaceService.ProcessReceipt = function(receiptInfo)
 	local purchaseId = tostring(receiptInfo.PurchaseId)
-	if processingReceipts[purchaseId] then
+	if processingReceipts[purchaseId] or maintainingUsers[receiptInfo.PlayerId] then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	processingReceipts[purchaseId] = true
+	processingReceipts[purchaseId] = receiptInfo.PlayerId
 	local function finish(decision)
-		processingReceipts[purchaseId] = nil
 		return decision
 	end
 
@@ -188,6 +188,14 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 		local productId = receiptInfo.ProductId
 		local vipDuration = VIP_PRODUCT_DURATIONS[productId]
 		if vipDuration then
+			local profile = ProfileManager.GetProfile(player)
+			if not profile or not profile:IsActive() then return finish(Enum.ProductPurchaseDecision.NotProcessedYet) end
+			-- A cross-server retry can have read archive absence before the old
+			-- server finished archival. The owned profile's durable marker is
+			-- the second replay barrier, even after the VIP hot marker is pruned.
+			if profile.Data.ProcessedPurchases and profile.Data.ProcessedPurchases[purchaseId] then
+				return finish(ProfileManager.ConfirmPurchase(player,purchaseId) and Enum.ProductPurchaseDecision.PurchaseGranted or Enum.ProductPurchaseDecision.NotProcessedYet)
+			end
 			print("[Purchase] VIP receipt detected for", player.Name, "duration=", vipDuration)
 			local success, newExpiry = VIPService.GrantDuration(player, vipDuration, purchaseId)
 			if not success then
@@ -227,8 +235,8 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 	end)
 	-- Unexpected errors must also release the per-receipt lock. A retry will
 	-- confirm the existing marker if the grant happened before the error.
-	processingReceipts[purchaseId] = nil
 	if not ok then
+		processingReceipts[purchaseId] = nil
 		ReplicatedStorage:SetAttribute("ReceiptErrorCount", (ReplicatedStorage:GetAttribute("ReceiptErrorCount") or 0) + 1)
 		warn("[Purchase] Receipt processing failed:", purchaseId, decision)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -237,13 +245,28 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 		-- Grants and their profile/VIP markers are already durable here. Archive
 		-- first, then remove hot markers. An archive outage keeps all markers.
 		if not ReceiptArchive.Commit(PurchaseReceiptStore, receiptInfo) then
+			processingReceipts[purchaseId] = nil
 			return Enum.ProductPurchaseDecision.NotProcessedYet
 		end
 		local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 		if player then ReceiptArchive.PruneProfile(ProfileManager.GetProfile(player), purchaseId) end
 		if VIP_PRODUCT_DURATIONS[receiptInfo.ProductId] then VIPService.ArchivePurchase(receiptInfo.PlayerId, purchaseId) end
 	end
+	processingReceipts[purchaseId] = nil
 	return decision
 end
 
-return {}
+local function isProcessing(userId)
+	for _, owner in pairs(processingReceipts) do if owner == userId then return true end end
+	return false
+end
+return {
+	IsProcessing = isProcessing,
+	Maintain = function(userId, fn)
+		if maintainingUsers[userId] or isProcessing(userId) then return false end
+		maintainingUsers[userId] = true
+		local ok, result = pcall(fn)
+		maintainingUsers[userId] = nil
+		return ok, result
+	end,
+}

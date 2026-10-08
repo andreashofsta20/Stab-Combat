@@ -160,7 +160,6 @@ EquipRemote.OnServerEvent:Connect(function(player, category)
 	if category ~= "Knife" and category ~= "Revolver" and category ~= "Food" then return end
 	if player:GetAttribute("DataReady") ~= true then return end
 	if player:GetAttribute("InventoryLocked") == true then return end
-	if player:GetAttribute("PracticeActive") == true then return end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return end

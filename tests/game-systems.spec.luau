@@ -433,6 +433,25 @@ return function(load, testFilter: string?)
 		equal(f.lobby.Parent, f.workspace); equal(f.other.Parent, f.workspace); equal(f.terrain.Parent, f.workspace)
 		equal(f.SS.MapA.Parent, f.SS, "ServerStorage template preserved")
 	end)
+	test("spawn scorer prefers covered distance and bounds visibility queries",function()
+		local f=mapFixture(); local spawns=f.SS.MapA.Geometry.Spawns
+		spawns["1"].CFrame=mapFrame(0,0,0)
+		child(spawns,"Part","2").CFrame=mapFrame(100,0,0)
+		child(spawns,"Part","3").CFrame=mapFrame(120,0,0)
+		f.maps.Spawn("MapA")
+		local player,enemy=f:createPlayer(1),f:createPlayer(2)
+		child(player.Character,"Part","HumanoidRootPart").CFrame=mapFrame(0,0,0)
+		enemy:SetAttribute("InRound",true); child(enemy.Character,"Part","HumanoidRootPart").CFrame=mapFrame(30,0,0)
+		local calls=0
+		function f.workspace:Raycast(origin,direction)
+			calls+=1; equal((origin+direction).X,30,"ray must terminate at enemy")
+			return origin.X==100 and {Instance={}} or nil
+		end
+		assert(f.maps.RespawnPlayer(player,"MapA")); equal(player.Character.HumanoidRootPart.Position.X,100)
+		assert(calls<=f.mapConfig.SpawnScoring.MaxCandidates)
+		assert(f.maps.ScoreSpawn(100,false,false)>f.maps.ScoreSpawn(100,true,false))
+		assert(f.maps.ScoreSpawn(100,false,true)<f.maps.ScoreSpawn(100,false,false))
+	end)
 	test("successive map spawns keep exactly one fresh active gameplay map", function()
 		local f = mapFixture()
 		equal(f.maps.Spawn("MapA"), true); local first = f.workspace.MapA
@@ -671,6 +690,18 @@ return function(load, testFilter: string?)
 		for _, thread in ipairs(f.paused) do assert(coroutine.resume(thread)); equal(coroutine.status(thread), "dead") end
 		equal(f.characterHooks[existing], 1); equal(f.characterHooks[player], nil)
 	end)
+	test("death while character setup yields is handled when its listener attaches", function()
+		local f = playerStartupFixture(); local resolve = f.env.require
+		f.env.require = function(mod)
+			if mod == f.mainModule then coroutine.yield("delayed character hook") end
+			return resolve(mod)
+		end
+		local player = f:newPlayer(1); f:start()
+		player.Character.Humanoid.Health = 0; player.Character.Humanoid.Died:Fire()
+		equal(f.deaths[player], nil)
+		for _, thread in ipairs(f.paused) do assert(coroutine.resume(thread)) end
+		equal(f.deaths[player], 1); equal(player.Character.Humanoid.Died:Count(), 1)
+	end)
 	test("player setup disconnects prior death hooks on respawn and every player hook on leave", function()
 		local f=playerStartupFixture(); local player=f:newPlayer(1); f:start()
 		for _=1,30 do
@@ -817,6 +848,26 @@ return function(load, testFilter: string?)
 		equal(f.RS:GetAttribute("ServerReady"), false); equal(f.RS:GetAttribute("ServerStartupState"), "Failed")
 		equal(f.RS:GetAttribute("ServerStartupFailures"), "Game.MissingLoop")
 	end)
+	test("a required startup timeout publishes failure and a late successful job recovers readiness", function()
+		local f = startupFixture(); f.config.RequiredServerGroups = {"Game"}
+		local startup = f:load("StartupService", f.server)
+		startup.LoadGroup(f.gameFolder, {Tasks = {{Name = "SlowCore", Start = function() coroutine.yield("dependency") end}}})
+		f:drain(); equal(f.RS:GetAttribute("ServerReady"), false)
+		f.time += f.config.ReadyTimeoutSeconds
+		for _, timer in ipairs(f.delayed) do if timer.delay == f.config.ReadyTimeoutSeconds then timer.fn() end end
+		equal(f.RS:GetAttribute("ServerStartupState"), "Failed")
+		equal(f.RS:GetAttribute("ServerStartupPending"), "Game.SlowCore")
+		f:resume(table.remove(f.paused, 1))
+		equal(f.RS:GetAttribute("ServerReady"), true); equal(f.RS:GetAttribute("ServerStartupState"), "Ready")
+	end)
+	test("optional service failure does not hold a ready required service group closed", function()
+		local f = startupFixture(); f.config.RequiredServerGroups = {"ServicesHandler"}
+		f.config.OptionalServerModules = {ServicesHandler = {"OptionalView"}}
+		local startup = f:load("StartupService", f.server)
+		f:job(f.servicesFolder, "CorePurchases")
+		startup.LoadGroup(f.servicesFolder, {Priority = {"OptionalView"}}); f:drain()
+		equal(f.RS:GetAttribute("ServerReady"), true); equal(f.RS:GetAttribute("ServerStartupFailures"), "")
+	end)
 	test("a server bootstrap that never registers remains unready and emits one actionable diagnostic", function()
 		local f = startupFixture(); f.config.RequiredServerGroups = {"Game"}
 		f:load("StartupService", f.server); f.delayed[1].fn()
@@ -914,7 +965,7 @@ return function(load, testFilter: string?)
 		child(child(shop, "Folder", "VIP"), "RemoteEvent", "VIPStatus")
 		f.modules[child(f.modulesFolder, "ModuleScript", "ProductIDS")] = { [100] = 100 }
 		f.modules[child(f.servicesFolder, "ModuleScript", "VIPService")] = { HasVIPByUserId = function() return false end }
-		f:load("Purchases", f.servicesFolder, "PurchaseHandler")
+		f.purchases = f:load("Purchases", f.servicesFolder, "PurchaseHandler")
 		f.receipt = { PurchaseId = "receipt", PlayerId = 1, ProductId = 100 }
 		return f
 	end
@@ -931,6 +982,31 @@ return function(load, testFilter: string?)
 		equal(f.Marketplace.ProcessReceipt(f.receipt), "Retry")
 		equal(f.Marketplace.ProcessReceipt(f.receipt), "Retry")
 		equal(f.notifications, 2, "Both requests must reach unknown-product handling")
+	end)
+	test("receipt remains locked through archive acknowledgement and historical maintenance", function()
+		local f = purchaseFixture(); f.onWait = function() f.profile.LastSavedData = f.profile.pending end
+		local archive = f.modules[f.servicesFolder.ReceiptArchive]
+		local commit = archive.Commit
+		archive.Commit = function(...)
+			assert(f.purchases.IsProcessing(1))
+			equal(f.Marketplace.ProcessReceipt(f.receipt), "Retry")
+			assert(not f.purchases.Maintain(1, function() error("must not run") end))
+			return commit(...)
+		end
+		equal(f.Marketplace.ProcessReceipt(f.receipt), "Granted"); equal(f.player.leaderstats.Cash.Value, 100)
+		archive.Commit = commit
+		local ok = f.purchases.Maintain(1, function() equal(f.Marketplace.ProcessReceipt(f.receipt), "Retry") end)
+		assert(ok and not f.purchases.IsProcessing(1))
+		assert(not f.purchases.Maintain(1, function() error("maintenance outage") end))
+		equal(f.Marketplace.ProcessReceipt(f.receipt), "Granted"); equal(f.player.leaderstats.Cash.Value, 100)
+	end)
+	test("VIP retry with an owned durable profile marker cannot extend duration again", function()
+		local f = purchaseFixture(); f.receipt.ProductId = 3548752161
+		f.profile.Data.ProcessedPurchases.receipt = true
+		f.profile.LastSavedData.ProcessedPurchases.receipt = true
+		f.modules[f.servicesFolder.VIPService].GrantDuration = function() error("must not grant again") end
+		f.modules[f.servicesFolder.VIPService].ArchivePurchase = function() end
+		equal(f.Marketplace.ProcessReceipt(f.receipt), "Granted")
 	end)
 	test("unexpected receipt error releases its lock and retries without double granting", function()
 		local f = purchaseFixture(); local originalSave = f.profile.Save
@@ -2540,6 +2616,20 @@ return function(load, testFilter: string?)
 		assert(coroutine.resume(shrink)); assert(coroutine.resume(damage))
 		equal(coroutine.status(shrink), "dead"); equal(coroutine.status(damage), "dead")
 		equal(f.victim.Character.Humanoid.Health, 90); equal(#f.tweens, 1)
+	end)
+	test("phased BR holds before shrinking and cancels an old hold without publishing a tween",function()
+		local f=zoneFixture(true); local shrink=coroutine.create(f.background[1]); local zone=f.workspace.Zone
+		assert(coroutine.resume(shrink)); equal(zone:GetAttribute("Phase"),1); equal(zone:GetAttribute("PhaseState"),"Holding"); equal(#f.tweens,0)
+		assert(coroutine.resume(shrink)); equal(zone:GetAttribute("PhaseState"),"Shrinking"); equal(zone.Size.X,65)
+		assert(coroutine.resume(shrink)); equal(zone:GetAttribute("Phase"),2); equal(zone:GetAttribute("PhaseState"),"Holding")
+		f.zoneActual.StopZone(); assert(coroutine.resume(shrink)); equal(coroutine.status(shrink),"dead"); equal(#f.tweens,1)
+	end)
+	test("phased BR reaches the final core within the configured round budget",function()
+		local f=zoneFixture(true); local shrink=coroutine.create(f.background[1]); local schedule=f.modules[f.modulesFolder.ZoneConfig]
+		local duration=0; for _, phase in ipairs(schedule.Phases) do duration+=phase.Hold+phase.Shrink end
+		assert(duration<=300)
+		while coroutine.status(shrink)~="dead" do assert(coroutine.resume(shrink)) end
+		equal(#f.tweens,4); equal(f.workspace.Zone.Size.X,4); equal(f.workspace.Zone.Size.Z,4)
 	end)
 	test("zone deaths clear weapon credit and missing zone templates fail cleanly", function()
 		local f = zoneFixture(); f.main.RegisterPendingKill(f.player, 2)

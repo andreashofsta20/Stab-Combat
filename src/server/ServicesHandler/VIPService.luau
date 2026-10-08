@@ -80,7 +80,7 @@ function VIPService.ReconcilePlayer(player: Player, profileExpiry): boolean
 	end)
 	if not ok or type(record) ~= "table" then return false end
 	local expiry = tonumber(record.ExpiresAt or 0)
-	if not expiry or expiry ~= expiry or math.abs(expiry) == math.huge then return false end
+	if not expiry or expiry ~= expiry or expiry < 0 or expiry > 9007199254740991 then return false end
 	if player.Parent ~= Players then return false end
 	VIPService.ApplyToPlayer(player, normalizeExpiry(expiry))
 	return true
@@ -119,6 +119,8 @@ function VIPService.GrantDuration(player: Player, secondsToAdd: number, purchase
 			assert(old == nil or type(old) == "table", "Corrupt VIP record")
 			old = old or {}
 			local currentExpiry = normalizeExpiry(old.ExpiresAt)
+			local rawExpiry = tonumber(old.ExpiresAt or 0)
+			assert(rawExpiry and rawExpiry == rawExpiry and rawExpiry >= 0 and rawExpiry <= 9007199254740991, "Corrupt VIP expiry")
 			assert(old.ProcessedPurchases == nil or type(old.ProcessedPurchases) == "table", "Corrupt VIP receipts")
 			old.ProcessedPurchases = old.ProcessedPurchases or {}
 			if purchaseId and old.ProcessedPurchases[purchaseId] then
@@ -159,13 +161,20 @@ function VIPService.ArchivePurchase(userId, purchaseId)
 		end)
 	end)
 end
-function VIPService.ArchiveHistoricalPurchases(userId, receiptStore, limit)
+function VIPService.ArchiveHistoricalPurchases(userId, receiptStore, limit, profile, confirm)
+	if not profile or not profile:IsActive() then return 0 end
 	local ok, value = pcall(function() return VIPStore:UpdateAsync(tostring(userId),function(old) return old end) end)
 	if not ok or type(value) ~= "table" or type(value.ProcessedPurchases) ~= "table" then return 0 end
 	local archived = 0
 	for id, granted in pairs(value.ProcessedPurchases) do
 		if archived >= limit then break end
 		if granted == true then
+			-- Establish the owned profile replay barrier before pruning a legacy
+			-- VIP-only marker. Session handover then carries this acknowledgement.
+			if not profile:IsActive() then break end
+			profile.Data.ProcessedPurchases = profile.Data.ProcessedPurchases or {}
+			profile.Data.ProcessedPurchases[id] = true
+			if not confirm(id) then break end
 			local success, saved = pcall(function()
 				return receiptStore:UpdateAsync(id,function(old)
 					if old then assert(old == true or type(old) == "table" and old.Granted == true,"Invalid historical VIP receipt"); return old end
@@ -173,7 +182,10 @@ function VIPService.ArchiveHistoricalPurchases(userId, receiptStore, limit)
 				end)
 			end)
 			if not success or not saved then break end
-			if VIPService.ArchivePurchase(userId,id) then archived += 1 end
+			if VIPService.ArchivePurchase(userId,id) then
+				profile.Data.ProcessedPurchases[id] = nil
+				archived += 1
+			end
 		end
 	end
 	return archived

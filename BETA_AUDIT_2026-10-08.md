@@ -1,8 +1,8 @@
 # Stab-Combat beta audit — 8 October 2026
 
-Assessment of the local working tree, including existing uncommitted changes. No live player data was accessed. The user subsequently authorized implementation of the audit tasks and supplied place **119874582058419** (universe **9667193329**). Native tests now run against an unsaved source overlay of that place, using isolated in-memory stores and ProfileStore.Mock.
+Assessment of the local working tree, including existing uncommitted changes. No live player data was accessed. The user subsequently authorized implementation of the audit tasks and supplied place **119874582058419** (universe **9667193329**). Native tests used an unsaved source overlay of that place, with either isolated in-memory stores/ProfileStore.Mock or uniquely named disposable real DataStores. No place was saved or published.
 
-Current implementation status: **22/22 suites pass, all 244 source/test/dependency scripts compile, the Rojo build passes, and git diff --check passes.** Durable escrow/recovery, saved-data quarantine, VIP reconciliation, receipt archival, startup timeouts, movement admission, spawn scoring, phased BR, accessibility settings, bounded statistics/metrics and a separate practice range are implemented locally. Native two-player tests passed startup/profiles, movement rejection, trading and FFA; subsequent native checks and hosted CI are being recorded below.
+Current implementation status: **22/22 suites pass, all 242 source/test/dependency scripts compile, the Rojo build passes, and git diff --check passes.** Durable escrow/recovery, saved-data quarantine, VIP reconciliation, receipt archival, startup timeouts, movement admission, spawn scoring, phased BR, accessibility settings, bounded statistics/metrics are implemented. Practice mode and explicit texture/image preloading were removed at the user’s request. Native and hosted CI evidence, including unsuccessful attempts, is recorded in section M.
 
 **Sections A–L retain the original audit and review history.** Their statements that features are missing or proposed describe that earlier state. The authorized implementation supersedes those statements; its current acceptance evidence and remaining limitations belong in section M. Native asset permissions, real backend interruption, high-ping gameplay and long-session device performance require their own evidence and must not be inferred from fixture results.
 
@@ -266,3 +266,57 @@ All cases below remain **not run**. Use a separate test experience/data namespac
 3. Run the native matrix, starting with two-client startup, combat and round lifecycle checks; record actual results and reproducible failures.
 4. Establish population/device performance baselines and bounded rejection/save/recovery diagnostics, then prioritize measured costs.
 5. Revisit optional spawn scoring, BR phases, accessibility and practice features after stability evidence. Weapon tuning and persistent economy changes remain separate decisions.
+
+
+## M. Authorized implementation and acceptance evidence
+
+The user authorized the audit tasks and provided place 119874582058419, universe 9667193329. The final scope excludes practice mode and explicit shop/weapon-effect texture preloading. Ranked matchmaking and the explicitly deferred weapon balance experiments remain deferred. Existing working-tree changes were preserved.
+
+| Audit task | Final implementation | Acceptance evidence / remaining work |
+| --- | --- | --- |
+| Invalid FFA podium quest credit | Only non-forfeited placements 1–3 receive TOP3_FINISHES | Forfeit and legitimate podium regressions pass; native FFA smoke passed on the earlier mock run |
+| Test/CI failures | Portable runner mirrors PowerShell bundles; pinned tools and Windows workflow | 22/22 suites, 242 script compilations, Rojo and whitespace checks pass; hosted Windows workflow passed on the initial implementation snapshot |
+| Trade UI/profile viewer/VIP reward defects | Owner teardown, deferred portraits with generation guards, validated offline inventory and expiry-aware bonuses | UI lifecycle and service regressions pass, including failed/delayed portraits and expired rewards |
+| Durable trades | Immutable UpdateAsync intent, leased preparation, saved escrow, irreversible commit/abort, idempotent settlement and acknowledgement | 37 persistence/security tests include failures before/after ten durable stages, replay, offline participants, stale coordinator fencing and recovered ambiguous commits; native trade completed with both mock and real stores |
+| Saved inventory validation | Catalog metadata is authoritative; malformed/duplicate/unknown rows are quarantined without summing stock; critical currency/receipt/recovery corruption fails hydration | Schema regressions pass; quarantined rows are bounded and retained as JSON-safe evidence |
+| VIP authority | Dedicated VIP record is canonical; import profile expiry only if no dedicated record exists | Bad authoritative records fail hydration; no stale profile overwrite; persistence and historical-archive regression checks pass |
+| Receipt growth/replay | Immutable per-receipt archive acknowledged before pruning; bounded maintenance of eight profile and eight VIP markers/player/minute | Archive outage/replay, saved-marker backfill, concurrent callback locks and legacy VIP replay barrier pass; real-store archive/replay succeeded |
+| Startup readiness | Required/optional classification, explicit 30-second failure state, retained pending jobs | All six native missing-map/tool cases stayed unready with Failed diagnostics; optional service failure and late successful recovery pass fixtures |
+| Movement admission | Server displacement debt, finite coordinates, ping allowance, admitted slide intent and authorized teleport versions; weapon gates | Native excessive displacement was rejected and authorized teleport accepted; running/slide at 300 ms ping passes math tests; native high-ping gameplay remains unverified |
+| Spawn fairness | At most six candidate markers, sixteen enemy samples and one visibility ray/candidate, plus recent-use penalties | Deterministic distance/cover/recent-use and bounded-ray regressions pass; each authored map still needs population playtests |
+| BR pacing | Four hold/shrink phases totaling 225 seconds, then the existing minimum core/damage policy | Hold/tween sequencing, cancellation and total duration pass fixtures; native cleanup smoke passed on the earlier mock run; final-circle reachability on every map remains unverified |
+| Accessibility | Saved ReducedEffects and HighContrastCrosshair settings, generated rows when native GUI omits them, reduced presentation and outlined aim markers | Source/fixture checks pass; visual and mobile/gamepad acceptance remains unverified |
+| Mode/weapon statistics and diagnostics | Fixed mode/weapon aggregates, bounded counters, periodic profile-size/pending-trade/receipt/memory diagnostics | Statistics sanitization/caps pass; no unbounded per-shot history added |
+| Native lifecycle/performance | Reproducible unsaved-overlay harness with isolated backends and bounded client samples | See measured results and limitations below; population/device/long-soak acceptance remains open |
+
+### Native measurements and unsuccessful attempts
+
+Studio version: 0.742.0.7421053. Authored place version inspected: 485. Catalog inspection found native Tool/Handle templates for all 15 knives and 57 revolvers. StreamingEnabled was true. Reading Workspace.AuthorityMode was denied by the thread capability; this does **not** establish that Roblox server authority is enabled or disabled. Movement admission is an additional positional check, not full authoritative character simulation or vertical-flight prevention.
+
+The earlier two-player mock-backend run passed startup/profile independence, excessive displacement/authorized teleports, durable trade, FFA respawn/forfeit and BR cleanup. It recorded 46,876 server instances, approximately 2,387 MB total Studio server memory, 1,893–1,998 serialized profile bytes, one intentional movement rejection and no collected server errors. A later attempt completed the 30-respawn FFA assertion, but its requested 1,800-second soak returned no final report. **No 30-minute leak/performance conclusion is claimed.**
+
+The two-player real-backend run used namespace BetaAudit_20261008_66f0f498. Startup, movement, durable trade, acknowledged profile reread and receipt archive/replay passed. Its rapid successive respawn test timed out. Character setup now checks an already-dead humanoid after attaching Died, with a regression for death during yielded setup. The harness also waits for each StartGame task’s complete cleanup and checks the current mode before starting the next case. The final native retest reached only one of two requested clients and timed out connecting the second; it executed no multiplayer assertions. **The respawn correction therefore has fixture evidence but no successful final native retest.** The real-backend run’s BR assertion followed the FFA failure and is not used as fresh BR acceptance evidence.
+
+Real-backend run memory was approximately 2,428 MB server and 2,574–2,614 MB/client. Clients reported 14,199 instances, roughly 6 MB Lua heap and 66.6 ms frame-time median with a 67.5 ms 95th percentile. These are simultaneous local Studio instances with background throttling, not a mobile/device performance certification. No sustained traffic, engine script-memory or maximum-population baseline was established.
+
+An eight-client attempt did not connect the requested population within 90 seconds. MaxPlayers is 60 in the authored place, but a 60-player run was not performed on this machine. The user reported a Roblox instance failing to open during the final two-client attempt; Studio subsequently cleaned up that test run. These launch failures are recorded as failures, not gameplay passes.
+
+Verification-only asset requests using correctly typed instances returned success for 280 of 281 IDs on both actual clients; the failed value was the malformed native placeholder `=`. Generic raw-ID results were superseded by the typed client check and are not counted as broken assets. Explicit texture/image preloading is disabled in the final game code, as requested. No native asset replacement was guessed or published.
+
+Sanitized structured evidence is retained under [audit-results/2026-10-08](audit-results/2026-10-08). Process logs are excluded. The earlier hosted [Windows Verify run](https://github.com/andreashofsta20/Stab-Combat/actions/runs/37841171652) passed both native PowerShell suites and portable syntax/Rojo verification. The final branch’s hosted result is recorded with the pull request.
+
+### Persistence/migration and operational behavior
+
+The profile additions are DataSchemaVersion, InventoryQuarantine, TradeJournal, accessibility settings and fixed CompetitiveStats. Existing inventory metadata comes from current catalogs. Duplicate/unknown/corrupt rows are retained in a bounded quarantine rather than combined or granted as new usable stock. Critical corruption leaves the player unavailable instead of saving temporary defaults. Existing legacy migration remains disabled.
+
+VIP imports a finite profile expiry only when the dedicated record is absent. Existing dedicated records remain authoritative. Receipt archival retains the per-receipt ledger permanently; a failed archive keeps hot markers. Legacy VIP markers first establish an acknowledged owned-profile replay barrier, then archive, then prune. Maintenance and ProcessReceipt are serialized for the same user, while the receipt lock remains held through final archive acknowledgement.
+
+TradeJournal references are recovered inside owned ProfileStore sessions before DataReady. During escrow/recovery, InventoryLocked prevents inventory writers/equips/weapon use, and profile snapshots preserve the journal’s inventory tables. A preparation lease lasts 120 seconds; save acknowledgements wait at most 20 seconds, with a bounded background retry. An ambiguous backend failure preserves pending stock until the authoritative decision can be resolved. Terminal trade records are retained permanently to reject replay; no journal deletion policy was added. Pending trades must be drained or recovered when coordinating deployment/rollback to server versions that understand this schema. The draft PR and local source are ready for review; the Roblox place was not published.
+
+### Still unverified
+
+- Final native retest after the death-listener fix; high-ping combat/cover/slide behavior and cross-server session handover or prolonged live backend interruption.
+- Intended-population runs, sustained network/script-memory measurements, 30–60 minutes of mixed combat/UI activity and real mobile/gamepad performance.
+- Authored BR final-circle reachability on every map, UI/weapon alignment on actual devices, and visible accessibility acceptance.
+
+These are acceptance gaps requiring successful native sessions/devices, not completed tasks inferred from unit fixtures. Practice mode and texture-preload work are intentionally excluded from the requested final scope.

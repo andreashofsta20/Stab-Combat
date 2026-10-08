@@ -67,7 +67,14 @@ local function preload(ids)
 	end
 	if #requested == 0 then return end
 	-- PreloadAsync yields; it must never delay input, remote handling, or camera work.
-	task.spawn(function() pcall(function() ContentProvider:PreloadAsync(requested) end) end)
+	task.spawn(function()
+		local assets = {}
+		for _, id in ipairs(requested) do
+			local sound = Instance.new("Sound"); sound.SoundId = id; table.insert(assets,sound)
+		end
+		pcall(function() ContentProvider:PreloadAsync(assets) end)
+		for _, sound in ipairs(assets) do sound:Destroy() end
+	end)
 end
 
 local function prepare()

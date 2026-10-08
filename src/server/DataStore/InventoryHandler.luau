@@ -81,7 +81,9 @@ local function CreateItem(player : Player, knifeName : string, tradeable: boolea
 
 	local existing = inventoryFolder:FindFirstChild(knifeName)
 	if existing then
-		existing.Quantity.Value += 1
+		local quantity = existing:FindFirstChild("Quantity")
+		if not quantity or not quantity:IsA("IntValue") or quantity.Value < 1 or quantity.Value >= 2147483647 then return end
+		quantity.Value += 1
 		local tradeableFlag = existing:FindFirstChild("Tradeable")
 		if not tradeableFlag then
 			tradeableFlag = Instance.new("BoolValue")
@@ -145,6 +147,7 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 	if existing and existing:IsA("StringValue") then
 		local qty = existing:FindFirstChild("Quantity")
 		if qty then
+			if not qty:IsA("IntValue") or qty.Value < 1 or qty.Value >= 2147483647 then return end
 			qty.Value += 1
 		else
 			local q = Instance.new("IntValue")
@@ -245,7 +248,8 @@ function InventoryHandler.AddRevolver(player: Player, revolverName: string, quan
 		return
 	end
 
-	local addAmount = math.max(1, math.floor(quantity or 1))
+	local addAmount = quantity == nil and 1 or quantity
+	if type(addAmount) ~= "number" or addAmount ~= addAmount or addAmount < 1 or addAmount > 2147483647 or addAmount % 1 ~= 0 then return end
 	local rarity = resolveRevolverRarity(revolverName, revolverInfo)
 	local image = revolverInfo.Image or ""
 	local tradeableValue = isRevolverTradeable(revolverName, revolverInfo, tradeable)
@@ -254,6 +258,7 @@ function InventoryHandler.AddRevolver(player: Player, revolverName: string, quan
 	if existing then
 		local amount = existing:FindFirstChild("Quantity")
 		if amount and amount:IsA("IntValue") then
+			if amount.Value < 1 or amount.Value > 2147483647-addAmount then return end
 			amount.Value += addAmount
 		else
 			local newAmount = Instance.new("IntValue")

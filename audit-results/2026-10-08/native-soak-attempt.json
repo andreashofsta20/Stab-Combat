@@ -1,0 +1,13 @@
+{
+  "Completed": false,
+  "FinalReturn": {
+    "Result": "nil",
+    "Started": true
+  },
+  "InitialBRTestPassed": true,
+  "InitialFFARespawnTestPassed": true,
+  "InitialRespawns": 30,
+  "Limitation": "The test ended before its final report. No 30-minute soak or leak conclusion is established.",
+  "RequestedSeconds": 1800,
+  "Result": null
+}

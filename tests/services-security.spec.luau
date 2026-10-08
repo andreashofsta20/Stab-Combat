@@ -243,6 +243,23 @@ return function(load)
 		vip.SetCachedExpiry(1, 0/0); equal(vip.GetVIPExpiry(1), 0)
 		vip.SetCachedExpiry(1, math.huge); equal(vip.GetVIPExpiry(1), 0)
 	end)
+	test("historical VIP archival preserves its replay marker until the owned profile save is acknowledged", function()
+		local f = fixture(); local player = f:createPlayer(1)
+		local record = {ExpiresAt = 1700001000, ProcessedPurchases = {old = true}}
+		f.DataStore.GetDataStore = function() return {UpdateAsync = function(_, _, fn) record = fn(record); return record end} end
+		local vip = load("VIPService", f.env)
+		local profile = {Data = {ProcessedPurchases = {}}, IsActive = function() return true end}
+		local ledger = {}
+		local store = {UpdateAsync = function(_, key, fn) ledger[key] = fn(ledger[key]); return ledger[key] end}
+		equal(vip.ArchiveHistoricalPurchases(1, store, 8, profile, function() return false end), 0)
+		assert(record.ProcessedPurchases.old and profile.Data.ProcessedPurchases.old and ledger.old == nil)
+		equal(vip.ArchiveHistoricalPurchases(1, store, 8, profile, function(id)
+			assert(id == "old" and record.ProcessedPurchases.old)
+			return true
+		end), 1)
+		assert(ledger.old.Granted and ledger.old.PlayerId == 1 and not record.ProcessedPurchases.old)
+		equal(record.ExpiresAt, 1700001000)
+	end)
 
 	local function adminFixture()
 		local f = fixture(); f.player = f:createPlayer(1); f.admin = child(f.server, "Folder", "Admin"); f.executed, f.warnings = 0, 0

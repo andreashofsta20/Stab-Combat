@@ -197,7 +197,7 @@ task.spawn(function()
 			local elapsed = math.max(0, now - (playtime[player] or now))
 			playtime[player] = now
 			local oldDay = states[player] and states[player].DayKey
-			if player:GetAttribute("PracticeActive") ~= true then Quests.AddProgress(player, "PLAY_TIME_SECONDS", elapsed) end
+			Quests.AddProgress(player, "PLAY_TIME_SECONDS", elapsed)
 			if oldDay and oldDay ~= dayKey() then queuePush(player) end
 		end
 	end

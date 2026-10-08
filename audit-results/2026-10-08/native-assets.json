@@ -1,0 +1,25 @@
+{
+  "AssetCount": 281,
+  "Clients": {
+    "Player1": {
+      "Completed": 281,
+      "Errors": [],
+      "Failures": {
+        "=": "Enum.AssetFetchStatus.Failure"
+      },
+      "Incomplete": false,
+      "SuccessCount": 280
+    },
+    "Player2": {
+      "Completed": 281,
+      "Errors": [],
+      "Failures": {
+        "=": "Enum.AssetFetchStatus.Failure"
+      },
+      "Incomplete": false,
+      "SuccessCount": 280
+    }
+  },
+  "Method": "Typed instances on actual clients for verification only; no production texture preload is enabled",
+  "Started": true
+}

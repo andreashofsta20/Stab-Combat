@@ -120,6 +120,7 @@ function Recovery.New(io)
 	end
 	function engine.Execute(transaction, first, second, outgoing1, outgoing2)
 		local locked = {}
+		local created = false
 		local ok, result = pcall(function()
 			assert(type(transaction) == "string" and #transaction > 0 and #transaction <= 64 and first ~= second, "Invalid transaction")
 			local a, b = terms(outgoing1), terms(outgoing2)
@@ -135,6 +136,7 @@ function Recovery.New(io)
 			Recovery.Transform(debit1, b, 1); Recovery.Transform(debit2, a, 1)
 			local record = write(transaction, function(old)
 				assert(old == nil, "Transaction ID already exists")
+				created = true
 				return {Version = 1, Id = transaction, Player1 = first, Player2 = second,
 					Owner = io.Owner, LeaseUntil = io.Now() + 120, State = "PREPARING",
 					Offers = {a, b}, Settled = {}}
@@ -175,6 +177,11 @@ function Recovery.New(io)
 				if value and value:IsActive() then
 					if next(value.Data.TradeJournal or {}) then engine.Recover(id) else io.Lock(id, false) end
 				end
+			end
+			if created then
+				local read, record = pcall(function() return write(transaction, function(old) return old end) end)
+				if read and record.Owner == io.Owner and record.Player1 == first and record.Player2 == second
+					and record.State == "COMPLETE" and record.Decision == "COMMIT" then return true end
 			end
 		end
 		if ok and result == true then return true end

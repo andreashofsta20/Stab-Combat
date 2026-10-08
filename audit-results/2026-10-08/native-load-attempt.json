@@ -1,0 +1,14 @@
+{
+  "Result": {
+    "Backend": "isolated in-memory adapter and ProfileStore.Mock",
+    "Errors": [],
+    "Fatal": "ServerScriptService.BetaAuditTests:14: Timed out: multiplayer connections",
+    "PlaceId": 119874582058419,
+    "Players": 8,
+    "StartupFailed": "",
+    "StartupPending": "",
+    "StartupState": "Ready",
+    "Tests": []
+  },
+  "Started": true
+}

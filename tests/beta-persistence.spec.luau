@@ -18,7 +18,10 @@ return function(load)
 			if f.calls == f.crash and not f.after then f.dead = true; error("Crash before write") end
 		end
 		local function afterWrite()
-			if f.calls == f.crash and f.after then f.dead = true; error("Ambiguous write after crash") end
+			if f.calls == f.crash and f.after then
+				if f.transient then f.crash = nil; error("Ambiguous transient write") end
+				f.dead = true; error("Ambiguous write after crash")
+			end
 		end
 		function f:reload(online)
 			self.dead, self.crash = false, nil; self.now += 121; self.profiles, self.locks = {}, {}
@@ -61,6 +64,13 @@ return function(load)
 	test("trade commits and reloads without repeating deltas", function()
 		local f = fixture(); assert(f.engine.Execute("trade", 1, 2, {a}, {b})); assert(f.journals.trade.State == "COMPLETE")
 		assert(not f.engine.Execute("trade", 1, 2, {a}, {b})); recover(f)
+	end)
+	test("recovered ambiguous commit reports success only after both durable acknowledgements", function()
+		local f = fixture(6, true); f.transient = true
+		assert(f.engine.Execute("trade", 1, 2, {a}, {b}))
+		assert(f.journals.trade.State == "COMPLETE" and not f.locks[1] and not f.locks[2])
+		assert(not f.engine.Execute("trade", 1, 2, {a}, {b}))
+		recover(f)
 	end)
 	local baseline = fixture(); assert(baseline.engine.Execute("trade", 1, 2, {a}, {b}))
 	local stages = baseline.calls

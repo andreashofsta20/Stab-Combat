@@ -72,6 +72,9 @@ local function initializePlayer(player)
 		record.deathConnection = humanoid.Died:Connect(function()
 			if player.Character == character then MainGameModule.OnDeath(player, character) end
 		end)
+		-- A reset can land while dependency/character setup is yielding. Died
+		-- does not replay for a listener connected after that transition.
+		if humanoid.Health <= 0 then MainGameModule.OnDeath(player, character) end
 	end
 	table.insert(record.connections, player.CharacterAdded:Connect(onCharacter))
 	table.insert(record.connections, player.CharacterRemoving:Connect(function(character)
