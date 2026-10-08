@@ -1,9 +1,11 @@
-param([string]$LuauPath = '')
+param([string]$LuauPath = '', [string]$TestFilter = '')
 $ErrorActionPreference = 'Stop'
 $gameTestRoot = Split-Path -Parent $PSScriptRoot
 if (-not $LuauPath) { $LuauPath = Join-Path $env:TEMP 'test6-luau-validation/luau.exe' }
 if (-not (Test-Path -LiteralPath $LuauPath)) { throw 'Supply -LuauPath with the official Luau CLI executable.' }
 $gameTestModules = [ordered]@{
+    ProfileSchema = 'src/Modules/ProfileSchema.luau'
+    ReceiptArchive = 'src/server/ServicesHandler/ReceiptArchive.luau'
     FoodConfig = 'src/Modules/FoodConfig.luau'
     FoodState = 'src/server/CombatHandler/FoodState.luau'
     FoodService = 'src/server/CombatHandler/FoodService.luau'
@@ -62,6 +64,7 @@ $gameTestModules = [ordered]@{
     Music = 'src/PlayerClient/Modules/MusicController.luau'
     RoundHandler = 'src/server/Game/RoundHandler.luau'
     GameZone = 'src/server/Game/GameZone.luau'
+    ZoneConfig = 'src/Modules/ZoneConfig.luau'
     CombatAudioConfig = 'src/Modules/CombatAudioConfig.luau'
     CombatFeedbackConfig = 'src/Modules/CombatFeedbackConfig.luau'
     HitFeedback = 'src/PlayerClient/Modules/HitFeedback.luau'
@@ -84,7 +87,9 @@ foreach ($gameTestEntry in $gameTestModules.GetEnumerator()) {
 }
 [void]$gameTestBundle.AppendLine('local tests = (function()')
 [void]$gameTestBundle.AppendLine([System.IO.File]::ReadAllText((Join-Path $gameTestRoot 'tests/game-systems.spec.luau')))
-[void]$gameTestBundle.AppendLine('end)(); tests(function(name, env) return loaders[name](env or {}) end)')
+$filterBytes = [System.Text.Encoding]::UTF8.GetBytes($TestFilter)
+$filterExpression = if ($filterBytes.Length -eq 0) { 'nil' } else { 'string.char(' + ($filterBytes -join ',') + ')' }
+[void]$gameTestBundle.AppendLine('end)(); tests(function(name, env) return loaders[name](env or {}) end, ' + $filterExpression + ')')
 $gameTestFile = Join-Path ([System.IO.Path]::GetTempPath()) ('test6-game-systems-' + [guid]::NewGuid().ToString('N') + '.luau')
 try {
     [System.IO.File]::WriteAllText($gameTestFile, $gameTestBundle.ToString())

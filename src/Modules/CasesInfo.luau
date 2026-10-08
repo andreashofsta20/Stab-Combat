@@ -9,8 +9,8 @@ local NOT_UNBOXABLE_RARITIES = { Godly = true }
 local NOT_UNBOXABLE_REVOLVERS = {}
 
 local function buildRevolverSkins(names)
-	if #names > 11 then
-		error("[CasesInfo] A revolver case cannot contain more than 11 items")
+	if #names > 10 then
+		error("[CasesInfo] A revolver case cannot contain more than 10 items")
 	end
 
 	local skins = {}
@@ -151,7 +151,6 @@ local Cases = {
 		CaseImage = REVOLVER_CASE_IMAGE;
 		EmoteCase = false;
 		Skins = buildRevolverSkins({
-			"Normal Revolver",
 			"White&Black Revolver",
 			"Aurum Revolver", "Azure Revolver", "Honeyed Revolver", "Onyx Revolver",
 			"Amber Revolver", "Berserk Revolver", "Frostbite Revolver", "Glacial Revolver",

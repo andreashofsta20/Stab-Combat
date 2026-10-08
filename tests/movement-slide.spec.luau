@@ -86,7 +86,7 @@ return function(load)
 			Enum = {RaycastFilterType = {Exclude = "Exclude"}, Material = {Air = "Air"}, ActuatorRelativeTo = {World = "World"},
 				VelocityConstraintMode = {Plane = "Plane"}, ForceLimitMode = {Magnitude = "Magnitude"}, HumanoidRigType = {R6 = "R6", R15 = "R15"}},
 			RaycastParams = {new = function() return {} end}, OverlapParams = {new = function() return {} end},
-			game = {GetService = function() return {Modules = {SlideMotion = "Motion"}} end}, require = function(name) assert(name == "Motion"); return motion end}
+			game = {GetService = function() return {Modules = {SlideMotion = "Motion"}, FindFirstChild = function() return nil end} end}, require = function(name) assert(name == "Motion"); return motion end}
 		environment.Instance = {new = function(class)
 			local object = {ClassName = class}; function object:Destroy() self.Destroyed = true; self.Parent = nil end
 			table.insert(f.created, object); return object

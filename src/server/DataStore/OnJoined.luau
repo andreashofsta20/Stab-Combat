@@ -196,7 +196,27 @@ local function initializePlayer(player)
 	local profile = ProfileManager.LoadProfile(player)
 
 	if profile then
-		local data = profile.Data
+		if next(profile.Data.TradeJournal or {}) then
+			local recovered, recoveryError = require(script.Parent.Parent.Trading.TradePersistence).Recover(player)
+			assert(recovered, "Inventory recovery pending: " .. tostring(recoveryError))
+		end
+		local Schema = require(RS.Modules.ProfileSchema)
+		local data, validationError = Schema.Validate(profile.Data, {
+			Inventory = require(RS.Modules.KnivesInfo), RevolverInventory = RevolversInfo,
+			Emotes = require(RS.Modules.Emotes),
+		})
+		assert(data, "Profile validation failed: " .. tostring(validationError))
+		local statsModule = RS.Modules:FindFirstChild("CompetitiveStats")
+		if statsModule then data.CompetitiveStats = require(statsModule).Repair(data.CompetitiveStats) end
+		player:SetAttribute("QuarantinedInventoryRows", #data.InventoryQuarantine)
+		-- Keep the profile table identity used by other services and migrations.
+		table.clear(profile.Data)
+		for key, value in pairs(data) do profile.Data[key] = value end
+		data = profile.Data
+		for _, name in ipairs({"ReducedEffects", "HighContrastCrosshair"}) do
+			local setting = Instance.new("BoolValue")
+			setting.Name, setting.Value, setting.Parent = name, data.Settings[name] == true, Settings
+		end
 
 
 
@@ -209,14 +229,8 @@ local function initializePlayer(player)
 		EquippedKnife.Value = data.EquippedKnife or DEFAULT_KNIFE
 		EquippedGun.Value = data.EquippedGun or DEFAULT_REVOLVER
 
-		local vipExpiresAt = 0
-		if data.VIP and type(data.VIP) == "table" then
-			vipExpiresAt = tonumber(data.VIP.ExpiresAt) or 0
-			VIPService.ApplyToPlayer(player, vipExpiresAt)
-			VIPService.SetCachedExpiry(player.UserId, vipExpiresAt)
-		else
-			VIPService.RefreshPlayer(player)
-		end
+		local vipReady = VIPService.ReconcilePlayer(player, type(data.VIP) == "table" and data.VIP.ExpiresAt or 0)
+		assert(vipReady, "VIP authority is unavailable; please retry")
 		-- A legacy VIP lookup may yield while the player leaves or loses the
 		-- profile session. Never publish partially hydrated data as ready.
 		if player.Parent ~= Players or not profile:IsActive() then
@@ -433,10 +447,12 @@ local function initializePlayer(player)
 			player:SetAttribute("LastRoundOpponents", data.LastRound.Opponents or 0)
 			player:SetAttribute("LastRoundKills", data.LastRound.Kills or 0)
 			player:SetAttribute("LastRoundPlacement", data.LastRound.Placement or 0)
+			player:SetAttribute("LastRoundGameMode", data.LastRound.GameMode or "FFA")
 		else
 			player:SetAttribute("LastRoundOpponents", 0)
 			player:SetAttribute("LastRoundKills", 0)
 			player:SetAttribute("LastRoundPlacement", 0)
+			player:SetAttribute("LastRoundGameMode", "FFA")
 		end
 
 		-- Every profile has the configured starter knife and revolver available.

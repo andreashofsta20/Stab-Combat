@@ -9,4 +9,5 @@ return {
 	PlacementTolerance = 2,
 	StreamingTimeoutSeconds = 3,
 	RoundStartProtectionSeconds = 1.5,
+	SpawnScoring = {Enabled = true, MaxCandidates = 6, MaxEnemies = 16, DistanceCap = 250, ReuseSeconds = 10},
 }

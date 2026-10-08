@@ -3,6 +3,27 @@ local GetPlayerInfo = {}
 local Players = game:GetService("Players")
 local ProfileManager = require(script.Parent.Parent:WaitForChild("DataStore"):WaitForChild("ProfileManager"))
 
+local function savedInventory(data)
+	local inventory = {}
+	if type(data) ~= "table" or type(data.Inventory) ~= "table" then return inventory end
+	for _, item in pairs(data.Inventory) do
+		if type(item) ~= "table" or type(item.Name) ~= "string" or item.Name == "" then continue end
+		local quantity = if item.Quantity == nil then 1 else item.Quantity
+		if type(quantity) ~= "number" or quantity ~= quantity or quantity <= 0
+			or quantity == math.huge or quantity % 1 ~= 0 then continue end
+		-- Display only; never repair or rewrite the saved inventory in a view request.
+		if inventory[item.Name] then continue end
+		inventory[item.Name] = {
+			Quantity = quantity,
+			Rarity = type(item.Rarity) == "string" and item.Rarity or "Unknown",
+			Image = type(item.Image) == "string" and item.Image or "",
+			Tradeable = if type(item.Tradeable) == "boolean" then item.Tradeable else item.Name ~= "Bowie",
+		}
+	end
+	return inventory
+end
+
+-- Both response sections come from this read; the second return is inventory.
 function GetPlayerInfo.AllInfo(UserId : number)
 	local InfoTable = {}
 	local foundPlayer = Players:GetPlayerByUserId(UserId)
@@ -10,17 +31,18 @@ function GetPlayerInfo.AllInfo(UserId : number)
 	-- Try to get saved data (for RoundHistory, offline fallback, etc.)
 	local dataFromStore = nil
 	if foundPlayer then
-		if foundPlayer:GetAttribute("DataReady") ~= true then return { UserId = UserId, Name = foundPlayer.Name, Loading = true } end
+		if foundPlayer:GetAttribute("DataReady") ~= true then return { UserId = UserId, Name = foundPlayer.Name, Loading = true }, {} end
 		-- Local profiles already contain round history. Viewing a local player
 		-- must not spend DataStore budget or wait for a stale saved snapshot.
 		dataFromStore = ProfileManager.GetProfileData(foundPlayer)
 	else
 		local ok, profileObj = pcall(ProfileManager.GetAsync, UserId)
-		if ok and profileObj then
+		if ok and type(profileObj) == "table" and type(profileObj.Data) == "table" then
 			dataFromStore = profileObj.Data
 		else
 			-- Fallback: player may not have migrated yet.
-			dataFromStore = ProfileManager.GetOldDataAsync(UserId)
+			local legacyOK, legacy = pcall(ProfileManager.GetOldDataAsync, UserId)
+			if legacyOK and type(legacy) == "table" then dataFromStore = legacy end
 		end
 	end
 
@@ -42,6 +64,7 @@ function GetPlayerInfo.AllInfo(UserId : number)
 				Opponents = player:GetAttribute("LastRoundOpponents"),
 				Kills = player:GetAttribute("LastRoundKills"),
 				Placement = player:GetAttribute("LastRoundPlacement"),
+				GameMode = player:GetAttribute("LastRoundGameMode") or "FFA",
 			}
 			if lastRound.Opponents ~= nil or lastRound.Kills ~= nil or lastRound.Placement ~= nil then
 				InfoTable.LastRound = lastRound
@@ -72,6 +95,7 @@ function GetPlayerInfo.AllInfo(UserId : number)
 					Opponents = dataFromStore.LastRound.Opponents,
 					Kills = dataFromStore.LastRound.Kills,
 					Placement = dataFromStore.LastRound.Placement,
+					GameMode = dataFromStore.LastRound.GameMode or "FFA",
 				}
 			end
 
@@ -80,6 +104,7 @@ function GetPlayerInfo.AllInfo(UserId : number)
 			end
 		else
 			InfoTable.UserId = UserId
+			InfoTable.Unavailable = true
 			local okName, name = pcall(function()
 				return Players:GetNameFromUserIdAsync(UserId)
 			end)
@@ -87,12 +112,16 @@ function GetPlayerInfo.AllInfo(UserId : number)
 		end
 	end
 
-	return InfoTable
+	return InfoTable, if foundPlayer then GetPlayerInfo.Inventory(UserId) else savedInventory(dataFromStore)
 end
 
 
 
 function GetPlayerInfo.Inventory(UserId : number)
+	if not Players:GetPlayerByUserId(UserId) then
+		local _, inventory = GetPlayerInfo.AllInfo(UserId)
+		return inventory
+	end
 	local InventoryInfo = {}
 
 	for _, player in ipairs(Players:GetPlayers()) do

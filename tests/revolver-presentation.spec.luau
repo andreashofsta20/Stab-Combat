@@ -423,6 +423,13 @@ return function(load)
 		function obj:Clear() self.cleared = (self.cleared or 0) + 1 end
 		function obj:Stop() self.stopped = (self.stopped or 0) + 1 end
 		function obj:Play() self.played = true end
+		function obj:Clone()
+			assert(class == "Sound", "Add fixture support for cloning " .. class)
+			local copy = object(class, self.Name)
+			copy.SoundId = self.SoundId
+			if self.created then table.insert(self.created, copy) end
+			return copy
+		end
 		function obj:WaitForChild(name) return assert(self:FindFirstChild(name), name) end
 		return setmetatable(obj, {__index = function(self, key)
 			if key == "CFrame" and class == "Part" then return Frame.new(self.Position or Vector.zero) end
@@ -455,6 +462,7 @@ return function(load)
 		torso.children = { joint, support }; character.children = { torso, arm, left, root, head, humanoid, tool }
 		character.Parent = {}
 		local player = { Character = character, UserId = 1, CharacterAdded = signal(), CharacterRemoving = signal(), CameraMaxZoomDistance = 40 }
+		function player:FindFirstChild() return nil end
 		local now, created = 100, {}
 		local events = { PreAnimation = signal(), PreSimulation = signal(), RenderStepped = signal() }
 		local bindings = {}
@@ -468,10 +476,12 @@ return function(load)
 			InputBegan = signal(), InputEnded = signal(), WindowFocusReleased = signal(), TextBoxFocused = signal(), LastInputTypeChanged = signal(),
 			GetFocusedTextBox = function() return nil end, GetMouseLocation = function() return { X = 123, Y = 234 } end }
 		local services = { Players = players, UserInputService = input, GuiService = { MenuOpened = signal() }, RunService = events,
+			ContentProvider = {PreloadAsync = function() end},
 			ReplicatedStorage = { Modules = { WeaponInspectConfig = "InspectConfig", WeaponInspectMotion = "InspectMotion", RagdollQuery = "RagdollQuery", RevolverConfig = "Config", RevolverToolPhysics = "ToolPhysics", CursorConfig = "CursorConfig", RevolversInfo = "Catalog", RevolverPoseMath = "Math", RevolverRaycast = "Raycast", MouseCursorVisibility = "MouseVisibility" } },
 			Debris = { AddItem = function() end }, TweenService = { Create = function() return { Play = function() end } end } }
 		local function constructor(...) return { ... } end
 		local env = {
+			task = {spawn = function(fn, ...) fn(...) end},
 			game = { GetService = function(_, name) return assert(services[name], name) end }, workspace = { GetServerTimeNow = function() return now end },
 			os = { clock = function() return now end }, CFrame = Frame, Vector3 = Vector,
 			Vector2 = { new = constructor }, Color3 = { new = constructor, fromRGB = constructor },
@@ -483,7 +493,7 @@ return function(load)
 				MouseBehavior = { Default = "Default", LockCenter = "LockCenter", LockCurrentPosition = "LockCurrentPosition" }, CameraType = { Custom = "Custom", Scriptable = "Scriptable" },
 				RenderPriority = { Camera = { Value = 200 } }, RaycastFilterType = { Exclude = "Exclude" }, Font = { GothamBold = "GothamBold" } },
 			RaycastParams = { new = function() return {} end }, UDim2 = { new = constructor, fromScale = constructor, fromOffset = constructor }, UDim = {new = constructor},
-			Instance = { new = function(class) local obj = object(class, class); table.insert(created, obj); return obj end },
+			Instance = { new = function(class) local obj = object(class, class); obj.created = created; table.insert(created, obj); return obj end },
 			require = function(name) return assert(({ RagdollQuery = queryStub, Config = Config, ToolPhysics = ToolPhysics, Math = Math, Raycast = Raycast, Catalog = { ["Amber Revolver"] = {} } })[name]) end,
 		}
 		local camera = { FieldOfView = 70, CFrame = Frame.new(0, 0, 10), Focus = Frame.identity, CameraSubject = humanoid, CameraType = "Custom", ViewportSize = { X = 1000, Y = 600 } }
@@ -924,7 +934,7 @@ return function(load)
 			for _, item in ipairs(f.created) do if item.Name == "RevolverMuzzleBurst" then bursts += 1 end end
 			assert(bursts == 1)
 			local sounds = 0
-			for _, item in ipairs(f.created) do if item.ClassName == "Sound" then sounds += 1 end end
+			for _, item in ipairs(f.created) do if item.ClassName == "Sound" and item.played then sounds += 1 end end
 			assert(sounds == 1)
 			effects.Clear()
 		end
@@ -1826,7 +1836,7 @@ return function(load)
         local f = knifeFixture(); assert(f.fire("low", 0)); near(f.castVector.Magnitude, 350); assert(f.rays == 1)
         near(f.projectile.GetSpeed(0), 500); near(f.projectile.GetSpeed(0.5), 625); near(f.projectile.GetSpeed(1), 750)
         near(f.projectile.GetPosition(Vector.zero, V(0,0,-1), 0.1, 0).Magnitude, 50)
-		f.advance(f.projectile.COOLDOWN); assert(f.fire("full", 1)); near(f.castVector.Magnitude, 350); assert(f.rays == 2)
+		f.advance(f.projectile.COOLDOWN + 0.001); assert(f.fire("full", 1)); near(f.castVector.Magnitude, 350); assert(f.rays == 2)
 		assert(f.result.accepted and f.visual.visualOnly and f.visual.knifeName == "KnifeA")
 	end)
 	test("knife server rejects duplicate shots, cooldown, malformed vectors and spoofed origin", function()
@@ -1840,7 +1850,7 @@ return function(load)
 		local f = knifeFixture(); f.hit = {Instance = f.victimPart, Position = V(0, 2, -5), Normal = V(0, 0, 1)}
 		assert(f.fire("first")); near(f.victimHum.Health, 50); assert(f.killVictim == nil)
 		assert(f.damageArgs[4] == "KnifeThrow" and f.damageArgs[5] == "KnifeA")
-		f.advance(f.projectile.COOLDOWN); assert(f.fire("second")); near(f.victimHum.Health, 0); assert(f.killVictim == 2 and f.damageCalls == 2)
+		f.advance(f.projectile.COOLDOWN + 0.001); assert(f.fire("second")); near(f.victimHum.Health, 0); assert(f.killVictim == 2 and f.damageCalls == 2)
 	end)
 	test("knife blocks lobby fire, unequipped weapons, forcefields and nonparticipant damage", function()
 		local f = knifeFixture(); f.mainGame.GameActive = false; assert(not f.fire("lobby")); assert(f.rays == 0)
@@ -1850,7 +1860,7 @@ return function(load)
 		local protected = knifeFixture(); protected.hit = {Instance = protected.victimPart, Position = V(0, 2, -5), Normal = V(0, 0, 1)}
 		table.insert(protected.victimChar.children, object("ForceField", "ForceField")); assert(protected.fire("protected")); near(protected.victimHum.Health, 100)
 		protected.victimChar.children[#protected.victimChar.children] = nil; protected.mainGame.PlayersInGame[2] = nil
-		protected.advance(protected.projectile.COOLDOWN); assert(protected.fire("spectator")); near(protected.victimHum.Health, 100); assert(not protected.damageCalls)
+		protected.advance(protected.projectile.COOLDOWN + 0.001); assert(protected.fire("spectator")); near(protected.victimHum.Health, 100); assert(not protected.damageCalls)
 	end)
 	test("knife origin cannot be moved through cover even within the allowed origin radius", function()
 		local f = knifeFixture(); f.hit = {Instance = object("Part", "Wall"), Position = V(1, 2, 0), Normal = V(-1, 0, 0)}
@@ -1934,7 +1944,7 @@ return function(load)
 		local sounds = 0
 		for _, item in ipairs(f.created) do
 			assert(item.ClassName ~= "ParticleEmitter" and item.ClassName ~= "PointLight")
-			if item.ClassName == "Sound" then sounds += 1; assert(item.played) end
+			if item.ClassName == "Sound" and item.played then sounds += 1 end
 		end
 		assert(sounds == 1); effects.Clear(); assert(shot.destroyed)
 	end)

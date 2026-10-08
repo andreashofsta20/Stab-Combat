@@ -17,7 +17,11 @@ local function settings(frame, options)
 	return result
 end
 function Transitions.Enabled(target)
-	return Config.Enabled and not Config.ReducedMotion and target:GetAttribute("UIAnimationDisabled") ~= true
+	local player = game:GetService("Players").LocalPlayer
+	local stats = player and player:FindFirstChild("leaderstats")
+	local settingsFolder = stats and stats:FindFirstChild("Settings")
+	local reduced = settingsFolder and settingsFolder:FindFirstChild("ReducedEffects")
+	return Config.Enabled and not Config.ReducedMotion and not (reduced and reduced.Value) and target:GetAttribute("UIAnimationDisabled") ~= true
 end
 
 function Transitions.Attach(frame, options)

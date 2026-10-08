@@ -48,8 +48,53 @@ local RoundHistoryTemplate = ReplicatedStorage:WaitForChild("UITemplates"):WaitF
 -- // STATE & COOLDOWNS // --
 local tradeCooldowns = {} 
 local REQUEST_COOLDOWN = 15
+local alive, generation, tradeAllowed = true, 0, false
+local connections, cooldownTasks = {}, {}
+local thumbnailTask
 
-local function CreateHistoryTemplate(data : SharedTable)
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(connections, connection)
+end
+
+local function cancelThumbnail()
+    generation += 1
+    if thumbnailTask then task.cancel(thumbnailTask); thumbnailTask = nil end
+end
+
+local function destroy()
+    if not alive then return end
+    alive = false
+    cancelThumbnail()
+    for _, connection in ipairs(connections) do connection:Disconnect() end
+    for _, thread in pairs(cooldownTasks) do task.cancel(thread) end
+    table.clear(connections); table.clear(cooldownTasks); table.clear(tradeCooldowns)
+    lastinventory, viewedProfileUserId = nil, nil
+end
+connect(PlayerProfileFrame.Destroying, destroy)
+connect(PlayerProfileFrame:GetPropertyChangedSignal("Visible"), function()
+    if not PlayerProfileFrame.Visible then
+        cancelThumbnail()
+        viewedProfileUserId, lastinventory, tradeAllowed = nil, nil, false
+    end
+end)
+
+local function GetShortGameModeLabel(gameMode)
+    if type(gameMode) ~= "string" then
+        return "FFA"
+    end
+
+    local normalized = gameMode:lower()
+    if normalized == "battle royale" or normalized == "battleroyale" or normalized == "br" then
+        return "BR"
+    elseif normalized == "free for all" or normalized == "ffa" then
+        return "FFA"
+    end
+
+    return gameMode
+end
+
+local function CreateHistoryTemplate(data : SharedTable, portraits)
     local template = RoundHistoryTemplate:Clone()
     template.Parent = RoundHistoryContainer
     RoundHistory.Visible = true
@@ -65,7 +110,10 @@ local function CreateHistoryTemplate(data : SharedTable)
     local kills = data and data.Kills or 0
     local placement = data and data.Placement or nil
     local opponents = data and data.Opponents or 0
-    local userId = data and data.UserId or nil
+    local gameMode = GetShortGameModeLabel(data and data.GameMode or "FFA")
+
+    local GameModeText = Container:WaitForChild("Divider"):WaitForChild("GameMode")
+    GameModeText.Text = tostring(gameMode)
     
     Kills.Text = tostring(kills)
     if placement and placement > 0 then
@@ -73,11 +121,11 @@ local function CreateHistoryTemplate(data : SharedTable)
     else
         Placement.Text = "-"
     end
+
     
     PlrsInRound.Text = tostring(opponents)
-    if userId then
-        PlrImage.Image = GetThumbnail.GetThumbnail(userId) or ""
-    end
+    PlrImage.Image = ""
+    table.insert(portraits, PlrImage)
     
     return template
 end
@@ -136,10 +184,9 @@ local function LoadInventory(data : SharedTable)
         Item.Parent = InventoryItemsHolder
     end
     
-    print(data)
 end
 
-BackButton.MouseButton1Up:Connect(function()
+connect(BackButton.MouseButton1Up, function()
     if InventoryFrame.Visible == true then
         BackButton.Visible = false
         InventoryFrame.Visible = false
@@ -188,7 +235,7 @@ local function LoadProfileUI(PlayerInfo)
     PlayerInfoFrame.Level.Text = "Level: " .. tostring(level)
 
     local ProfileContainer = PlayerInfoFrame:WaitForChild("ProfileContainer")
-    ProfileContainer.ProfileImg.Image = GetThumbnail.GetThumbnail(PlayerInfo.UserId)
+    local portraits = {ProfileContainer.ProfileImg}
 
     local StatFrame = PlayerInfoContainer:WaitForChild("StatsFrame")
     StatFrame.Wins["Win#"].Text = PlayerInfo.Wins or "N/A"
@@ -219,7 +266,8 @@ local function LoadProfileUI(PlayerInfo)
                     Kills = roundEntry.Kills,
                     Placement = roundEntry.Placement,
                     Opponents = roundEntry.Opponents,
-                })
+                    GameMode = roundEntry.GameMode or "FFA",
+                }, portraits)
                 -- Newest round gets LayoutOrder 0, next 1, etc.
                 template.LayoutOrder = i - 1
             end
@@ -230,11 +278,25 @@ local function LoadProfileUI(PlayerInfo)
             Kills = PlayerInfo.LastRound.Kills,
             Placement = PlayerInfo.LastRound.Placement,
             Opponents = PlayerInfo.LastRound.Opponents,
-        })
+            GameMode = PlayerInfo.LastRound.GameMode or "FFA",
+        }, portraits)
     end
+
+    -- Render the data without yielding, then share one portrait across all rows.
+    -- Cancelling or replacing this view invalidates a late thumbnail result.
+    local token = generation
+    thumbnailTask = task.defer(function()
+        local ok, image = pcall(GetThumbnail.GetThumbnail, PlayerInfo.UserId)
+        if not alive or token ~= generation or not PlayerProfileFrame.Visible then return end
+        thumbnailTask = nil
+        local content = if ok and type(image) == "string" then image else ""
+        for _, portrait in ipairs(portraits) do
+            if portrait.Parent then portrait.Image = content end
+        end
+    end)
 end
 
-PlayerProfileFrame.Close.MouseButton1Up:Connect(function()
+connect(PlayerProfileFrame.Close.MouseButton1Up, function()
     PlayerProfileFrame.Visible = false
     Lighting.Blur.Enabled = false
     viewedProfileUserId = nil
@@ -244,11 +306,11 @@ end)
 for i , v in pairs(ButtonsFrame:GetChildren()) do
     if v:IsA("ImageButton") then
         if v.Name == "Inventory" then
-            v.MouseButton1Up:Connect(function()
+            connect(v.MouseButton1Up, function()
                 LoadInventory(lastinventory)
             end)
         elseif v.Name == "Trade" then
-            v.MouseButton1Up:Connect(function()
+            connect(v.MouseButton1Up, function()
                 if not viewedProfileUserId then return end
                 if viewedProfileUserId == Player.UserId then return end
                 
@@ -264,14 +326,17 @@ for i , v in pairs(ButtonsFrame:GetChildren()) do
                 TradeRemote:FireServer("SEND_REQUEST", targetId)
                 
                 -- Re-enable button after cooldown expires
-                task.delay(REQUEST_COOLDOWN, function()
+                if cooldownTasks[targetId] then task.cancel(cooldownTasks[targetId]) end
+                cooldownTasks[targetId] = task.delay(REQUEST_COOLDOWN, function()
+                    cooldownTasks[targetId] = nil
+                    if not alive then return end
                     -- Only reset if the cooldown hasn't been cleared early
                     if tradeCooldowns[targetId] and os.clock() >= tradeCooldowns[targetId] then
                         tradeCooldowns[targetId] = nil
                         
                         -- Only hide the frame if we are still looking at the exact same profile
                         if viewedProfileUserId == targetId then
-                            NotAbleToFrame.Visible = false
+                            NotAbleToFrame.Visible = not tradeAllowed
                         end
                     end
                 end)
@@ -281,7 +346,7 @@ for i , v in pairs(ButtonsFrame:GetChildren()) do
 end
 
 -- // LISTEN FOR SERVER TRADE RESPONSES // --
-TradeRemote.OnClientEvent:Connect(function(actionType, data)
+connect(TradeRemote.OnClientEvent, function(actionType, data)
     -- Handle server rejection of the trade request
     if actionType == "ACTION_RESULT" and data.action == "SEND_REQUEST" then
         if not data.success then
@@ -290,6 +355,7 @@ TradeRemote.OnClientEvent:Connect(function(actionType, data)
                 
                 -- Clear the local cooldown early since the request was denied
                 tradeCooldowns[targetId] = nil
+                if cooldownTasks[targetId] then task.cancel(cooldownTasks[targetId]); cooldownTasks[targetId] = nil end
                 
                 -- If we are still viewing this player, we might need to update the button.
                 -- However, if the level is too low, the profile loader already handles that.
@@ -304,7 +370,7 @@ TradeRemote.OnClientEvent:Connect(function(actionType, data)
                     local localLevel = GetLevelModule.GetLevel(localXp)
                     
                     -- If they meet level requirements, unlock the button
-                    if localLevel >= 10 then 
+                    if localLevel >= 10 and tradeAllowed then
                         NotAbleToFrame.Visible = false
                     end
                 end
@@ -316,9 +382,10 @@ TradeRemote.OnClientEvent:Connect(function(actionType, data)
 end)
 
 -- // VIEW PROFILE EVENT // --
-ViewProfileOnClient.OnClientEvent:Connect(function(BasicInfo : SharedTable, inventory : SharedTable)
-    viewedProfileUserId = tonumber(BasicInfo and BasicInfo.UserId) or nil
-    
+connect(ViewProfileOnClient.OnClientEvent, function(BasicInfo : SharedTable, inventory : SharedTable)
+    if not alive or type(BasicInfo) ~= "table" or type(BasicInfo.UserId) ~= "number" then return end
+    local userId = BasicInfo.UserId
+    if userId ~= userId or userId <= 0 or userId == math.huge or userId % 1 ~= 0 then return end
     if FramesFolder:FindFirstChild("Spinner").Visible == true then return end
     if FramesFolder:FindFirstChild("Trade").Visible == true then return end
     
@@ -327,6 +394,8 @@ ViewProfileOnClient.OnClientEvent:Connect(function(BasicInfo : SharedTable, inve
             v.Visible = false
         end
     end
+    cancelThumbnail()
+    viewedProfileUserId = userId
     
     -- // Level Checks //
     -- Get Local Player Level
@@ -351,9 +420,10 @@ ViewProfileOnClient.OnClientEvent:Connect(function(BasicInfo : SharedTable, inve
     
     local isSelf = viewedProfileUserId == Player.UserId
     local isOnCooldown = tradeCooldowns[viewedProfileUserId] and os.clock() < tradeCooldowns[viewedProfileUserId]
+    tradeAllowed = tradesEnabled and not isSelf and meetsLevelRequirement and not BasicInfo.Loading and not BasicInfo.Unavailable
     
     -- Set NotAbleTo frame visibility
-    if not tradesEnabled or isSelf or isOnCooldown or not meetsLevelRequirement then
+    if not tradeAllowed or isOnCooldown then
         NotAbleToFrame.Visible = true
     else
         NotAbleToFrame.Visible = false
@@ -367,14 +437,13 @@ ViewProfileOnClient.OnClientEvent:Connect(function(BasicInfo : SharedTable, inve
     
     ClearProfileUI()
     
-    lastinventory = inventory
-    
-    task.wait()
+    lastinventory = type(inventory) == "table" and inventory or {}
     Lighting.Blur.Enabled = true
     
     LoadProfileUI(BasicInfo)
     
-    PlayerProfileFrame:WaitForChild("Top"):WaitForChild("Text").Text = "Profile View"
+    PlayerProfileFrame:WaitForChild("Top"):WaitForChild("Text").Text = if BasicInfo.Loading then "Profile loading..."
+        elseif BasicInfo.Unavailable then "Profile unavailable" else "Profile View"
 end)
 
-return {}
+return {Destroy = destroy}

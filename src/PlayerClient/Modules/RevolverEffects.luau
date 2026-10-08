@@ -574,6 +574,14 @@ function Effects.ConfirmedTracer(origin, destination, tuning, visualTool, firstP
 end
 
 function Effects.Fire(tool, origin, destination, tuning, animateCharacter, visualTool, firstPerson, suppressSound, deferTracer, shotOrigin)
+	local player = game:GetService("Players").LocalPlayer
+	local stats = player and player:FindFirstChild("leaderstats")
+	local settings = stats and stats:FindFirstChild("Settings")
+	local reduced = settings and settings:FindFirstChild("ReducedEffects")
+	if reduced and reduced.Value then
+		if not suppressSound then playSound(tuning.Effects.FireSoundId, origin, tuning.Effects) end
+		return nil -- Preserve sound/hit feedback, omit bursts and tracers.
+	end
 	if not animateCharacter and not nearby(origin) and not nearby(destination) then return nil end
 	-- Observer origins are the server's accepted origins, never a replicated
 	-- barrel pose. Owners supply their cover-checked cosmetic origin.

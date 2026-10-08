@@ -7,6 +7,10 @@ local placements = {}
 local changeVersion = 0
 local lastRemovalAt = -math.huge
 local mapNames = {}
+local recentSpawns = setmetatable({}, {__mode = "k"})
+function SpawnMap.ScoreSpawn(distance, visible, recent)
+	return math.min(distance, 250) - (visible and 100 or 0) - (recent and 40 or 0)
+end
 for _, info in pairs(Maps) do mapNames[info.MapFolder.Name] = true end
 
 local function isGameplayMap(instance: Instance): boolean
@@ -82,6 +86,8 @@ local function teleportPlayerToSpawn(player: Player, spawnPart: BasePart?)
 	root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
 	character:PivotTo(destination)
 	root.CFrame = destination -- preserve the intended root position even with an unusual model pivot
+	player:SetAttribute("ServerTeleportPosition", root.Position)
+	player:SetAttribute("ServerTeleportVersion", (player:GetAttribute("ServerTeleportVersion") or 0) + 1)
 	return (root.Position - destination.Position).Magnitude <= Config.PlacementTolerance
 end
 
@@ -102,7 +108,40 @@ function SpawnMap.RespawnPlayer(player: Player, MapName: string)
 		return false
 	end
 
-	return teleportPlayerToSpawn(player, spawnParts[math.random(1, #spawnParts)])
+	local selected = spawnParts[math.random(1, #spawnParts)]
+	local scoring = Config.SpawnScoring
+	if scoring and scoring.Enabled then
+		shuffleParts(spawnParts)
+		local enemies = {}
+		for _, other in ipairs(game:GetService("Players"):GetPlayers()) do
+			local root = other ~= player and other.Character and other.Character:FindFirstChild("HumanoidRootPart")
+			local hum = other.Character and other.Character:FindFirstChildOfClass("Humanoid")
+			if root and hum and hum.Health > 0 and other:GetAttribute("InRound") == true then
+				table.insert(enemies, root); if #enemies >= scoring.MaxEnemies then break end
+			end
+		end
+		local best = -math.huge
+		for index = 1, math.min(scoring.MaxCandidates, #spawnParts) do
+			local candidate = spawnParts[index]
+			local nearest, distance = nil, scoring.DistanceCap
+			for _, root in ipairs(enemies) do
+				local value = (root.Position - candidate.Position).Magnitude
+				if value < distance then nearest, distance = root, value end
+			end
+			local visible = false
+			if nearest then
+				local params = RaycastParams.new(); params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = {spawnFolder, nearest.Parent, player.Character}
+				local origin = candidate.Position + Vector3.new(0, Config.SpawnHeight, 0)
+				visible = workspace:Raycast(origin, nearest.Position - origin, params) == nil
+			end
+			local score = SpawnMap.ScoreSpawn(distance, visible, recentSpawns[candidate] and os.clock() - recentSpawns[candidate] < scoring.ReuseSeconds)
+			if score > best then best, selected = score, candidate end
+		end
+	end
+	local placed = teleportPlayerToSpawn(player, selected)
+	if placed then recentSpawns[selected] = os.clock() end
+	return placed
 end
 
 function SpawnMap.Spawn(MapName: string, lobbyPreview: boolean?)

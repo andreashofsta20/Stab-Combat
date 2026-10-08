@@ -4,6 +4,9 @@ local Config = {
 	ProfileStoreName = "PlayerData_v1.0.2_MainData",
 	LegacyStoreName = "PlayerData_v1.0.1_OldData",
 	MigrateLegacyData = false,
+	VIPStoreName = "PlayerVIP_v1_TESTING",
+	ReceiptStoreName = "PurchaseReceipts_v1",
+	UseMockProfiles = false, -- explicit isolated Studio harness only
 	LeaderboardVersion = "1", -- increment to start fresh boards within this profile namespace
 }
 function Config.GetLeaderboardScope()

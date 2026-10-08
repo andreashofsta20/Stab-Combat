@@ -73,6 +73,9 @@ function Slide:Start()
 	self.Speed = self.InitialSpeed
 	self.Velocity.Enabled = true
 	self:_velocity(self.Speed, ground.Normal)
+	local remotes = RS:FindFirstChild("Remotes")
+	local movement = remotes and remotes:FindFirstChild("MovementIntent")
+	if movement then movement:FireServer("Slide") end
 	return true
 end
 

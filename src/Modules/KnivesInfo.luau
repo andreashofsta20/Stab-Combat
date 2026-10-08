@@ -2,17 +2,17 @@ return {
 
 	["Bowie"] = {
 		MeshId = "rbxassetid://76151122138295";
-		Image = "rbxassetid://128915035739702"; 
+		Image = "rbxassetid://128915035739702";
 		Rarity = "Common"
 	};
 	["Shadow Dagger"] = {
 		MeshId = "rbxassetid://125221819012837";
-		Image = "rbxassetid://136446725670672"; 
+		Image = "rbxassetid://136446725670672";
 		Rarity = "Common"
 	};
 	["Gut Knife"] = {
 		MeshId = "rbxassetid://77763749038032";
-		Image = "rbxassetid://94733020530911"; 
+		Image = "rbxassetid://94733020530911";
 		Rarity = "Common"
 	};
 	["Karambit"] = {
@@ -24,7 +24,7 @@ return {
 
 	["Huntsman"] = {
 		MeshId = "rbxassetid://76151122138295";
-		Image = "rbxassetid://110090371443131"; 
+		Image = "rbxassetid://110090371443131";
 		Rarity = "Rare"
 	};
 	["Flip"] = {
@@ -34,47 +34,58 @@ return {
 	};
 	["Skeleton"] = {
 		MeshId = "rbxassetid://77763749038032";
-		Image = "rbxassetid://117258497744746"; 
+		Image = "rbxassetid://117258497744746";
 		Rarity = "Epic"
 	};
 	["Butterfly"] = {
 		MeshId = "rbxassetid://74098031379543";
-		Image = "rbxassetid://97175454317266"; 
+		Image = "rbxassetid://97175454317266";
 		Rarity = "Epic"
 	};
 
 	["Bayonet"] = {
 		MeshId = "rbxassetid://125221819012837";
-		Image = "rbxassetid://87524479567401"; 
+		Image = "rbxassetid://87524479567401";
 		Rarity = "Legendary"
 	};
 	["Frostbite"] = {
 		MeshId = "rbxassetid://77763749038032";
-		Image = "rbxassetid://131938644607549"; 
+		Image = "rbxassetid://131938644607549";
 		Rarity = "Godly"
 	};
 
 
 	["Ethereal"] = {
 		MeshId = "rbxassetid://94327609424355";
-		Image = "rbxassetid://88521515119416"; 
+		Image = "rbxassetid://88521515119416";
 		Rarity = "Godly"
 	};
 
 	["Valentine Knife"] = {
 		MeshId = "rbxassetid://135105493034153";
-		Image = "rbxassetid://134227929392058"; 
+		Image = "rbxassetid://134227929392058";
 		Rarity = "Godly"
 	};
 
 
 	["Void Strike"] = {
 		MeshId = "rbxassetid://111142693643686";
-		Image = "rbxassetid://130675931767296"; 
+		Image = "rbxassetid://130675931767296";
+		Rarity = "Godly"
+	};
+
+	["Ice Knife"] = {
+		MeshId = "rbxassetid://108455333421859";
+		Image = "rbxassetid://96097507265855";
 		Rarity = "Godly"
 	};
 
 
+	["Nature Knife"] = {
+		MeshId = "rbxassetid://129013402359574";
+		Image = "rbxassetid://111723462926336";
+		Rarity = "Godly"
+	};
 
 
 }

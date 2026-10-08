@@ -14,7 +14,7 @@ local MainGameModule = require(script.Parent.MainGame)
 local function CanStart()
 	local count = 0
 	for _, player in pairs(Players:GetPlayers()) do
-		if player:GetAttribute("DataReady") ~= true then
+		if player:GetAttribute("DataReady") ~= true or player:GetAttribute("PracticeActive") == true then
 			continue
 		end
 		local leaderstats = player:FindFirstChild("leaderstats")

@@ -3,6 +3,7 @@ local Config = require(RS.Modules.StartupConfig)
 local Loader = require(RS.Modules.StartupLoader)
 local Startup = {}
 local groups = {}
+local registeredAt = os.clock()
 RS:SetAttribute("ServerReady", false)
 RS:SetAttribute("ServerStartupState", "Loading")
 
@@ -10,16 +11,21 @@ local function update()
 	local ready, failed, pending = true, {}, {}
 	for _, name in ipairs(Config.RequiredServerGroups) do
 		local group = groups[name]
-		if not group or not group.Ready then ready = false; table.insert(pending, name) end
+		if not group then ready = false; table.insert(pending, name) end
 		if group then
 			for _, record in ipairs(group.Records) do
-				if record.State == "Failed" then table.insert(failed, name .. "." .. record.Name) end
+				local optional = (Config.OptionalServerModules or {})[name] or {}
+				if not table.find(optional, record.Name) and record.State ~= "Ready" then
+					ready = false; table.insert(pending, name .. "." .. record.Name)
+					if record.State == "Failed" then table.insert(failed, name .. "." .. record.Name) end
+				end
 			end
 		end
 	end
 	RS:SetAttribute("ServerStartupPending", table.concat(pending, ", "))
 	RS:SetAttribute("ServerStartupFailures", table.concat(failed, ", "))
-	RS:SetAttribute("ServerStartupState", #failed > 0 and "Failed" or ready and "Ready" or "Loading")
+	local timedOut = not ready and os.clock() - registeredAt >= (Config.ReadyTimeoutSeconds or 30)
+	RS:SetAttribute("ServerStartupState", (#failed > 0 or timedOut) and "Failed" or ready and "Ready" or "Loading")
 	RS:SetAttribute("ServerReady", ready)
 end
 
@@ -52,6 +58,9 @@ function Startup.AwaitReady()
 	end
 end
 
+-- The game loop remains fail-closed and can recover if a late dependency
+-- completes. A bounded timer publishes failure without cancelling its job.
+
 if Config.SlowModuleWarningSeconds > 0 then
 	task.delay(Config.SlowModuleWarningSeconds, function()
 		for _, name in ipairs(Config.RequiredServerGroups) do
@@ -59,5 +68,7 @@ if Config.SlowModuleWarningSeconds > 0 then
 		end
 	end)
 end
+
+task.delay(Config.ReadyTimeoutSeconds or 30, update)
 
 return Startup

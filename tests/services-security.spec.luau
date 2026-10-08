@@ -479,5 +479,18 @@ return function(load)
 		assert(coroutine.resume(thread)); f.time+=1; f.remote.OnServerEvent:Fire(f.player,"Game","Set"); equal(calls,1)
 		assert(coroutine.resume(thread))
 	end)
+	test("profile remote returns both snapshot sections and retries unavailable data without caching it", function()
+		local reads, unavailable = 0, true
+		local inventory = {Bowie = {Quantity = 2}}
+		local f = profileFixture({
+			AllInfo = function(id) reads += 1; return {UserId = id, Unavailable = unavailable}, inventory end,
+			Inventory = function() error("Must not make a second profile read") end,
+		})
+		f.request.OnServerEvent:Fire(f.player, 99)
+		equal(f.response.LastClientArgs[3], inventory)
+		f.time += 1; unavailable = false; f.request.OnServerEvent:Fire(f.player, 99); equal(reads, 2)
+		f.time += 1; f.request.OnServerEvent:Fire(f.player, 99); equal(reads, 2)
+		equal(f.response.LastClientArgs[3].Bowie.Quantity, 2)
+	end)
 	print(string.format("Passed %d services/security checks", passed))
 end

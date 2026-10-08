@@ -137,9 +137,10 @@ local function equal(actual, expected, context)
 	assert(actual == expected, (context or "Unexpected value") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
 
-return function(load)
+return function(load, testFilter: string?)
 	local passed = 0
 	local function test(name, fn)
+		if testFilter and testFilter ~= "" and not string.find(name, testFilter, 1, true) then return end
 		local ok, err = pcall(fn)
 		if not ok then error(name .. ": " .. tostring(err), 0) end
 		passed += 1
@@ -152,21 +153,24 @@ return function(load)
 		function f.Players:GetPlayerByUserId(id) for _, player in ipairs(self:GetPlayers()) do if player.UserId == id then return player end end end
 		f.RS, f.SSS, f.SS = object("Folder", "ReplicatedStorage"), object("Folder", "ServerScriptService"), object("Folder", "ServerStorage")
 		f.Marketplace = {}
-		f.DataStore = { GetDataStore = function() return { GetAsync = function() return nil end } end }
+		f.receiptLedger = {}
+		f.DataStore = { GetDataStore = function() return { GetAsync = function() return nil end, UpdateAsync = function(_, key, transform) local value = transform(copyTable(f.receiptLedger[key])); if value ~= nil then f.receiptLedger[key] = copyTable(value) end; return copyTable(value) end } end }
 		f.game = { GetService = function(_, name)
 			local services = { Players = f.Players, ReplicatedStorage = f.RS, ServerScriptService = f.SSS, ServerStorage = f.SS, MarketplaceService = f.Marketplace, DataStoreService = f.DataStore }
 			assert(services[name], "Unknown service " .. name); return services[name]
 		end, BindToClose = function(_, fn) f.close = fn end }
-		f.workspace = { GetServerTimeNow = function() return f.time end }
+		f.workspace = { GetServerTimeNow = function() return f.time end, Raycast = function() return nil end }
 		f.env = { game = f.game, workspace = f.workspace, Instance = { new = object },
 			typeof = function(v) return getmetatable(v) == objectMeta and "Instance" or type(v) end,
 			require = function(mod) assert(f.modules[mod], "Unregistered module " .. tostring(mod and mod.Name)); return f.modules[mod] end,
 			os = { clock = function() return f.time end, time = function() return 1700000000 end, date = os.date },
 			task = { spawn = function(fn) fn() end, delay = function(delay, fn) table.insert(f.delayed, { delay = delay, at = f.time + delay, fn = fn }) end,
 				wait = function(delay) f.time += delay or 0.1; if f.onWait then f.onWait() end end },
-			Enum = { ProductPurchaseDecision = { PurchaseGranted = "Granted", NotProcessedYet = "Retry" } },
+			Enum = { ProductPurchaseDecision = { PurchaseGranted = "Granted", NotProcessedYet = "Retry" }, RaycastFilterType = {Exclude = "Exclude"} },
+			RaycastParams = {new = function() return {} end},
 		}
 		f.modulesFolder = child(f.RS, "Folder", "Modules")
+		f.modules[child(f.modulesFolder, "ModuleScript", "ZoneConfig")] = load("ZoneConfig", {})
 		f.modules[child(f.modulesFolder, "ModuleScript", "RagdollQuery")] = {Exclude = function(ignore) return ignore end, GetFolder = function() return nil end}
 		f.remotes = child(f.RS, "Folder", "Remotes")
 		f.server = child(f.SSS, "Folder", "server")
@@ -174,6 +178,7 @@ return function(load)
 		f.combatFolder = child(f.server, "Folder", "CombatHandler")
 		f.dataFolder = child(f.server, "Folder", "DataStore")
 		f.servicesFolder = child(f.server, "Folder", "ServicesHandler")
+		f.modules[child(f.servicesFolder, "ModuleScript", "ReceiptArchive")] = load("ReceiptArchive", {})
 		local notification = child(f.gameFolder, "ModuleScript", "SendNotification")
 		f.modules[notification] = { SendNotification = function() f.notifications += 1 end }
 		function f:load(name, parent, moduleName)
@@ -227,13 +232,14 @@ return function(load)
 		return f
 	end
 
-	test("burger heals 33, enforces 2 seconds, expires after 3 bites", function()
+	test("burger heals 33, enforces configured cooldown, expires after 3 bites", function()
 		local f = foodFixture(); local humanoid = f.player.Character.Humanoid
 		f.tool.Parent = f.player.Character
 		f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 34); equal(f.player:GetAttribute("FoodUses"), 2)
-		f.time += 1.99; f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 34)
+		local cooldown = f.config.CooldownMs / 1000
+		f.time += cooldown - 0.01; f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 34)
 		f.time += 0.01; f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 67)
-		f.time += 2; f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 100)
+		f.time += cooldown; f.eat:Fire(f.player, f.tool); equal(humanoid.Health, 100)
 		equal(f.player:GetAttribute("FoodUses"), 0); equal(f.tool.Parent, nil); equal(f.food.GetTool(f.player), nil)
 		f.food.Grant(f.player, f.player.Character); equal(f.food.GetTool(f.player), nil, "Consumed tool must not refill")
 	end)
@@ -364,8 +370,8 @@ return function(load)
 		equal(f.player:GetAttribute("FoodUses"), 3)
 		f.eat:Fire(f.player, f.tool)
 		assert(f.label.Text:find("2/3", 1, true)); assert(f.label.Text:find("Ready in", 1, true))
-		f.time += 1; f.tool.Activated:Fire(); equal(f.remotes.Food.Eat.ServerCalls, 1)
-		f.time += 1; f.runService.Heartbeat:Fire(0.1); f.tool.Activated:Fire(); equal(f.remotes.Food.Eat.ServerCalls, 2)
+		f.time += f.config.CooldownMs / 1000 - 0.01; f.tool.Activated:Fire(); equal(f.remotes.Food.Eat.ServerCalls, 1)
+		f.time += 0.01; f.runService.Heartbeat:Fire(0.1); f.tool.Activated:Fire(); equal(f.remotes.Food.Eat.ServerCalls, 2)
 	end)
 	test("food client blocks full health, menus and chat; touch button uses same request", function()
 		local f = foodClientFixture(); f.tool.Parent = f.player.Character
@@ -389,6 +395,7 @@ return function(load)
 	local mapVectorMeta = {}
 	local function mapVector(x, y, z) return setmetatable({X = x or 0, Y = y or 0, Z = z or 0}, mapVectorMeta) end
 	mapVectorMeta.__sub = function(a, b) return mapVector(a.X-b.X, a.Y-b.Y, a.Z-b.Z) end
+	mapVectorMeta.__add = function(a, b) return mapVector(a.X+b.X, a.Y+b.Y, a.Z+b.Z) end
 	mapVectorMeta.__index = function(v, key) if key == "Magnitude" then return math.sqrt(v.X*v.X+v.Y*v.Y+v.Z*v.Z) end end
 	local frameMeta = {}
 	local function mapFrame(x, y, z) return setmetatable({X = x or 0, Y = y or 0, Z = z or 0, Position = mapVector(x,y,z)}, frameMeta) end
@@ -396,8 +403,9 @@ return function(load)
 	local function mapFixture()
 		local f = fixture()
 		f.workspace = object("Workspace", "Workspace"); f.env.workspace = f.workspace
+		function f.workspace:Raycast() return nil end
 		f.game.Players = f.Players
-		f.env.CFrame = {new = mapFrame}; f.env.Vector3 = {zero = mapVector(0,0,0)}
+		f.env.CFrame = {new = mapFrame}; f.env.Vector3 = {zero = mapVector(0,0,0), new = mapVector}
 		local templates = {}
 		for _, name in ipairs({ "MapA", "MapB" }) do
 			local template = child(f.SS, "Model", name)
@@ -611,7 +619,7 @@ return function(load)
 			f.starters[player] = (f.starters[player] or 0) + 1
 		end}
 		f.modules[child(f.servicesFolder, "ModuleScript", "VIPService")] = {
-			ApplyToPlayer = function() end, SetCachedExpiry = function() end, RefreshPlayer = function() end}
+			ApplyToPlayer = function() end, SetCachedExpiry = function() end, RefreshPlayer = function() end, ReconcilePlayer = function() return true end}
 		f.modules[child(f.dataFolder, "ModuleScript", "ProfileManager")] = {
 			LoadProfile = function(player)
 				f.profileLoads[player] = (f.profileLoads[player] or 0) + 1
@@ -632,7 +640,11 @@ return function(load)
 			player.Character.Humanoid.Health = 100
 			return player
 		end
-		function f:start() self.joined = self:load("OnJoined", self.dataFolder) end
+		function f:start()
+			self.modules[child(self.modulesFolder, "ModuleScript", "ProfileSchema")] = load("ProfileSchema", {})
+			self.modules[child(self.modulesFolder, "ModuleScript", "KnivesInfo")] = {Bowie = {Rarity = "Common", Image = "bowie"}}
+			self.modules[child(self.modulesFolder, "ModuleScript", "Emotes")] = {}
+			self.joined = self:load("OnJoined", self.dataFolder) end
 		return f
 	end
 	test("player startup backfills players and characters already present after dependency loading", function()
@@ -952,6 +964,30 @@ return function(load)
 		f.profiles.GetOldDataAsync = function() return { Name = "OfflinePlayer", Cash = 12 } end
 		local info = f:load("PlayerInfo", f.servicesFolder, "GetPlayerInfo")
 		equal(info.AllInfo(2).Cash, 12)
+	end)
+	test("offline profile returns saved inventory from one read without modifying saved rows", function()
+		local f = profileFixture(); local reads = 0
+		local saved = {Name = "Offline", Inventory = {
+			{Name = "Bowie", Quantity = 1, Rarity = "Common", Image = "image"},
+			{Name = "Cosmetic", Quantity = 3, Rarity = "Rare", Image = "skin", Tradeable = true},
+			{Name = "Broken", Quantity = 0/0}, {Name = "Infinite", Quantity = math.huge}, false,
+		}}
+		f.profiles.GetAsync = function() reads += 1; return {Data = saved} end
+		local info = f:load("PlayerInfo", f.servicesFolder, "GetPlayerInfo")
+		local basic, inventory = info.AllInfo(2)
+		equal(reads, 1); equal(basic.Name, "Offline"); equal(inventory.Cosmetic.Quantity, 3)
+		equal(inventory.Cosmetic.Image, "skin"); equal(inventory.Bowie.Tradeable, false)
+		equal(inventory.Broken, nil); equal(inventory.Infinite, nil); equal(#saved.Inventory, 5)
+		equal(info.Inventory(2).Cosmetic.Quantity, 3); equal(reads, 2)
+	end)
+	test("unavailable offline profiles return an explicit state and empty inventory", function()
+		local f = profileFixture()
+		f.profiles.GetAsync = function() error("backend unavailable") end
+		f.profiles.GetOldDataAsync = function() error("legacy unavailable") end
+		function f.Players:GetNameFromUserIdAsync() return "Offline" end
+		local info = f:load("PlayerInfo", f.servicesFolder, "GetPlayerInfo")
+		local basic, inventory = info.AllInfo(2)
+		equal(basic.Unavailable, true); equal(next(inventory), nil)
 	end)
 	test("leaderboard writes use loaded current stats and skip unchanged values", function()
 		local f = fixture(); f.player = f:createPlayer(1)
@@ -2180,6 +2216,39 @@ return function(load)
 		equal(f.main.RoundStats.players[1].forfeited, true); equal(f.main.RoundStats.players[1].placement, 0)
 		equal(f.player.leaderstats.Kills.Value, 1); equal(f.player:GetAttribute("InRound"), false)
 	end)
+	test("round rewards exclude FFA forfeits from top-three quest credit", function()
+		local f = roundFixture()
+		local progress = {}
+		f.modules[f.servicesFolder.QuestsHandler].AddProgress = function(player, kind, amount)
+			progress[player] = progress[player] or {}
+			progress[player][kind] = (progress[player][kind] or 0) + amount
+		end
+		f.onWait = function()
+			if f.main.GameActive and not f.forfeited then
+				f.forfeited = true
+				f.main.LeaveRound(f.player)
+			end
+		end
+		equal(f.main.StartGame("MapA", "FFA"), true)
+		equal(f.forfeited, true)
+		equal(f.player:GetAttribute("LastRoundPlacement"), 0)
+		equal(progress[f.player].TOP3_FINISHES, nil, "A forfeit is not a top-three finish")
+		equal(progress[f.player].ROUNDS_PLAYED, 1, "Preserve the existing participation reward policy")
+		equal(progress[f.victim].TOP3_FINISHES, 1)
+		equal(progress[f.third].TOP3_FINISHES, 1)
+	end)
+	test("round rewards preserve legitimate first second and third place quest credit", function()
+		local f = roundFixture()
+		local topThree = {}
+		f.modules[f.servicesFolder.QuestsHandler].AddProgress = function(player, kind, amount)
+			if kind == "TOP3_FINISHES" then topThree[player] = (topThree[player] or 0) + amount end
+		end
+		equal(f.main.StartGame("MapA", "FFA"), true)
+		for placement, player in ipairs({f.player, f.victim, f.third}) do
+			equal(player:GetAttribute("LastRoundPlacement"), placement)
+			equal(topThree[player], 1, "Each legitimate finisher receives credit exactly once")
+		end
+	end)
 	test("round places players before fight countdown, awards once and cleans attributes/tools", function()
 		local f = roundFixture()
 		f.mapConfig.RoundStartProtectionSeconds = 0 -- this case isolates kill/reward accounting
@@ -2368,6 +2437,33 @@ return function(load)
 		f.Players.PlayerRemoving:Fire(player); player.Parent = nil
 		equal(rewards.XpReward(player, "kill", 3, 1), 0); equal(rewards.CashReward(player, "kill", 3, 1), 0)
 	end)
+	test("VIP kill rewards expire without a client refresh and preserve valid bonuses", function()
+		local f = fixture(); local player = f:createPlayer(1); child(player.leaderstats, "IntValue", "XP", 0)
+		local now = 1700000000
+		f.env.os.time = function() return now end
+		f.Marketplace.PromptGamePassPurchaseFinished = signal()
+		f.Marketplace.UserOwnsGamePassAsync = function() return false end
+		local rewards = f:load("GameReward", f.gameFolder)
+		player:SetAttribute("HasVIP", true); player:SetAttribute("VIPExpiresAt", now + 1)
+		equal(rewards.XpReward(player, "kill"), 35); equal(rewards.CashReward(player, "kill"), 60)
+		now += 1
+		equal(rewards.XpReward(player, "kill"), 25); equal(rewards.CashReward(player, "kill"), 50)
+		equal(player:GetAttribute("HasVIP"), false)
+		for _, invalid in ipairs({0/0, math.huge, -math.huge, "forever"}) do
+			player:SetAttribute("HasVIP", true); player:SetAttribute("VIPExpiresAt", invalid)
+			equal(rewards.CashReward(player, "kill"), 50); equal(rewards.XpReward(player, "kill"), 25)
+		end
+	end)
+	test("VIP expiry during an XP pass lookup cannot grant an expired bonus", function()
+		local f = fixture(); local player = f:createPlayer(1); child(player.leaderstats, "IntValue", "XP", 0)
+		local now = 1700000000; f.env.os.time = function() return now end
+		f.env.task.spawn = function() end -- leave the ownership cache cold
+		f.Marketplace.PromptGamePassPurchaseFinished = signal()
+		f.Marketplace.UserOwnsGamePassAsync = function() now += 2; return true end
+		player:SetAttribute("HasVIP", true); player:SetAttribute("VIPExpiresAt", now + 1)
+		local rewards = f:load("GameReward", f.gameFolder)
+		equal(rewards.XpReward(player, "kill"), 37)
+	end)
 	local function votingRoundFixture()
 		local f = mapFixture(); f.SSS.Game = f.gameFolder
 		f:load("Modes", f.modulesFolder, "GameModes")
@@ -2414,8 +2510,9 @@ return function(load)
 		equal(f.progress.WINS, nil)
 		for _, row in ipairs(f.results.LastClientArgs[2]) do assert(row.Placement >= 1 and row.Placement <= 3 and not row.IsWinner) end
 	end)
-	local function zoneFixture()
+	local function zoneFixture(phased)
 		local f = roundFixture(); f.prepare(false)
+		f.modules[f.modulesFolder.ZoneConfig].PhasesEnabled = phased == true
 		f.SSS.Game, f.game.ServerScriptService = f.gameFolder, f.SSS
 		child(child(f.remotes, "Folder", "Zone"), "RemoteEvent", "RecieveClient")
 		local template = child(f.SS, "Part", "Zone")
@@ -2864,5 +2961,6 @@ return function(load)
 		equal(f.thumbnails, 8); equal(#f.scrolls.Gold:GetChildren(), 0)
 		f.publish(rows); equal(#f.background, 8); equal(#f.scrolls.Gold:GetChildren(), 8)
 	end)
+	assert(passed > 0, "No game systems tests matched the filter")
 	print(string.format("%d game systems tests passed", passed))
 end

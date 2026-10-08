@@ -154,6 +154,7 @@ return function(load)
 		f.env.require=function(name)
 			if name=="Transition" then return transition elseif name=="Config" then return f.config
 			elseif name=="SpectateHandler" then return f.handler
+			elseif name=="UITransitions" then return {BindMenus=function() end}
 			elseif name=="SoundHandler" then return {PlaySound=function(name) assert(name=="ClickTopButtons"); f.clickSounds+=1 end}
 			elseif name=="KnivesInfo" then return f.knives elseif name=="TimeToMinutes" then return {MakeTimeMinute=function(seconds) return string.format("%d:%02d",math.floor(seconds/60),seconds%60) end} end
 			error(name)

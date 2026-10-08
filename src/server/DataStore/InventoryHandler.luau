@@ -60,6 +60,7 @@ end
 
 local function CreateItem(player : Player, knifeName : string, tradeable: boolean?)
 	if not player then return end
+	if player:GetAttribute("InventoryLocked") == true then return end
 
 	if not knifeName then return end
 
@@ -132,6 +133,7 @@ function InventoryHandler.AddEmote(player: Player, emoteName: string)
 
 	local leaderstats = player:WaitForChild("leaderstats")
 	local emotesInventory = leaderstats:WaitForChild("Emotes")
+	if player:GetAttribute("InventoryLocked") == true then return end
 
 	local info = EmotesInfo[emoteName]
 	if not info then
@@ -225,6 +227,7 @@ end
 
 function InventoryHandler.AddRevolver(player: Player, revolverName: string, quantity: number?, tradeable: boolean?)
 	if not player or type(revolverName) ~= "string" or revolverName == "" then return end
+	if player:GetAttribute("InventoryLocked") == true then return end
 	if not RevolversFolder:FindFirstChild(revolverName) then
 		warn("Revolver not found: " .. revolverName)
 		return
@@ -341,6 +344,7 @@ end
 
 EquipKnifeRemote.OnServerEvent:Connect(function(player : Player, KnifeName : string)
 	if not player then return end
+	if player:GetAttribute("InventoryLocked") == true then return end
 	if player:GetAttribute("DataReady") ~= true then return end
 	if type(KnifeName) ~= "string" then return end
 	if #KnifeName < 1 or #KnifeName > 64 then return end
@@ -372,6 +376,7 @@ end)
 
 EquipRevolverRemote.OnServerEvent:Connect(function(player: Player, revolverName: string)
 	if not player then return end
+	if player:GetAttribute("InventoryLocked") == true then return end
 	if player:GetAttribute("DataReady") ~= true then return end
 	if type(revolverName) ~= "string" then return end
 	if #revolverName < 1 or #revolverName > 64 then return end

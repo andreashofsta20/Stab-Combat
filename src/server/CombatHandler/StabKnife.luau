@@ -24,6 +24,8 @@ local DamageDealtClient = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild
 
 function KnifeModule.Stab(player: Player)
     if not player or player.ClassName ~= "Player" then return end
+    if player:GetAttribute("MovementAdmitted") ~= nil and not require(script.Parent.MovementAuthority).Admit(player) then return end
+    if player:GetAttribute("InventoryLocked") == true or player:GetAttribute("MovementAdmitted") == false then return end
 
     local now = os.clock()
     if Cooldown[player.UserId] and now - Cooldown[player.UserId] < COOLDOWN then

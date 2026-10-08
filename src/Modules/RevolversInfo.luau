@@ -298,7 +298,17 @@ local RevolversInfo = {
 )
 	},
 
+	["Ice Revolver"] = {
+		Rarity = "Godly",
+		Image = "rbxassetid://114240575678072",
+		tradeable = true,
+	},
 
+	["Nature Revolver"] = {
+		Rarity = "Godly",
+		Image = "rbxassetid://101745078071373",
+		tradeable = true,
+	},
 
 
 

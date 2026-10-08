@@ -56,12 +56,12 @@ RecieveProfileRequest.OnServerEvent:Connect(function(player : Player, TargetID)
 	
 	viewing[player] = true
 	local ok, info, inventory = pcall(function()
-		return GetPlayerInfo.AllInfo(TargetID), GetPlayerInfo.Inventory(TargetID)
+		return GetPlayerInfo.AllInfo(TargetID)
 	end)
 	viewing[player] = nil
 	if offline then
 		activeOffline -= 1; offlineReads[TargetID] = nil
-		if ok then
+		if ok and info and not info.Unavailable and not info.Loading then
 			if not offlineCache[TargetID] then table.insert(cacheOrder, TargetID) end
 			offlineCache[TargetID] = {info = info, inventory = inventory, expires = os.clock() + CACHE_SECONDS}
 			while #cacheOrder > CACHE_LIMIT do offlineCache[table.remove(cacheOrder, 1)] = nil end

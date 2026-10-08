@@ -101,6 +101,8 @@ local function RespawnAtLobby(player: Player, roundId: number?, previousCharacte
     local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
     if hrp and spawnPoint then
         hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
+        player:SetAttribute("ServerTeleportPosition", hrp.Position)
+        player:SetAttribute("ServerTeleportVersion", (player:GetAttribute("ServerTeleportVersion") or 0) + 1)
     end
 end
 
@@ -123,7 +125,7 @@ local function InitRoundStats()
     }
 end
 
-function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
+function MainGame.RegisterPendingKill(killer: Player, victimUserId: number, weapon: string?)
     local stats = MainGame.RoundStats
     if not MainGame.GameActive or not stats or not killer or not victimUserId then
         return
@@ -138,7 +140,7 @@ function MainGame.RegisterPendingKill(killer: Player, victimUserId: number)
 
     if killer.UserId ~= victimUserId and not pendingKills[victimUserId] then
         local victim = Players:GetPlayerByUserId(victimUserId)
-        pendingKills[victimUserId] = {killer = killer, character = victim and victim.Character, roundId = MainGame.RoundId}
+        pendingKills[victimUserId] = {killer = killer, character = victim and victim.Character, roundId = MainGame.RoundId, weapon = weapon}
     end
 end
 
@@ -148,6 +150,7 @@ function MainGame.DamagePlayer(killer: Player, victim: Player, humanoid: Humanoi
     if not MainGame.GameActive or not killer or not victim or killer == victim
         or not MainGame.PlayersInGame[killer.UserId] or not MainGame.PlayersInGame[victim.UserId]
         or killer:GetAttribute("DataReady") ~= true or victim:GetAttribute("DataReady") ~= true
+        or killer:GetAttribute("InventoryLocked") == true or killer:GetAttribute("MovementAdmitted") == false
         or killer.Parent ~= Players or victim.Parent ~= Players
         or type(amount) ~= "number" or amount ~= amount or amount <= 0 or amount == math.huge then return 0 end
     local attackerHumanoid = killer.Character and killer.Character:FindFirstChildOfClass("Humanoid")
@@ -157,11 +160,15 @@ function MainGame.DamagePlayer(killer: Player, victim: Player, humanoid: Humanoi
     local before, character = humanoid.Health, victim.Character
     Ragdolls.Prepare(character)
     if before <= amount then
-        MainGame.RegisterPendingKill(killer, victim.UserId)
+        MainGame.RegisterPendingKill(killer, victim.UserId, type(impact) == "table" and impact.Kind or nil)
         if type(impact) == "table" then Ragdolls.SetImpact(character, impact.Kind, impact.Direction) end
     end
     humanoid:TakeDamage(amount)
     local dealt = math.max(0, before - humanoid.Health)
+    if type(impact) == "table" and dealt > 0 then
+        local metrics = script.Parent.Parent.CombatHandler:FindFirstChild("CompetitiveStats")
+        if metrics then require(metrics).Hit(killer, impact.Kind, dealt) end
+    end
     if humanoid.Health <= 0 then
         MainGame.OnDeath(victim, character) -- commit now, even with deferred Died signals
     elseif before <= amount then
@@ -232,11 +239,22 @@ local function SaveLastRound(player: Player, opponents: number, kills: number, p
     local data = profile.Data
     local entryTimestamp = os.time()
     local entryId = string.format("%d_%d_%d", entryTimestamp, player.UserId, math.random(100000, 999999))
+    local modeName = "FFA"
+    if MainGame.CurrentMode then
+        if MainGame.CurrentMode.Id == "BattleRoyale" then
+            modeName = "BR"
+        elseif MainGame.CurrentMode.Id == "FFA" then
+            modeName = "FFA"
+        else
+            modeName = MainGame.CurrentMode.Id or "FFA"
+        end
+    end
 
     local lastRoundEntry = {
         Opponents = opponents,
         Kills = kills,
         Placement = placement,
+        GameMode = modeName,
         Timestamp = entryTimestamp,
         EntryId = entryId,
     }
@@ -258,6 +276,17 @@ local function SaveLastRound(player: Player, opponents: number, kills: number, p
     player:SetAttribute("LastRoundOpponents", opponents)
     player:SetAttribute("LastRoundKills", kills)
     player:SetAttribute("LastRoundPlacement", placement)
+    local modeName = "FFA"
+    if MainGame.CurrentMode then
+        if MainGame.CurrentMode.Id == "BattleRoyale" then
+            modeName = "BR"
+        elseif MainGame.CurrentMode.Id == "FFA" then
+            modeName = "FFA"
+        else
+            modeName = MainGame.CurrentMode.Id or "FFA"
+        end
+    end
+    player:SetAttribute("LastRoundGameMode", modeName)
 end
 
 local function FinalizeRoundStats()
@@ -303,8 +332,21 @@ local function FinalizeRoundStats()
         local player = Players:GetPlayerByUserId(userId)
         if player then
             player:SetAttribute("LastRoundOpponents", totalPlayers - 1)
+            local metrics = script.Parent.Parent.CombatHandler:FindFirstChild("CompetitiveStats")
+            if metrics then require(metrics).Round(player,MainGame.CurrentMode.Id,not stats.draw and data.placement == 1,data.forfeited == true) end
             player:SetAttribute("LastRoundKills", data.kills or 0)
             player:SetAttribute("LastRoundPlacement", data.placement or 0)
+            local modeName = "FFA"
+            if MainGame.CurrentMode then
+                if MainGame.CurrentMode.Id == "BattleRoyale" then
+                    modeName = "BR"
+                elseif MainGame.CurrentMode.Id == "FFA" then
+                    modeName = "FFA"
+                else
+                    modeName = MainGame.CurrentMode.Id or "FFA"
+                end
+            end
+            player:SetAttribute("LastRoundGameMode", modeName)
         end
     end
 
@@ -341,8 +383,21 @@ local function ApplyRoundRewards()
             player:SetAttribute("LastRoundOpponents", totalPlayers - 1)
             player:SetAttribute("LastRoundKills", data.kills or 0)
             player:SetAttribute("LastRoundPlacement", data.placement or 0)
+            local modeName = "FFA"
+            if MainGame.CurrentMode then
+                if MainGame.CurrentMode.Id == "BattleRoyale" then
+                    modeName = "BR"
+                elseif MainGame.CurrentMode.Id == "FFA" then
+                    modeName = "FFA"
+                else
+                    modeName = MainGame.CurrentMode.Id or "FFA"
+                end
+            end
+            player:SetAttribute("LastRoundGameMode", modeName)
 
-            if (data.placement or 999) <= 3 then
+            -- Placement zero represents a forfeit, never a podium finish.
+            local placement = data.placement
+            if not data.forfeited and placement and placement >= 1 and placement <= 3 then
                 QuestsHandler.AddProgress(player, "TOP3_FINISHES", 1)
             end
             if isWinner and policy.CanReceiveWinCredit then
@@ -442,6 +497,9 @@ function MainGame.OnDeath(player: Player, character: Model?)
         local leaderstats = player:FindFirstChild("leaderstats")
         local deathsStat = leaderstats and leaderstats:FindFirstChild("Deaths")
         if deathsStat then deathsStat.Value += 1 end
+        local metricsModule = script.Parent.Parent.CombatHandler:FindFirstChild("CompetitiveStats")
+        local metrics = metricsModule and require(metricsModule)
+        if metrics then metrics.Death(player,MainGame.CurrentMode.Id) end
         local stats = MainGame.RoundStats
         if killer and killer ~= player and stats
             and stats.players[killer.UserId]
@@ -453,6 +511,7 @@ function MainGame.OnDeath(player: Player, character: Model?)
             local victimPolicy = AntiFarmModule.GetRewardPolicy(player, roundParticipants, serverPlayerCount)
 
             local killId = MainGame.AddRoundKill(killer, player)
+            if metrics then metrics.Kill(killer,MainGame.CurrentMode.Id,pending and pending.weapon) end
             if killerPolicy.RewardMultiplier > 0 then
                 QuestsHandler.AddProgress(killer, "KILLS", 1)
             end
@@ -538,6 +597,8 @@ function MainGame.LeaveRound(player: Player, disconnected: boolean?)
         local spawnPoint = workspace:WaitForChild("IntermissionMap"):WaitForChild("Lobby"):WaitForChild("Spawns"):FindFirstChild(tostring(math.random(1, 4)))
         if spawnPoint then
             hrp.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
+            player:SetAttribute("ServerTeleportPosition", hrp.Position)
+            player:SetAttribute("ServerTeleportVersion", (player:GetAttribute("ServerTeleportVersion") or 0) + 1)
         end
     end
 end
@@ -608,7 +669,7 @@ function MainGame.CleanupRound(respawn: boolean?)
 end
 
 local function wantsRound(player)
-    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+    if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true or player:GetAttribute("PracticeActive") == true then return false end
     local stats = player:FindFirstChild("leaderstats")
     local settings = stats and stats:FindFirstChild("Settings")
     local lobbyMode = settings and settings:FindFirstChild("LobbyMode")
@@ -634,6 +695,17 @@ local function runGame(map, modeId: string?)
         player:SetAttribute("LastRoundKills", 0)
         player:SetAttribute("LastRoundPlacement", 0)
         player:SetAttribute("LastRoundOpponents", 0)
+        local modeName = "FFA"
+        if MainGame.CurrentMode then
+            if MainGame.CurrentMode.Id == "BattleRoyale" then
+                modeName = "BR"
+            elseif MainGame.CurrentMode.Id == "FFA" then
+                modeName = "FFA"
+            else
+                modeName = MainGame.CurrentMode.Id or "FFA"
+            end
+        end
+        player:SetAttribute("LastRoundGameMode", modeName)
         player:SetAttribute("LastRoundGold", 0)
         player:SetAttribute("LastRoundXP", 0)
         player:SetAttribute("InRound", false)

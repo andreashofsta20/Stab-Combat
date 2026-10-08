@@ -75,6 +75,24 @@ function ZoneHandler.StartZone()
 	end
 
 	task.spawn(function()
+        if isBattleRoyale then
+            local config = require(game:GetService("ReplicatedStorage").Modules.ZoneConfig)
+            if config.PhasesEnabled then
+                local initial = Zone.Size
+                for index, phase in ipairs(config.Phases) do
+                    if not live() then return end
+                    Zone:SetAttribute("Phase", index)
+                    Zone:SetAttribute("PhaseState", "Holding")
+                    task.wait(phase.Hold)
+                    if not live() then return end
+                    Zone:SetAttribute("PhaseState", "Shrinking")
+                    local tween = TweenService:Create(Zone, TweenInfo.new(phase.Shrink, Enum.EasingStyle.Linear),
+                        {Size = Vector3.new(math.max(minSize.X, initial.X * phase.Fraction), initial.Y, math.max(minSize.Z, initial.Z * phase.Fraction))})
+                    shrinkTween = tween; tween:Play(); tween.Completed:Wait()
+                end
+                return
+            end
+        end
         while live() and (Zone.Size.X > minSize.X or Zone.Size.Z > minSize.Z) do
 			local targetX = math.max(Zone.Size.X - shrinkStep.X, minSize.X)
 			local targetZ = math.max(Zone.Size.Z - shrinkStep.Z, minSize.Z)

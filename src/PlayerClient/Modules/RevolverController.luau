@@ -35,7 +35,7 @@ local reloadRequestedAt = 0
 local lastSyncAt = 0
 local oldZoom = nil
 local touchAimPosition, touchAimUntil = nil, 0
-local gui, ammoLabel, crosshair, shootButton, reloadButton, aimButton
+local gui, ammoLabel, crosshair, crosshairOutline, shootButton, reloadButton, aimButton
 local aimRequested = false
 local aimInput
 local equippedTool, equippedTuning
@@ -279,6 +279,9 @@ local function makeUI()
 	crosshair.Visible = false
 	crosshair.AnchorPoint, crosshair.Size = Vector2.new(0.5, 0.5), UDim2.fromOffset(CursorConfig.WhiteDotSize, CursorConfig.WhiteDotSize)
 	crosshair.BackgroundColor3, crosshair.BorderSizePixel, crosshair.Parent = Color3.new(1, 1, 1), 0, gui
+	local outline = Instance.new("UIStroke")
+	crosshairOutline = outline
+	outline.Name, outline.Color, outline.Thickness, outline.Enabled, outline.Parent = "ContrastOutline", Color3.new(0,0,0), 2, false, crosshair
 	local function button(text, offset)
 		local control = Instance.new("TextButton")
 		control.AnchorPoint, control.Position, control.Size = Vector2.new(1, 1), UDim2.new(1, offset, 0.63, 0), UDim2.fromOffset(80, 52)
@@ -463,6 +466,10 @@ function Controller.Init()
 		local combat = visible and canPlay()
 		gui.Enabled = visible == true
 		crosshair.Visible = visible == true and CursorConfig.Enabled and CursorConfig.WhiteDotEnabled
+		local stats = player:FindFirstChild("leaderstats")
+		local settings = stats and stats:FindFirstChild("Settings")
+		local contrast = settings and settings:FindFirstChild("HighContrastCrosshair")
+		crosshairOutline.Enabled = contrast ~= nil and contrast.Value == true
 		ammoLabel.Visible = combat == true
 		if aimRequested and (not visible or not canAim() or not AimCamera.IsAiming()) then stopAim(not visible) end
 		if tool and oldZoom == nil then

@@ -167,6 +167,7 @@ function Mock.fixture(load)
 		os = {time = function() return f.now end, clock = function() return f.elapsed end},
 		task = {wait = function() end, spawn = function(fn) table.insert(f.jobs,fn) end, defer = function(fn) table.insert(f.deferred, fn) end, delay = function(_, fn) table.insert(f.deferred, fn) end, cancel = function() end},
 		Enum = Mock.Enum, UDim2 = Mock.UDim2, Color3 = Mock.Color3, UDim = {new = function() return {} end},
+		Vector2 = {new = function(x, y) return {X = x, Y = y} end},
 		TweenInfo = {new = function() return {} end}, typeof = typeof,
 		warn = function(...) table.insert(f.warnings, table.pack(...)) end,
 	}

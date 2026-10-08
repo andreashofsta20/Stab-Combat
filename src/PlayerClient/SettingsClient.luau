@@ -34,6 +34,24 @@ end
 
 local SettingsFolder = WaitForSettings()
 
+-- These controls are generated so the new options also work in existing
+-- Studio templates. They use the same persisted boolean settings protocol.
+for index, info in ipairs({{"ReducedEffects", "Reduced effects"}, {"HighContrastCrosshair", "High contrast crosshair"}}) do
+	if not SettingsContainer:FindFirstChild(info[1]) then
+		local row = Instance.new("Frame")
+		row.Name, row.Size, row.BackgroundTransparency, row.LayoutOrder = info[1], UDim2.new(1, 0, 0, 44), 1, 100 + index
+		local title = Instance.new("TextLabel")
+		title.Name, title.Text, title.Size, title.BackgroundTransparency = "Title", info[2], UDim2.new(0.65, 0, 1, 0), 1
+		title.TextColor3, title.TextSize, title.Parent = Color3.new(1, 1, 1), 16, row
+		local button = Instance.new("TextButton")
+		button.Name, button.Text, button.Size, button.Position = "SettingsButton", "", UDim2.new(0.2, 0, 0.65, 0), UDim2.new(0.77, 0, 0.175, 0)
+		button.Parent = row
+		local dot = Instance.new("Frame")
+		dot.Name, dot.Size, dot.AnchorPoint, dot.Parent = "ButtonThingy", UDim2.new(0, 12, 0, 12), Vector2.new(0.5, 0.5), button
+		row.Parent = SettingsContainer
+	end
+end
+
 local function RefreshUI()
 	for _, v in pairs(SettingsContainer:GetChildren()) do
 		if v:IsA("Frame") and v.Name ~= "Fov" then

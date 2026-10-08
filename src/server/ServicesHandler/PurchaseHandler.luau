@@ -149,13 +149,13 @@ end)
 
 
 local DataStoreService = game:GetService("DataStoreService")
-local PurchaseReceiptStore = DataStoreService:GetDataStore("PurchaseReceipts_v1")
+local configModule = ReplicatedStorage.Modules:FindFirstChild("DataConfig")
+local dataConfig = configModule and require(configModule)
+local PurchaseReceiptStore = DataStoreService:GetDataStore(dataConfig and dataConfig.ReceiptStoreName or "PurchaseReceipts_v1")
+local ReceiptArchive = require(script.Parent.ReceiptArchive)
 
 local function isReceiptProcessed(purchaseId: string): (boolean, boolean)
-	local success, result = pcall(function()
-		return PurchaseReceiptStore:GetAsync(purchaseId)
-	end)
-	return success, result == true
+	return ReceiptArchive.Check(PurchaseReceiptStore, purchaseId)
 end
 
 MarketPlaceService.ProcessReceipt = function(receiptInfo)
@@ -229,8 +229,19 @@ MarketPlaceService.ProcessReceipt = function(receiptInfo)
 	-- confirm the existing marker if the grant happened before the error.
 	processingReceipts[purchaseId] = nil
 	if not ok then
+		ReplicatedStorage:SetAttribute("ReceiptErrorCount", (ReplicatedStorage:GetAttribute("ReceiptErrorCount") or 0) + 1)
 		warn("[Purchase] Receipt processing failed:", purchaseId, decision)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if decision == Enum.ProductPurchaseDecision.PurchaseGranted then
+		-- Grants and their profile/VIP markers are already durable here. Archive
+		-- first, then remove hot markers. An archive outage keeps all markers.
+		if not ReceiptArchive.Commit(PurchaseReceiptStore, receiptInfo) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+		local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+		if player then ReceiptArchive.PruneProfile(ProfileManager.GetProfile(player), purchaseId) end
+		if VIP_PRODUCT_DURATIONS[receiptInfo.ProductId] then VIPService.ArchivePurchase(receiptInfo.PlayerId, purchaseId) end
 	end
 	return decision
 end
