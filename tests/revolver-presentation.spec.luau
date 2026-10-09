@@ -1684,13 +1684,20 @@ return function(load)
 		rs.Modules = { RagdollQuery = "RagdollQuery", RevolverConfig = "Config", RevolverToolPhysics = "ToolPhysics", RevolverMath = "RayMath", RevolverRaycast = "Raycast", RevolversInfo = "Catalog", RevolverPoseMath = "Math" }
 		f.services.ReplicatedStorage = rs
 		local state = load("State")
+		f.tutorialRuntime = load("TutorialRuntime")
 		local dependencies = { Config = f.config, RayMath = RayMath, Math = Math, Catalog = { [f.tool.Name] = {} }, State = state,
 			RagdollQuery = queryStub, ToolPhysics = ToolPhysics,
+			TutorialRuntime = f.tutorialRuntime,
 			Game = f.mainGame, History = { Sample = function() end, Remove = function() end },
-			Raycast = { GetMuzzle = function(_, head) return head.Position end,
-				Resolve = function() f.rayCalls = (f.rayCalls or 0) + 1; return f.resolved or { position = V(0, 2, -20) } end } }
+			Raycast = { GetMuzzle = function(_, head) return head.Position end, GetCharacterGeometry = Raycast.GetCharacterGeometry,
+				Resolve = function(...)
+					f.rayCalls = (f.rayCalls or 0) + 1
+					if f.realTutorialRay then return Raycast.Resolve(...) end
+					return f.resolved or { position = V(0, 2, -20) }
+				end } }
 		f.env.require = function(name) return assert(dependencies[name], name) end
-		f.env.script = { Parent = { RevolverState = "State", RevolverHitHistory = "History", Parent = { Game = { MainGame = "Game" } } } }
+		f.env.script = { Parent = { RevolverState = "State", RevolverHitHistory = "History", Parent = {
+			Game = { MainGame = "Game" }, Tutorial = {TutorialRuntime = "TutorialRuntime"} } } }
 		f.env.workspace.Raycast = function() return nil end
 		load("Server", f.env)
 		function f.sync()
@@ -1759,13 +1766,47 @@ return function(load)
 		f.mainGame.GameActive, f.mainGame.RoundStats, f.mainGame.PlayersInGame[1], f.mainGame.PlayersInGame[2] = true, {}, true, true
 		local char, hum = object("Model", "Victim"), object("Humanoid", "Humanoid")
 		hum.Parent, hum.Health, char.children = char, 100, {hum}
-		local victim = {UserId = 2, Character = char, FindFirstChild = function() return nil end, GetAttribute = function() return true end}
+		local victim = {UserId = 2, Character = char, FindFirstChild = function() return nil end, GetAttribute = function(_,name) return name=="DataReady" or name=="InRound" end}
 		f.resolved = {position = V(0, 2, -20), victim = {player = victim, character = char, humanoid = hum}}
 		local dealt = 30; f.mainGame.DamagePlayer = function() return dealt end
 		f.sync(); f.combat("Fire", 1)
 		assert(f.damageCalls == 1 and f.damageArgs[1] == f.player and f.damageArgs[2] == char and f.damageArgs[3] == 30)
 		assert(f.damageArgs[4] == "Revolver" and f.damageArgs[5] == f.tool.Name)
 		dealt = 0; f.advance(1); f.combat("Fire", 2); assert(f.damageCalls == 1 and f.shotCalls == 2)
+	end)
+	test("tutorial-looking attributes cannot grant revolver permission without a registered session", function()
+		local f = serverFixture(); f.player.attributes.TutorialActive, f.player.attributes.InRound = true, true
+		f.combat("Fire", 1); f.combat("Reload", 2)
+		assert(f.snapshotData.Ammo == 3 and f.snapshotData.ReloadEnd == 0 and not f.rayCalls and not f.damageCalls)
+	end)
+	test("tutorial revolver resolves owned NPC geometry credits kills and reloads without match stats", function()
+		local f = serverFixture(); f.player.attributes.TutorialActive, f.player.attributes.InRound = true, true
+		local actions = {}; local tutorialSession = {Active = true, Progress = {Completed = false},
+			OnAction = function(kind, evidence) table.insert(actions, {Kind = kind, Evidence = evidence}) end}
+		f.tutorialRuntime.Register(f.player, tutorialSession)
+		local function target()
+			local model, root, head, hum = object("Model", "Bandit"), object("Part", "HumanoidRootPart"), object("Part", "Head"), object("Humanoid", "Humanoid")
+			root.Position, root.CFrame, root.Size = V(0, 0, -20), Frame.new(0, 0, -20), V(2, 2, 1)
+			head.Position, head.CFrame, head.Size = V(0, 2, -20), Frame.new(0, 2, -20), V(2, 1, 1)
+			hum.Health = 70; function hum:TakeDamage(amount) self.Health = math.max(0, self.Health - amount) end
+			model.Parent, model.children = {}, {root, head, hum}; root.Parent, head.Parent, hum.Parent = model, model, model
+			f.tutorialRuntime.RegisterTarget(f.player, model); return model, hum
+		end
+		local model, hum = target(); f.realTutorialRay = true
+		f.mainGame.DamagePlayer = function() error("NPC practice must not award match stats") end
+		f.combat("Fire", 1)
+		assert(hum.Health == 0 and f.snapshotData.Ammo == 2 and f.damageCalls == 1 and f.shotData.Hit)
+		assert(#actions == 2 and actions[1].Kind == "Revolver" and actions[2].Kind == "Eliminate" and actions[1].Evidence == model)
+		assert(f.mainGame.GameActive == false and next(f.mainGame.PlayersInGame) == nil)
+		f.combat("Reload", 2); assert(f.snapshotData.ReloadEnd > 0)
+		f.advance(2); f.events.Heartbeat:Fire(0.1)
+		assert(f.snapshotData.Ammo == 3 and #actions == 3 and actions[3].Kind == "Reload")
+		local covered, coveredHum = target(); local wall = object("Part", "Cover")
+		f.env.workspace.Raycast = function(_, origin, direction) return {Distance = 5, Position = origin + direction.Unit * 5, Normal = V(0, 0, 1), Instance = wall} end
+		f.combat("Fire", 3)
+		assert(coveredHum.Health == 70 and f.damageCalls == 1 and #actions == 3 and not f.shotData.Hit)
+		tutorialSession.Progress.Completed = true; f.advance(1); f.combat("Fire", 4)
+		assert(f.snapshotData.Ammo == 2 and f.damageCalls == 1)
 	end)
 	test("server broadcasts confirmed miss surface metadata only after accepting a shot", function()
 		local f = serverFixture(); f.player.attributes.InRound = true

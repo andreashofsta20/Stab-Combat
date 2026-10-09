@@ -198,7 +198,8 @@ end
 function CombatController.GetAimScreenPosition()
     local cam = workspace.CurrentCamera
     if not cam then return UserInputService:GetMouseLocation() end
-    if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or mobileShiftLockEnabled then return cam.ViewportSize / 2 end
+    if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter or mobileShiftLockEnabled
+        or (player:GetAttribute("TutorialActive") == true and UserInputService.PreferredInput == Enum.PreferredInput.Gamepad) then return cam.ViewportSize / 2 end
     if isMobileInput then return touchAimPosition or cam.ViewportSize / 2 end
     return UserInputService:GetMouseLocation()
 end

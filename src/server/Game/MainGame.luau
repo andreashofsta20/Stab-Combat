@@ -471,6 +471,9 @@ function MainGame.OnDeath(player: Player, character: Model?)
     if not humanoid or humanoid.Health > 0 then return end
     local ragdollOk, ragdollError = pcall(Ragdolls.OnDeath, character)
     if not ragdollOk then warn("[Death] Ragdoll failed: " .. tostring(ragdollError)) end
+    if player:GetAttribute("TutorialActive")==true then
+        if require(script.Parent.Parent.Tutorial.TutorialRuntime).OnDeath(player,character) then return end
+    end
 
     local userId = player.UserId
     local roundId = MainGame.RoundId
@@ -670,6 +673,7 @@ end
 
 local function wantsRound(player)
     if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
+    if player:GetAttribute("TutorialTravelPending")==true or player:GetAttribute("TutorialActive")==true then return false end
     local stats = player:FindFirstChild("leaderstats")
     local settings = stats and stats:FindFirstChild("Settings")
     local lobbyMode = settings and settings:FindFirstChild("LobbyMode")

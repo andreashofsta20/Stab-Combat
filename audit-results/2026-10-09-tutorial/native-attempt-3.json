@@ -1,0 +1,130 @@
+{
+  "Result": {
+    "UniverseId": 9667193329,
+    "StartupPending": "",
+    "StartupState": "Ready",
+    "CompletedLessons": 14,
+    "PlaceId": 119874582058419,
+    "StartupFailures": "",
+    "FirstKnockoutAtSeconds": 1.001695541664958,
+    "Preview": true,
+    "Backend": "BetaAuditBackend and ProfileStore.Mock; no persistent player records",
+    "BackendWrites": 5,
+    "NativeCompletionDurationSeconds": 12.850720541668124,
+    "MapAlias": true,
+    "NativeWeaponAPIs": [
+      "StabKnife.Stab",
+      "ThrowKnife.Throw"
+    ],
+    "Travel": "UnverifiedInStudio: published reserved-server round trip required",
+    "AllPassed": true,
+    "ConnectedPlayers": 1,
+    "Errors": [],
+    "SyntheticActions": [
+      "Move",
+      "Sprint",
+      "Slide",
+      "Reload",
+      "Heal",
+      "Revolver"
+    ],
+    "Clients": {
+      "Player1": {
+        "Mode": "native client layout checks",
+        "Checks": [
+          {
+            "Passed": true,
+            "Name": "1280x720 offer footer remains reachable"
+          },
+          {
+            "Passed": true,
+            "Name": "1280x720 automatic action lesson keeps gameplay available"
+          },
+          {
+            "Passed": true,
+            "Name": "1280x720 reward return and play states"
+          },
+          {
+            "Passed": true,
+            "Name": "390x760 offer footer remains reachable"
+          },
+          {
+            "Passed": true,
+            "Name": "390x760 automatic action lesson keeps gameplay available"
+          },
+          {
+            "Passed": true,
+            "Name": "390x760 reward return and play states"
+          },
+          {
+            "Passed": true,
+            "Name": "740x320 offer footer remains reachable"
+          },
+          {
+            "Passed": true,
+            "Name": "740x320 automatic action lesson keeps gameplay available"
+          },
+          {
+            "Passed": true,
+            "Name": "740x320 reward return and play states"
+          },
+          {
+            "Passed": true,
+            "Name": "all tutorial visual instances are released"
+          }
+        ],
+        "Errors": []
+      }
+    },
+    "ServerMemoryMB": 2424.5654296875,
+    "MapFixture": "Classic ROBLOX test alias",
+    "MovementRejectedCount": 1,
+    "Tests": [
+      {
+        "Passed": true,
+        "Name": "isolated native startup and registered practice targets"
+      },
+      {
+        "Passed": true,
+        "Name": "client actions cannot skip a gameplay objective"
+      },
+      {
+        "Passed": true,
+        "Name": "production stab validates native NPC and credits one knockout"
+      },
+      {
+        "Passed": true,
+        "Name": "movement exploit and server teleport give no tutorial distance credit"
+      },
+      {
+        "Passed": true,
+        "Name": "native reset preserves session and lesson without competitive death credit"
+      },
+      {
+        "Passed": true,
+        "Name": "production throw validates native head geometry and projectile path"
+      },
+      {
+        "Passed": true,
+        "Name": "registered NPC damage progresses Revolver without PvP rewards"
+      },
+      {
+        "Passed": true,
+        "Name": "native healing lesson damages safely and grants temporary food"
+      },
+      {
+        "Passed": true,
+        "Name": "registered NPC damage progresses Eliminate without PvP rewards"
+      },
+      {
+        "Passed": true,
+        "Name": "preview completion releases enemies and never grants real entitlement"
+      },
+      {
+        "Passed": true,
+        "Name": "native UI desktop portrait and short-landscape bounds"
+      }
+    ]
+  },
+  "Started": true
+}

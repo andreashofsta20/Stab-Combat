@@ -1,4 +1,8 @@
 return {
+	TouchControls = {
+		Crouch = {Title = "Crouch", Position = {1, -215, 1, -165}},
+		Slide = {Title = "Slide", Position = {1, -285, 1, -100}},
+	},
 	WalkSpeed = 16, RunSpeed = 32, CrouchSpeed = 8,
 	SlideSpeed = 60, SlideEndSpeed = 32, SlideDuration = 0.8, SlideCooldown = 1,
 	SlideBoostSeconds = 0.1, SlideFadeSeconds = 0.18,

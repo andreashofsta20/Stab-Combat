@@ -1,0 +1,16 @@
+{
+  "Date": "2026-10-09",
+  "Luau": "0.741",
+  "SuitesPassed": 23,
+  "SuitesTotal": 23,
+  "ScriptsCompiled": 267,
+  "CompilationFailures": 0,
+  "RojoBuildPassed": true,
+  "DiffCheckPassed": true,
+  "OutputDirectory": "/tmp/stab-tutorial-final",
+  "NativeRehearsalPassed": true,
+  "NativeAssertionsPassed": 11,
+  "NativeUIAssertionsPassed": 10,
+  "PublishedTravelVerified": false,
+  "PhysicalDeviceInputVerified": false
+}

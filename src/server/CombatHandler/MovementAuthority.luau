@@ -63,6 +63,9 @@ remote.OnServerEvent:Connect(function(player, action)
 	if not root or not humanoid or humanoid.Health <= 0 or humanoid.FloorMaterial == Enum.Material.Air then return end
 	if not Authority.Admit(player) then return end
 	slides[player] = {untilTime = now + Config.SlideDuration + 0.2, nextTime = now + Config.SlideCooldown}
+	if player:GetAttribute("TutorialActive")==true and Vector3.new(root.AssemblyLinearVelocity.X,0,root.AssemblyLinearVelocity.Z).Magnitude>2 then
+		require(script.Parent.Parent.Tutorial.TutorialRuntime).Record(player,"Slide",slides[player])
+	end
 end)
 game:GetService("RunService").Heartbeat:Connect(function(dt)
 	elapsed += dt; if elapsed < 0.1 then return end; elapsed = 0

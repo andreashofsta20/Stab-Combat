@@ -6,12 +6,19 @@ local activeMap: Instance? = nil
 local placements = {}
 local changeVersion = 0
 local lastRemovalAt = -math.huge
+local fallbackMapNames = {
+	["Cargo Port"] = true,
+	["Grids"] = true,
+	["Tropical Island"] = true,
+	["Classic ROBLOX"] = true,
+}
 local mapNames = {}
 local recentSpawns = setmetatable({}, {__mode = "k"})
 function SpawnMap.ScoreSpawn(distance, visible, recent)
 	return math.min(distance, 250) - (visible and 100 or 0) - (recent and 40 or 0)
 end
 for _, info in pairs(Maps) do mapNames[info.MapFolder.Name] = true end
+for name in pairs(fallbackMapNames) do mapNames[name] = true end
 
 local function isGameplayMap(instance: Instance): boolean
 	return instance.Name ~= "IntermissionMap" and not instance:FindFirstChildOfClass("Humanoid")
@@ -338,6 +345,7 @@ end
 
 -- Clean Studio leftovers during startup as well as at round transitions.
 SpawnMap.RemoveAllMaps()
-SpawnMap.ShowLobbyMap()
+local tutorial = script.Parent.Parent:FindFirstChild("Tutorial")
+if not tutorial or not require(tutorial.TutorialRole).IsTutorial() then SpawnMap.ShowLobbyMap() end
 
 return SpawnMap

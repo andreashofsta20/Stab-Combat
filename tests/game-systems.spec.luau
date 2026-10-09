@@ -900,6 +900,13 @@ return function(load, testFilter: string?)
 		local ok, err = pcall(function() f:load("MapCatalog", f.gameFolder) end)
 		equal(ok, false); assert(string.find(err, "ServerStorage.Cargo Port"))
 	end)
+	test("tutorial map catalog requires only the training template instead of normal match maps", function()
+		local f = startupFixture(); local tutorial = child(f.SSS, "Folder", "Tutorial")
+		f.modules[child(tutorial, "ModuleScript", "TutorialRole")] = {IsTutorial = function() return true end}
+		child(f.SS, "Model", "Studs")
+		local maps = f:load("MapCatalog", f.gameFolder)
+		equal(next(maps), nil); equal(#f.background, 0)
+	end)
 	local function profileFixture(validation)
 		local f = fixture(); f.player = f:createPlayer(1)
 		f:load("StartupConfig", f.modulesFolder); f:load("StartupLoader", f.modulesFolder)
@@ -1676,35 +1683,108 @@ return function(load, testFilter: string?)
 		f.RS:SetAttribute("ServerStartupState", "Failed"); f.RS:SetAttribute("ServerReady", false)
 		equal(label.Text, "SERVER COULD NOT START")
 	end)
+	local function tutorialClientFixture()
+		local f = interactionFixture()
+		f.player:SetAttribute("DataReady", false); f.RS:SetAttribute("ServerReady", false)
+		f.remote = child(child(f.remotes, "Folder", "Tutorial"), "RemoteEvent", "StartTutorial")
+		local parent = child(f.RS, "Folder", "TutorialTest")
+		local modules = child(parent, "Folder", "Modules")
+		f.env.Enum.PreferredInput = {Touch = "Touch", Keyboard = "Keyboard", Gamepad = "Gamepad"}
+		f.modules[child(f.modulesFolder, "ModuleScript", "TutorialUIConfig")] = {
+			ActionDebounceSeconds = 0.45, ResponseTimeoutSeconds = 12, Text = {Timeout = "Retry safely"},
+			KeyboardHints = {Sprint = "Hold {key} to sprint."}, TouchHints = {Sprint = "Tap Sprint."},
+			Gamepad = {Keys = {Sprint = "ButtonL3"}, Display = {ButtonL3 = "L3"}}, GamepadHints = {Sprint = "Press {Sprint} to toggle sprint."},
+		}
+		f.modules[child(f.modulesFolder, "ModuleScript", "KeybindValidation")] = {
+			GetDefaults = function() return {Sprint = "Shift"} end, ToDisplay = function(value) return value or "" end,
+		}
+		f.view = {
+			SetBusy = function(value) f.busy = value end, SetLobbyVisible = function(value) f.lobbyVisible = value end,
+			RefreshHints = function() f.hintRefreshes = (f.hintRefreshes or 0) + 1 end,
+			Update = function(snapshot) f.snapshot = snapshot; f.updates = (f.updates or 0) + 1 end,
+			ShowRecovery = function(text, action) f.recovery = {Text = text, Action = action} end,
+			Destroy = function() f.viewDestroyed = (f.viewDestroyed or 0) + 1 end,
+		}
+		f.modules[child(modules, "ModuleScript", "TutorialUI")] = {new = function(_, action, hint)
+			f.action, f.hint = action, hint
+			return f.view
+		end}
+		f.modules[child(modules, "ModuleScript", "TutorialGuidance")] = {new = function()
+			return {Update = function(snapshot) f.guidanceSnapshot = snapshot end, Destroy = function() f.guidanceDestroyed = true end}
+		end}
+		f.modules[child(modules, "ModuleScript", "TutorialGamepadBridge")] = {new = function()
+			return {Destroy = function() f.gamepadDestroyed = true end}
+		end}
+		f.env.task.wait = function() error("Tutorial must use readiness, not sleep") end
+		f.controller = f:load("TutorialClient", parent)
+		return f
+	end
 	test("tutorial waits for profile and server readiness and requests exactly once without a fixed sleep", function()
 		for _, order in ipairs({"profileFirst", "serverFirst"}) do
-			local f, gui = interactionFixture(); f.player:SetAttribute("DataReady", false); f.RS:SetAttribute("ServerReady", false)
-			local frame = child(gui, "Frame", "TutorialFrame")
-			local function buttons(parent)
-				local holder = child(child(parent, "Frame", "Options"), "Frame", "Buttons")
-				child(child(holder, "Frame", "StartFrame"), "TextButton", "Button")
-				return holder
-			end
-			local options = buttons(child(frame, "Frame", "StartOptions")); child(child(options, "Frame", "DismissFrame"), "TextButton", "Button")
-			for index = 1, 3 do buttons(child(frame, "Frame", "Page" .. index)) end
-			local remote = child(child(f.remotes, "Folder", "Tutorial"), "RemoteEvent", "StartTutorial")
-			f.env.task.wait = function() error("Tutorial must use readiness, not sleep") end
-			f:load("TutorialClient", child(f.RS, "Folder", "TutorialTest")); equal(remote.ServerCalls, nil)
+			local f = tutorialClientFixture(); equal(f.remote.ServerCalls, nil)
 			if order == "profileFirst" then f.player:SetAttribute("DataReady", true) else f.RS:SetAttribute("ServerReady", true) end
-			equal(remote.ServerCalls, nil)
-			f.player:SetAttribute("DataReady", true); f.RS:SetAttribute("ServerReady", true); equal(remote.ServerCalls, 1)
-			f.RS:SetAttribute("ServerReady", false); f.RS:SetAttribute("ServerReady", true); equal(remote.ServerCalls, 1)
+			equal(f.remote.ServerCalls, nil)
+			f.player:SetAttribute("DataReady", true); f.RS:SetAttribute("ServerReady", true)
+			equal(f.remote.ServerCalls, 1); equal(f.remote.LastServerArgs[1], "Status")
+			f.RS:SetAttribute("ServerReady", false); f.RS:SetAttribute("ServerReady", true); equal(f.remote.ServerCalls, 1)
 		end
 	end)
-	test("tutorial service owns onboarding separately from profiles and only marks hydrated active sessions once", function()
-		local f = startupFixture(); local player = f:createPlayer(1)
-		local profile = {Data = {FirstTimePlaying = false}, IsActive = function() return true end}
-		f.modules[child(f.dataFolder, "ModuleScript", "ProfileManager")] = {GetProfile = function() return profile end}
-		local remote = child(child(f.remotes, "Folder", "Tutorial"), "RemoteEvent", "StartTutorial")
-		f:load("TutorialService", f.servicesFolder)
-		player:SetAttribute("DataReady", false); remote.OnServerEvent:Fire(player); equal(profile.Data.FirstTimePlaying, false)
-		player:SetAttribute("DataReady", true); remote.OnServerEvent:Fire(player); remote.OnServerEvent:Fire(player)
-		equal(profile.Data.FirstTimePlaying, true); equal(remote.ClientCalls, 1)
+	test("tutorial client accepts server snapshots debounces requests and recovers without granting local progress", function()
+		local f = tutorialClientFixture(); f.player:SetAttribute("DataReady", true); f.RS:SetAttribute("ServerReady", true)
+		f.remote.OnClientEvent:Fire("Complete"); f.remote.OnClientEvent:Fire({Mode = "ForgedMode"}); equal(f.updates, nil)
+		local snapshot = {Mode = "Active", StepIndex = 2, Progress = 0}
+		f.remote.OnClientEvent:Fire(snapshot); equal(f.snapshot, snapshot)
+		f.time += 0.5; f.action("Continue"); f.action("Continue")
+		equal(f.remote.ServerCalls, 2); equal(f.remote.LastServerArgs[1], "Continue"); equal(f.snapshot.Progress, 0)
+		f.time += 13; for _, timer in ipairs(f.delayed) do timer.fn() end
+		equal(f.recovery.Action, "Status"); equal(f.remote.ServerCalls, 2)
+		f.action("Status"); equal(f.remote.ServerCalls, 3)
+		f.controller.Destroy(); f.controller.Destroy(); equal(f.viewDestroyed, 1)
+		equal(f.guidanceDestroyed, true)
+		equal(f.gamepadDestroyed, true)
+		equal(f.remote.OnClientEvent:Count(), 0); equal(f.player:GetAttributeChangedSignal("DataReady"):Count(), 0)
+		f.time += 13; for _, timer in ipairs(f.delayed) do timer.fn() end
+		equal(f.remote.ServerCalls, 3)
+	end)
+	test("tutorial hints follow current saved bindings and switch to real touch controls", function()
+		local f = tutorialClientFixture(); local binds = child(f.player.leaderstats, "Folder", "KeyBinds")
+		local sprint = child(binds, "StringValue", "Sprint", "T")
+		f.ui.PreferredInput = f.env.Enum.PreferredInput.Keyboard
+		equal(f.hint({HintAction = "Sprint"}), "Hold T to sprint.")
+		local before = f.hintRefreshes; sprint.Value = "Y"; assert(f.hintRefreshes > before)
+		equal(f.hint({HintAction = "Sprint"}), "Hold Y to sprint.")
+		f.ui.PreferredInput = f.env.Enum.PreferredInput.Touch; equal(f.hint({HintAction = "Sprint"}), "Tap Sprint.")
+		f.ui.PreferredInput = f.env.Enum.PreferredInput.Gamepad; equal(f.hint({Kind = "Sprint"}), "Press L3 to toggle sprint.")
+		f.controller.Destroy(); equal(sprint.Changed:Count(), 0)
+	end)
+	test("tutorial service wires the shared coordinator with server-owned reward admission and arena dependencies", function()
+		local f = startupFixture(); local folder = child(f.server, "Folder", "Tutorial")
+		local wired, controller = nil, {}
+		for _, name in ipairs({"TutorialState", "TutorialRuntime", "TutorialArena", "TutorialRewards", "TutorialTickets", "TutorialTeleport", "TutorialRole"}) do
+			f.modules[child(folder, "ModuleScript", name)] = {Name = name}
+		end
+		for _, name in ipairs({"TutorialConfig", "TutorialSteps", "MovementConfig", "TutorialNPCConfig", "KnivesInfo", "RevolversInfo", "DataConfig"}) do
+			f.modules[child(f.modulesFolder, "ModuleScript", name)] = {Name = name}
+		end
+		f.modules[child(f.dataFolder, "ModuleScript", "ProfileManager")] = {Name = "Profiles"}
+		f.modules[child(f.combatFolder, "ModuleScript", "FoodService")] = {Name = "Food"}
+		local analytics = {Name = "Analytics"}
+		f.modules[child(folder, "ModuleScript", "TutorialAnalytics")] = {New = function(config)
+			equal(config.Name, "TutorialConfig"); return analytics
+		end}
+		f.modules[child(folder, "ModuleScript", "TutorialCoordinator")] = {New = function(deps) wired = deps; return controller end}
+		local getService = f.game.GetService; local run, http = {}, {}
+		f.game.GetService = function(self, name)
+			if name == "RunService" then return run end
+			if name == "HttpService" then return http end
+			return getService(self, name)
+		end
+		equal(f:load("TutorialService", f.servicesFolder), controller)
+		equal(wired.Players, f.Players); equal(wired.RS, f.RS); equal(wired.RunService, run); equal(wired.HttpService, http)
+		equal(wired.Rewards.Name, "TutorialRewards"); equal(wired.Tickets.Name, "TutorialTickets"); equal(wired.Arena.Name, "TutorialArena")
+		equal(wired.Analytics, analytics); equal(wired.Profiles.Name, "Profiles"); equal(wired.DataConfig.Name, "DataConfig")
+		equal(wired.Remote, f.remotes.Tutorial.StartTutorial); assert(wired.Remote:IsA("RemoteEvent"))
+		equal(wired.NewOptions().ClassName, "TeleportOptions")
 	end)
 	test("admin panels catch up existing authorized players and cannot clone twice on overlapping startup events", function()
 		local f = fixture(); f.env.task.spawn = function(fn, ...) fn(...) end
@@ -2020,6 +2100,7 @@ return function(load, testFilter: string?)
 		local f, gui = interactionFixture()
 		f.events.PreSimulation = signal()
 		f:load("MovementConfig", f.modulesFolder); f:load("MovementState", f.modulesFolder, "MovementAnimationState")
+		f.modules[child(f.modulesFolder, "ModuleScript", "TutorialUIConfig")] = {Gamepad = {Enabled = true, PriorityOffset = 3, Keys = {Sprint = "ButtonL3", Crouch = "ButtonB", Slide = "ButtonL1"}}}
 		f:load("FirstPersonCameraConfig", f.modulesFolder)
 		f.sprint = f:load("SprintState", f.modulesFolder)
 		f.modules[child(f.modulesFolder, "ModuleScript", "KeybindValidation")] = {ToEnum = function(value) return value end}
@@ -2051,8 +2132,21 @@ return function(load, testFilter: string?)
 			f.loaded[animation.AnimationId] = track
 			return track
 		end
-		f.actions = {}
-		f.cas = {UnbindAction = function(_, name) f.actions[name] = nil end, BindActionAtPriority = function(_, name, fn) f.actions[name] = fn end}
+		f.actions, f.touchButtons = {}, {}
+		f.cas = {
+			UnbindAction = function(_, name) f.actions[name], f.touchButtons[name] = nil, nil end,
+			BindActionAtPriority = function(_, name, fn, touch)
+				f.actions[name] = fn
+				if touch then f.touchButtons[name] = {Visible = true} end
+			end,
+			GetButton = function(_, name) return f.touchButtons[name] end,
+			SetTitle = function(_, name, title) f.touchButtons[name].Title = title end,
+			SetPosition = function(_, name, position) f.touchButtons[name].Position = position end,
+		}
+		f.env.UDim2.new = function(...) return {...} end
+		f.env.Enum.PreferredInput = {Touch = "Touch", Keyboard = "Keyboard", Gamepad = "Gamepad"}
+		f.env.Enum.KeyCode = {ButtonL3 = "ButtonL3", ButtonB = "ButtonB", ButtonL1 = "ButtonL1"}
+		f.preferredChanged = signal(); f.ui.GetPropertyChangedSignal = function() return f.preferredChanged end
 		local original = f.game.GetService
 		f.game.GetService = function(self, name) if name == "ContextActionService" then return f.cas end; return original(self, name) end
 		f.env.Enum.AnimationPriority = {Idle = "Idle", Movement = "Movement", Action = "Action"}
@@ -2061,6 +2155,31 @@ return function(load, testFilter: string?)
 		f:load("Movement", f.player.Character, "Animation")
 		return f
 	end
+	test("movement creates real touch crouch and slide controls and removes them on character cleanup", function()
+		local f = movementFixture()
+		equal(f.touchButtons.CrouchAction.Title, "Crouch"); equal(f.touchButtons.SlideAction.Title, "Slide")
+		equal(f.touchButtons.SlideAction.Visible, true)
+		f.actions.SprintAction("SprintAction", "Begin"); f.actions.SlideAction("SlideAction", "Begin")
+		equal(f.slide.Active, true)
+		f.ui.PreferredInput = "Keyboard"; f.preferredChanged:Fire()
+		equal(f.touchButtons.CrouchAction.Visible, false); equal(f.touchButtons.SlideAction.Visible, false); equal(f.slide.Active, false)
+		f.humanoid.Died:Fire(); equal(next(f.touchButtons), nil); equal(f.preferredChanged:Count(), 0)
+	end)
+	test("tutorial gamepad movement toggles sprint supports slide and releases scoped actions on exit", function()
+		local f = movementFixture()
+		assert(f.actions.SprintAction and not f.actions.TutorialGamepadSprint)
+		f.player:SetAttribute("TutorialActive", true); f.player:SetAttribute("InRound", true)
+		f.ui.PreferredInput = "Gamepad"; f.preferredChanged:Fire()
+		assert(f.actions.TutorialGamepadSprint and f.actions.TutorialGamepadSlide and f.actions.TutorialGamepadCrouch)
+		f.actions.TutorialGamepadSprint("", "Begin"); equal(f.humanoid.WalkSpeed, 32)
+		f.actions.TutorialGamepadSprint("", "End"); equal(f.humanoid.WalkSpeed, 32)
+		f.actions.TutorialGamepadSlide("", "Begin"); equal(f.slide.Active, true)
+		f.player:SetAttribute("TutorialActive", false)
+		equal(f.actions.TutorialGamepadSprint, nil); equal(f.actions.TutorialGamepadSlide, nil); equal(f.actions.TutorialGamepadCrouch, nil)
+		equal(f.slide.Active, false); equal(f.humanoid.WalkSpeed, 16)
+		assert(f.actions.SprintAction and f.actions.CrouchAction and f.actions.SlideAction, "Ordinary input bindings were removed")
+		f.humanoid.Died:Fire(); equal(next(f.actions), nil)
+	end)
 	test("movement controller uses replicated animator and recovers stopped walking/sprinting without a new Running event", function()
 		local f = movementFixture(); local walk, run = f.loaded["rbxassetid://79598872056948"], f.loaded["rbxassetid://117319187680453"]
 		f.humanoid.MoveDirection, f.root.AssemblyLinearVelocity = vec.new(1, 0, 0), vec.new(16, 0, 0)

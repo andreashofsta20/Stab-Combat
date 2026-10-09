@@ -33,8 +33,10 @@ function KnifeModule.Stab(player: Player)
     end
     Cooldown[player.UserId] = now
 
-    if not MainGameModule.GameActive then return end
-    if not MainGameModule.PlayersInGame[player.UserId] then return end
+    local tutorial = player:GetAttribute("TutorialActive") == true and require(script.Parent.Parent.Tutorial.TutorialRuntime) or nil
+    local training = tutorial and tutorial.IsActive(player)
+    if not training and not MainGameModule.GameActive then return end
+    if not training and not MainGameModule.PlayersInGame[player.UserId] then return end
     if player:GetAttribute("DataReady") ~= true then return end
 
     local character = player.Character
@@ -60,6 +62,20 @@ function KnifeModule.Stab(player: Player)
     local damagedPlayers = {}
 
     for _, part in ipairs(touchingParts) do
+        if training then
+            local model, npcHum = tutorial.GetTarget(player, part)
+            local npcRoot = model and model:FindFirstChild("HumanoidRootPart")
+            if model and npcRoot and not damagedPlayers[model] and (hrp.Position-npcRoot.Position).Magnitude <= STAB_RANGE+Config.DistanceLeeway then
+                local params=RaycastParams.new(); params.FilterType=Enum.RaycastFilterType.Exclude
+                params.FilterDescendantsInstances=RagdollQuery.Exclude({character,model})
+                if not workspace:Raycast(hrp.Position,npcRoot.Position-hrp.Position,params) then
+                    damagedPlayers[model]=true
+                    local dealt=tutorial.Damage(player,model,DAMAGE,"KnifeStab")
+                    if dealt>0 then DamageDealtClient:FireClient(player,model,dealt) end
+                end
+            end
+            continue
+        end
         local victimPlayer, victimHum = PlayerHitbox.GetPlayerFromHitbox(part)
         local victimId = victimPlayer and victimPlayer.UserId or nil
 

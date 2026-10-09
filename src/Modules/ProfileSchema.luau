@@ -21,6 +21,39 @@ local function safe(value, depth)
 	end
 	return result
 end
+-- Tutorial receipts are authoritative deduplication/entitlement data. Refuse
+-- corruption rather than erase a marker and accidentally grant a second reward.
+local function tutorialReceipt(source)
+	if type(source) ~= "table" or type(source.SessionId) ~= "string" or #source.SessionId == 0 or #source.SessionId > 128
+		or source.Id ~= "tutorial:" .. source.SessionId or not integer(source.Version, 1, MAX)
+		or not integer(source.CompletedAt, 0, 9007199254740991) or not integer(source.XP, 0, MAX)
+		or not integer(source.Gold, 0, MAX) or type(source.Knife) ~= "string" or #source.Knife == 0 or #source.Knife > 64
+		or type(source.KnifeRarity) ~= "string" or #source.KnifeRarity == 0 or #source.KnifeRarity > 200
+		or type(source.KnifeImage) ~= "string" or #source.KnifeImage > 200 or type(source.KnifeTradeable) ~= "boolean" then return nil end
+	local clean = {}
+	for _, field in ipairs({"Id", "SessionId", "Version", "CompletedAt", "XP", "Gold", "Knife", "KnifeRarity", "KnifeImage", "KnifeTradeable"}) do
+		clean[field] = source[field]
+	end
+	return clean
+end
+local function tutorialState(source, knives)
+	if source == nil then return {Version = 1, Completed = false} end
+	if type(source) ~= "table" or not integer(source.Version, 1, MAX) or type(source.Completed) ~= "boolean"
+		or (source.PendingReward ~= nil and source.AppliedReceipt ~= nil) then return nil end
+	local clean = {Version = source.Version, Completed = source.Completed}
+	for _, field in ipairs({"PendingReward", "AppliedReceipt"}) do
+		if source[field] ~= nil then
+			local receipt = tutorialReceipt(source[field])
+			if not receipt or not source.Completed then return nil end
+			-- Pending rewards must still name an available item. Applied receipts
+			-- stay valid after a retired item is removed from the live catalog.
+			if field == "PendingReward" and type(knives[receipt.Knife]) ~= "table" then return nil end
+			clean[field] = receipt
+		end
+	end
+	if source.Completed and clean.PendingReward == nil and clean.AppliedReceipt == nil then return nil end
+	return clean
+end
 function Schema.Validate(source, catalogs)
 	if type(source) ~= "table" then return nil, "Profile is not a table" end
 	local data = table.clone(source)
@@ -34,6 +67,8 @@ function Schema.Validate(source, catalogs)
 	for key, marker in pairs(data.ProcessedPurchases or {}) do
 		if type(key) ~= "string" or #key > 200 or marker ~= true then return nil, "Invalid receipt marker" end
 	end
+	data.Tutorial = tutorialState(source.Tutorial, catalogs.Inventory)
+	if data.Tutorial == nil then return nil, "Invalid tutorial entitlement or reward receipt" end
 	local quarantine = {}
 	for _, row in ipairs(type(data.InventoryQuarantine) == "table" and data.InventoryQuarantine or {}) do
 		if #quarantine >= 128 then return nil, "Inventory quarantine requires review" end

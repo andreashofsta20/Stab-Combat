@@ -1,6 +1,8 @@
 
 
 local Players = game:GetService("Players")
+local tutorial=script.Parent.Parent:FindFirstChild("Tutorial")
+if tutorial and require(tutorial.TutorialRole).IsTutorial() then return {Start=function() end} end
 
 
 local SpawnMapModule = require(script.Parent.SpawnMap)
@@ -17,6 +19,7 @@ local function CanStart()
 		if player:GetAttribute("DataReady") ~= true then
 			continue
 		end
+		if player:GetAttribute("TutorialTravelPending")==true or player:GetAttribute("TutorialActive")==true then continue end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local settings = leaderstats:FindFirstChild("Settings")

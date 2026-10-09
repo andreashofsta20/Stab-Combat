@@ -26,6 +26,7 @@ end
 
 function TradeValidator.ValidatePlayerItems(player: Player, items: {any})
 	if player:GetAttribute("DataReady") ~= true then return false, "Player data is still loading" end
+	if player:GetAttribute("TutorialTravelPending")==true or player:GetAttribute("TutorialActive")==true then return false,"Player is entering training" end
 	if type(items) ~= "table" or #items > 32 then
 		return false, "Invalid trade items"
 	end

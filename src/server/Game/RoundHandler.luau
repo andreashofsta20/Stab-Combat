@@ -45,6 +45,7 @@ RoundHandler.StatusMessages = {
 		local activePlayers = 0
 		for _, player in pairs(Players:GetPlayers()) do
 			if player:GetAttribute("DataReady") ~= true then continue end
+			if player:GetAttribute("TutorialTravelPending")==true or player:GetAttribute("TutorialActive")==true then continue end
 			local leaderstats = player:FindFirstChild("leaderstats")
 			if leaderstats then
 				local settings = leaderstats:FindFirstChild("Settings")
@@ -159,6 +160,7 @@ local function CanStart()
 	local count = 0
 	for _, player in pairs(Players:GetPlayers()) do
 		if player:GetAttribute("DataReady") ~= true then continue end
+		if player:GetAttribute("TutorialTravelPending")==true or player:GetAttribute("TutorialActive")==true then continue end
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local settings = leaderstats:FindFirstChild("Settings")

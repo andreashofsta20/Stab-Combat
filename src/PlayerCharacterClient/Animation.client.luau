@@ -10,6 +10,7 @@ local CameraConfig = require(RS.Modules.FirstPersonCameraConfig)
 local State = require(RS.Modules.MovementAnimationState)
 local Validation = require(RS.Modules.KeybindValidation)
 local Sprint = require(RS.Modules.SprintState)
+local TutorialGamepad = require(RS.Modules.TutorialUIConfig).Gamepad
 local player, character = Players.LocalPlayer, script.Parent
 local humanoid = character:WaitForChild("Humanoid")
 local root = character:WaitForChild("HumanoidRootPart")
@@ -24,7 +25,7 @@ local binds = player:WaitForChild("leaderstats"):WaitForChild("KeyBinds")
 local mobileFrame = player:WaitForChild("PlayerGui"):WaitForChild("Main"):WaitForChild("MobileFrame")
 local sprintButton = mobileFrame:WaitForChild("BasicControls"):WaitForChild("Sprint")
 local tracks, recovery, connections = {}, {}, {}
-local sprinting, crouching, sliding, keyboardHeld, mobileToggled = false, false, false, false, false
+local sprinting, crouching, sliding, keyboardHeld, mobileToggled, gamepadToggled = false, false, false, false, false, false
 local lastSlide, elapsed = -math.huge, 0
 local alive = true
 local currentName
@@ -86,7 +87,7 @@ end
 local sprintController = setSprint
 Sprint.SetController(sprintController)
 local function updateSprint()
-	Sprint.SetEnabled(keyboardHeld or mobileToggled)
+	Sprint.SetEnabled(keyboardHeld or mobileToggled or gamepadToggled)
 	sprintButton:SetAttribute("SprintToggled", Sprint.GetEnabled())
 	local deco = sprintButton:FindFirstChild("deco")
 	if deco then deco.ImageColor3 = Sprint.GetEnabled() and Color3.fromRGB(0, 184, 255) or Color3.new(1, 1, 1) end
@@ -104,7 +105,7 @@ local function blocked()
 	return false
 end
 local function cancelHeld()
-	keyboardHeld, mobileToggled, crouching = false, false, false
+	keyboardHeld, mobileToggled, gamepadToggled, crouching = false, false, false, false
 	endSlide(); updateSprint(); setSpeed(); reconcile()
 end
 local function sprintAction(_, inputState)
@@ -137,17 +138,68 @@ local function slideAction(_, inputState)
 	return Enum.ContextActionResult.Sink
 end
 local actions = {Sprint = sprintAction, Crouch = crouchAction, Slide = slideAction}
+local touchActions = {}
+local function refreshTouchButtons()
+	local visible = UIS.PreferredInput == Enum.PreferredInput.Touch
+	for actionName in pairs(touchActions) do
+		local button = CAS:GetButton(actionName)
+		if button then button.Visible = visible end
+	end
+end
 for name, callback in pairs(actions) do
 	local bind = binds:WaitForChild(name)
 	local function rebind()
 		cancelHeld()
-		CAS:UnbindAction(name .. "Action")
+		local actionName = name .. "Action"
+		CAS:UnbindAction(actionName)
 		local key = Validation.ToEnum(bind.Value)
-		if key then CAS:BindActionAtPriority(name .. "Action", callback, false, Enum.ContextActionPriority.High.Value + 1, key) end
+		local touch = Config.TouchControls and Config.TouchControls[name]
+		if key then
+			CAS:BindActionAtPriority(actionName, callback, touch ~= nil, Enum.ContextActionPriority.High.Value + 1, key)
+			if touch then
+				touchActions[actionName] = true
+				CAS:SetTitle(actionName, touch.Title or name)
+				if touch.Position then CAS:SetPosition(actionName, UDim2.new(table.unpack(touch.Position))) end
+			end
+		else
+			touchActions[actionName] = nil
+		end
+		refreshTouchButtons()
 	end
 	rebind()
 	connect(bind.Changed, rebind)
 end
+local gamepadActions = {}
+local function refreshGamepadActions()
+	local enabled = alive and TutorialGamepad.Enabled and player:GetAttribute("TutorialActive") == true
+		and player:GetAttribute("InRound") == true and UIS.PreferredInput == Enum.PreferredInput.Gamepad
+	if next(gamepadActions) and enabled then return end
+	if next(gamepadActions) and not enabled then cancelHeld() end
+	for actionName in pairs(gamepadActions) do CAS:UnbindAction(actionName) end
+	table.clear(gamepadActions)
+	gamepadToggled = false; updateSprint()
+	if not enabled then return end
+	for name, callback in pairs({
+		Sprint = function(_, state)
+			if blocked() then return Enum.ContextActionResult.Pass end
+			if state == Enum.UserInputState.Begin then gamepadToggled = not gamepadToggled; updateSprint() end
+			return Enum.ContextActionResult.Sink
+		end,
+		Crouch = crouchAction,
+		Slide = slideAction,
+	}) do
+		local key = Enum.KeyCode[TutorialGamepad.Keys[name]]
+		if key then
+			local actionName = "TutorialGamepad" .. name
+			CAS:BindActionAtPriority(actionName, callback, false, Enum.ContextActionPriority.High.Value + TutorialGamepad.PriorityOffset, key)
+			gamepadActions[actionName] = true
+		end
+	end
+end
+connect(UIS:GetPropertyChangedSignal("PreferredInput"), function() cancelHeld(); refreshTouchButtons(); refreshGamepadActions() end)
+connect(player:GetAttributeChangedSignal("TutorialActive"), refreshGamepadActions)
+connect(player:GetAttributeChangedSignal("InRound"), refreshGamepadActions)
+refreshGamepadActions()
 connect(sprintButton.Activated, function() if not blocked() then mobileToggled = not mobileToggled; updateSprint() end end)
 connect(humanoid.Running, reconcile)
 connect(humanoid.StateChanged, function()
@@ -168,7 +220,7 @@ connect(RunService.Heartbeat, function(dt)
 	elapsed += dt
 	if elapsed < Config.RecoveryInterval then return end
 	elapsed = 0
-	if blocked() and (keyboardHeld or crouching or sliding) then cancelHeld() end
+	if blocked() and (keyboardHeld or gamepadToggled or crouching or sliding) then cancelHeld() end
 	-- Restart stopped movement tracks and retry unloaded custom assets with a
 	-- bounded schedule. A denied asset gets one standard R6 fallback.
 	for name, item in pairs(recovery) do
@@ -195,6 +247,8 @@ local function cleanup()
 	for _, track in pairs(tracks) do track:Stop(0); track:Destroy() end
 	slide:Destroy()
 	for name in pairs(actions) do CAS:UnbindAction(name .. "Action") end
+	for name in pairs(gamepadActions) do CAS:UnbindAction(name) end
+	table.clear(gamepadActions)
 	Sprint.ClearController(sprintController)
 end
 connect(humanoid.Died, cleanup)

@@ -17,6 +17,10 @@ local warnedTemplate = false
 
 local function now() return workspace:GetServerTimeNow() end
 local function getRound(player)
+	if player:GetAttribute("TutorialActive")==true then
+		local runtime=require(script.Parent.Parent.Tutorial.TutorialRuntime)
+		return runtime.IsActive(player) and player:GetAttribute("DataReady")==true and runtime.GetSession(player) or nil
+	end
 	local round = MainGame.RoundStats
 	if not MainGame.GameActive or not gameActive.Value or not round or round.rewardsApplied
 		or MainGame.PlayersInGame[player.UserId] ~= true or player:GetAttribute("InRound") ~= true
@@ -114,6 +118,7 @@ eatRemote.OnServerEvent:Connect(function(player, tool)
 	local health = State.Eat(state, time, state.humanoid.Health, state.humanoid.MaxHealth, Config)
 	if not health then return end
 	state.humanoid.Health = health
+	if player:GetAttribute("TutorialActive")==true then require(script.Parent.Parent.Tutorial.TutorialRuntime).Record(player,"Heal",state.remaining) end
 	publish(player, state)
 	if state.remaining == 0 then tool:Destroy() end
 end)
@@ -123,7 +128,7 @@ local function refresh(player)
 	if not getRound(player) then Food.Clear(player); return end
 	if not character then return end
 	-- Only lifecycle work may yield; eating and switching are synchronous.
-	local round = MainGame.RoundStats
+	local round = getRound(player)
 	task.spawn(function()
 		local humanoid = character:WaitForChild("Humanoid", 5)
 		local backpack = player:WaitForChild("Backpack", 5)

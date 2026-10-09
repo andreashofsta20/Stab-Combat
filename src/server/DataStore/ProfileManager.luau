@@ -63,6 +63,7 @@ local PROFILE_TEMPLATE = {
 	CompetitiveStats = {Version = 0},
 	MigrationComplete = false,
 	FirstTimePlaying = false,
+	Tutorial = {Version = 1, Completed = false},
 }
 
 local PlayerStore = ProfileStore.New(STORE_NAME, PROFILE_TEMPLATE)
@@ -76,6 +77,9 @@ local function syncValueObjectsToProfile(player: Player, profile: any)
 	-- Value objects exist before hydration finishes. Never save their temporary
 	-- defaults over a loaded inventory/cash balance during that window.
 	if player:GetAttribute("DataReady") ~= true then return end
+	-- A failed reward UI publication can leave partial Value objects. Preserve
+	-- the canonical rollback until publication has completed safely.
+	if player:GetAttribute("TutorialRewardPublishing") == true then return end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if not leaderstats then return end
 	if not profile:IsActive() then return end
@@ -319,6 +323,12 @@ function ProfileManager.LoadProfile(player: Player): any?
 
 	profile:AddUserId(player.UserId) -- GDPR compliance
 	profile:Reconcile() -- Fill in any missing template fields
+
+	-- Treat a completely new profile as a first-time player so onboarding is forced.
+	if (profile.Data.FirstTimePlaying == nil or profile.Data.FirstTimePlaying == false)
+		and (profile.Data.Name == "" or profile.Data.DisplayName == "") then
+		profile.Data.FirstTimePlaying = true
+	end
 
 	-- Retry migration until the legacy read succeeds. A successful nil read is complete.
 	if DataConfig.MigrateLegacyData and profile.Data.MigrationComplete ~= true then

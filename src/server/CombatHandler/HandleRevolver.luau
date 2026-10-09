@@ -64,6 +64,10 @@ local function canPlay(player)
 	local stats = player:FindFirstChild("leaderstats")
 	local settings = stats and stats:FindFirstChild("Settings")
 	local lobby = settings and settings:FindFirstChild("LobbyMode")
+	if player:GetAttribute("TutorialActive") == true then
+		return require(script.Parent.Parent.Tutorial.TutorialRuntime).IsActive(player)
+			and player:GetAttribute("DataReady")==true and humanoid~=nil and humanoid.Health>0
+	end
 	return MainGame.GameActive and MainGame.PlayersInGame[player.UserId] == true
 		and MainGame.RoundStats ~= nil and not MainGame.RoundStats.rewardsApplied
 		and player:GetAttribute("DataReady") == true and player:GetAttribute("InRound") == true
@@ -102,10 +106,13 @@ local function sendState(player, session, reason, syncSequence)
 	})
 end
 
-local function worldCaster()
+local function worldCaster(shooter)
 	local ignore = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character then table.insert(ignore, player.Character) end
+	end
+	if shooter and shooter:GetAttribute("TutorialActive")==true then
+		for _,model in ipairs(require(script.Parent.Parent.Tutorial.TutorialRuntime).GetTargets(shooter)) do table.insert(ignore,model) end
 	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -116,6 +123,18 @@ end
 
 local function candidates(shooter, time, tuning)
 	local result = {}
+	if shooter:GetAttribute("TutorialActive")==true then
+		for _,model in ipairs(require(script.Parent.Parent.Tutorial.TutorialRuntime).GetTargets(shooter)) do
+			local root=model:FindFirstChild("HumanoidRootPart")
+			if root and Math.IsFiniteVector(root.Position,Config.Security.MaxCoordinate) then
+				local snapshot=Raycast.GetCharacterGeometry(model)
+				snapshot.npc,snapshot.character,snapshot.humanoid=true,model,model:FindFirstChildOfClass("Humanoid")
+				snapshot.frame=root.CFrame*CFrame.new(table.unpack(tuning.HitboxOffset))
+				table.insert(result,snapshot)
+			end
+		end
+		return result
+	end
 	for _, victim in ipairs(Players:GetPlayers()) do
 		if victim ~= shooter and canPlay(victim) then
 			local character = victim.Character
@@ -161,7 +180,9 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 	end
 	local tuning = getTuning(tool.Name)
 	if session.reloadEnd > 0 and session.reloadTool ~= tool then State.CancelReload(session) end
-	State.Advance(session, time, Config.Capacity)
+	if State.Advance(session, time, Config.Capacity) and player:GetAttribute("TutorialActive")==true then
+		require(script.Parent.Parent.Tutorial.TutorialRuntime).Record(player,"Reload",session.revision)
+	end
 	if action == "Reload" then
 		local accepted, reason = State.Reload(session, time, tuning.ReloadDurationMs / 1000, Config.Capacity)
 		session.reloadTool = accepted and tool or session.reloadTool
@@ -189,7 +210,7 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 		sendState(player, session, "Camera")
 		return
 	end
-	local cast = worldCaster()
+	local cast = worldCaster(player)
 	-- The animated Tool can dip behind a ledge while the cursor stays clear.
 	-- Resolve gameplay from the trusted eye/head position; barrel motion is visual.
 	-- Cover is checked head-to-target, not head-to-camera: a valid rear target
@@ -203,7 +224,11 @@ Action.OnServerEvent:Connect(function(player, action, sessionId, sequence, camer
 	-- No yields between consumption, resolution, eligibility checks and damage.
 	local victim = result.victim
 	local hit = false
-	if victim and canPlay(victim.player) and victim.player.Character == victim.character
+	if victim and victim.npc then
+		local headshot=result.headshot==true
+		local dealt=require(script.Parent.Parent.Tutorial.TutorialRuntime).Damage(player,victim.character,headshot and tuning.HeadshotDamage or tuning.Damage,"Revolver")
+		if dealt>0 then DamageRemote:FireClient(player,victim.character,dealt,"Revolver",tool.Name,headshot); hit=true end
+	elseif victim and canPlay(victim.player) and victim.player.Character == victim.character
 		and victim.humanoid.Health > 0 and not victim.character:FindFirstChildOfClass("ForceField") then
 		local headshot = result.headshot == true
         local dealt = MainGame.DamagePlayer(player, victim.player, victim.humanoid, headshot and tuning.HeadshotDamage or tuning.Damage,
@@ -272,6 +297,7 @@ RunService.Heartbeat:Connect(function(dt)
 				sendState(player, session, "ReloadCancelled")
 			elseif State.Advance(session, time, Config.Capacity) then
 				session.reloadTool = nil
+				if player:GetAttribute("TutorialActive")==true then require(script.Parent.Parent.Tutorial.TutorialRuntime).Record(player,"Reload",session.revision) end
 				sendState(player, session, "Reloaded")
 			end
 		end

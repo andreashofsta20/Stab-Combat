@@ -17,6 +17,7 @@ local initialized = false
 local function canTrade(player)
     if player.Parent ~= Players or player:GetAttribute("DataReady") ~= true then return false end
     if player:GetAttribute("InventoryLocked") == true then return false end
+    if player:GetAttribute("TutorialTravelPending") == true or player:GetAttribute("TutorialActive") == true then return false end
     local stats = player:FindFirstChild("leaderstats")
     local settings = stats and stats:FindFirstChild("Settings")
     local enabled = settings and settings:FindFirstChild("Trades")

@@ -27,7 +27,9 @@ function ThrowKnife.Throw(player, id, origin, direction, charge)
 	local now = os.clock()
 	if recent[player] and recent[player][id] then return reject(player, id) end
 	if now - (lastShot[player] or -math.huge) < Math.COOLDOWN then return reject(player, id) end
-	if not MainGame.GameActive or not MainGame.PlayersInGame[player.UserId] or player:GetAttribute("DataReady") ~= true then return reject(player, id) end
+	local tutorial = player:GetAttribute("TutorialActive") == true and require(script.Parent.Parent.Tutorial.TutorialRuntime) or nil
+	local training = tutorial and tutorial.IsActive(player)
+	if (not training and (not MainGame.GameActive or not MainGame.PlayersInGame[player.UserId])) or player:GetAttribute("DataReady") ~= true then return reject(player, id) end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local head = character and (character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart"))
@@ -52,6 +54,20 @@ function ThrowKnife.Throw(player, id, origin, direction, charge)
 	local hit = workspace:Raycast(origin, destination - origin, params)
 	if hit then
 		destination = hit.Position
+		if training then
+			local model,npcHum=tutorial.GetTarget(player,hit.Instance)
+			if model then
+				local headParams=RaycastParams.new(); headParams.FilterType=Enum.RaycastFilterType.Exclude
+				headParams.FilterDescendantsInstances=RagdollQuery.Exclude({character,model})
+				local headDistance=Raycast.GetHeadshotDistance(origin,direction,flightLength,Raycast.GetCharacterGeometry(model),function(from,vector)
+					return workspace:Raycast(from,vector,headParams)
+				end)
+				local headshot=headDistance~=nil
+				local damage=headshot and Math.HEADSHOT_KILLS and npcHum.Health or Math.DAMAGE
+				local dealt=tutorial.Damage(player,model,damage,"KnifeThrow")
+				if dealt>0 then damageRemote:FireClient(player,model,dealt,"KnifeThrow",tool.Name,headshot) end
+			end
+		else
 		local victim, victimHumanoid = Hitboxes.GetPlayerFromHitbox(hit.Instance)
 		if victim and victim ~= player and MainGame.PlayersInGame[victim.UserId]
 			and victimHumanoid and victimHumanoid.Parent == victim.Character
@@ -82,6 +98,7 @@ function ThrowKnife.Throw(player, id, origin, direction, charge)
 					{ Kind = "KnifeThrow", Direction = direction })
 				if dealt > 0 then damageRemote:FireClient(player, victimHumanoid.Parent, dealt, "KnifeThrow", tool.Name, headshot) end
 			end
+		end
 		end
 	end
 	local result = {shotId = id, accepted = true, hit = hit ~= nil, position = destination, normal = hit and hit.Normal}

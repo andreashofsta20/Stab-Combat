@@ -28,6 +28,7 @@ $revolverModules = [ordered]@{
     Effects = 'src/PlayerClient/Modules/RevolverEffects.luau'
     State = 'src/server/CombatHandler/RevolverState.luau'
     Server = 'src/server/CombatHandler/HandleRevolver.luau'
+    TutorialRuntime = 'src/server/Tutorial/TutorialRuntime.luau'
     KnifeConfig = 'src/Modules/KnifeConfig.luau'
     KnifeMotion = 'src/Modules/KnifeViewmodelMotion.luau'
     Projectile = 'src/Modules/ProjectileMath.luau'

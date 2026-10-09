@@ -1,0 +1,29 @@
+Tutorial state: 12 progress/rate-limit tests passed
+Tutorial runtime: 15 ownership/damage tests passed
+Tutorial rewards: 26 security/recovery tests passed
+PASS ticket keeps reservation secret in server API and return route in store
+PASS private source returns through main-place matchmaking
+PASS ticket issuance fails safely on bad setup network failure and departure
+PASS valid ticket claim is strictly single-use even in same destination job
+PASS ticket rejects forged source user reservation version expiry and public access
+PASS atomic claim loses cleanly to concurrent destination and storage outage
+PASS travel claims busy state before async worker and requires configured reservation
+PASS request failures retry at most four times and release busy once
+PASS late and duplicate failures cannot retry or cancel newer attempts
+PASS Flooded waits longer and an in-flight failure never overlaps requests
+PASS watchdog releases a player left behind and ignores previous operation failure
+PASS departure cancellation and destruction stop queued retry callbacks
+Tutorial travel: 12 tests passed
+Tutorial coordinator: 33 session/security tests passed
+PASS new tutorial logs contiguous validated onboarding steps
+PASS replay uses recurring funnel with server session and never onboarding
+PASS analytics rejects out-of-order duplicate malformed and foreign progress
+PASS skip logs custom outcome without implicitly completing earlier funnel steps
+PASS declined invitation has no started or completed onboarding steps
+PASS analytics delivery failures never throw or gate lesson advancement
+PASS disabled and Studio analytics never send platform events
+PASS terminal dedupe cleanup departure and destruction cancel queued logging
+Tutorial analytics: 8 tests passed
+PASS tutorial guidance targets hints success and lifecycle
+Tutorial arena: 5 partial-construction/fault tests passed
+PASS tutorial gamepad scoped equip knife food passthrough and lifecycle
